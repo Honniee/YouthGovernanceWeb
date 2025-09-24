@@ -1,0 +1,132 @@
+SURVEY BATCH STATISTICS COMPUTATION FLOW
+==========================================
+
+CURRENT SYSTEM (PROBLEMATIC):
+┌─────────────────────────────────────────────────────────────┐
+│                    KK_Survey_Batches                        │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ batch_id: "BAT001"                                  │    │
+│  │ batch_name: "Q4 2024 Survey"                        │    │
+│  │ target_age_min: 18                                  │    │
+│  │ target_age_max: 25                                  │    │
+│  │ statistics_total_youths: 1000  ← HARDCODED!        │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                KK_Survey_Responses                          │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ response_id: 1, youth_id: 101, batch_id: "BAT001"  │    │
+│  │ response_id: 2, youth_id: 102, batch_id: "BAT001"  │    │
+│  │ response_id: 3, youth_id: 101, batch_id: "BAT001"  │    │
+│  │ ... (850 total responses, 800 unique youths)       │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                    WRONG CALCULATION:
+                    Response Rate = 850/1000 = 85%
+                    (But actual target population is 1,360!)
+
+
+IMPROVED SYSTEM (ACCURATE):
+┌─────────────────────────────────────────────────────────────┐
+│                    KK_Survey_Batches                        │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ batch_id: "BAT001"                                  │    │
+│  │ batch_name: "Q4 2024 Survey"                        │    │
+│  │ target_age_min: 18                                  │    │
+│  │ target_age_max: 25                                  │    │
+│  │ (No stored statistics - calculated in real-time)    │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  Youth_Profiling                            │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ youth_id: 101, age: 20, is_active: true            │    │
+│  │ youth_id: 102, age: 22, is_active: true            │    │
+│  │ youth_id: 103, age: 19, is_active: true            │    │
+│  │ ... (1,360 youths aged 18-25, all active)          │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                KK_Survey_Responses                          │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ response_id: 1, youth_id: 101, batch_id: "BAT001"  │    │
+│  │ response_id: 2, youth_id: 102, batch_id: "BAT001"  │    │
+│  │ response_id: 3, youth_id: 101, batch_id: "BAT001"  │    │
+│  │ ... (850 total responses, 800 unique youths)       │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                    CORRECT CALCULATION:
+                    Total Youths = COUNT(age 18-25) = 1,360
+                    Youths Surveyed = COUNT(DISTINCT youth_id) = 800
+                    Response Rate = 800/1,360 = 58.8%
+
+
+DETAILED COMPUTATION STEPS:
+===========================
+
+STEP 1: Get Batch Target Age Range
+SELECT target_age_min, target_age_max 
+FROM KK_Survey_Batches 
+WHERE batch_id = 'BAT001'
+→ Result: min=18, max=25
+
+STEP 2: Count Total Eligible Youths
+SELECT COUNT(*) 
+FROM Youth_Profiling 
+WHERE age BETWEEN 18 AND 25 
+  AND is_active = true
+→ Result: 1,360 youths
+
+STEP 3: Count Survey Responses
+SELECT COUNT(*) 
+FROM KK_Survey_Responses 
+WHERE batch_id = 'BAT001'
+→ Result: 850 responses
+
+STEP 4: Count Unique Youths Surveyed
+SELECT COUNT(DISTINCT youth_id) 
+FROM KK_Survey_Responses 
+WHERE batch_id = 'BAT001'
+→ Result: 800 unique youths
+
+STEP 5: Calculate Response Rate
+Response Rate = (Unique Youths Surveyed / Total Eligible Youths) × 100
+Response Rate = (800 / 1,360) × 100 = 58.8%
+
+STEP 6: Calculate Validation Rate
+SELECT COUNT(*) FILTER (WHERE validation_status = 'validated')
+FROM KK_Survey_Responses 
+WHERE batch_id = 'BAT001'
+→ Result: 750 validated responses
+
+Validation Rate = (Validated Responses / Total Responses) × 100
+Validation Rate = (750 / 850) × 100 = 88.2%
+
+
+FINAL STATISTICS SUMMARY:
+=========================
+┌─────────────────────────────────────────────────────────────┐
+│                    Batch: BAT001                            │
+│                 Target Age: 18-25                           │
+├─────────────────────────────────────────────────────────────┤
+│ Total Eligible Youths: 1,360                               │
+│ Youths Surveyed: 800                                       │
+│ Youths Not Surveyed: 560                                   │
+│ Total Responses: 850                                       │
+│ Validated Responses: 750                                   │
+│ Rejected Responses: 50                                     │
+│ Pending Responses: 50                                      │
+├─────────────────────────────────────────────────────────────┤
+│ Response Rate: 58.8%                                       │
+│ Validation Rate: 88.2%                                     │
+└─────────────────────────────────────────────────────────────┘
