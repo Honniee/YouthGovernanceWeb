@@ -49,7 +49,7 @@ export default function PublicLayout({
 
       {/* Dynamic Spacer - adjusts based on notice banner visibility */}
       {showHeader && (
-        <div className={showNotice ? "h-[160px]" : "h-[120px]"}></div>
+        <div className={showNotice ? "h-[140px]" : "h-[104px]"}></div>
       )}
       
       {/* Main Content */}
