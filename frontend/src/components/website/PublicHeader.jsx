@@ -1,6 +1,6 @@
 import React, { useState, memo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Menu, X, Globe, Phone, HelpCircle, Eye, User } from 'lucide-react';
+import { Search, Menu, X, Globe, Phone, HelpCircle, Eye, User, MapPin, Mail, PhoneCall } from 'lucide-react';
 import sanJoseLogo from '../../assets/logos/san_jose_logo.webp';
 import { useNotice } from '../../context/NoticeContext';
 import ImportantNoticeBanner from './ImportantNoticeBanner';
@@ -37,19 +37,19 @@ const PublicHeader = () => {
       {/* Main Header */}
       <div className="bg-white shadow-sm">
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">  
-        <div className="flex items-center justify-between py-4">
+        <div className="flex items-center justify-between py-2 md:py-3">
           {/* Logo and Title */}
           <div className="flex items-center space-x-4">
             <img 
               src={sanJoseLogo} 
               alt="San Jose Logo" 
-              className="h-12 w-12 object-contain"
+              className="h-8 w-8 md:h-10 md:w-10 object-contain"
             />
             <div>
-              <h1 className="text-lg md:text-xl font-bold text-blue-900">
+              <h1 className="text-base md:text-lg font-bold text-blue-900">
                 Local Youth Development Office
               </h1>
-              <p className="text-xs md:text-sm text-gray-600">
+              <p className="text-xs text-gray-600">
                 Municipality of San Jose, Batangas
               </p>
             </div>
@@ -77,9 +77,9 @@ const PublicHeader = () => {
           {/* Mobile Menu Button */}
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden p-2 text-gray-600 hover:text-blue-600"
+            className="md:hidden p-1.5 text-gray-600 hover:text-blue-600"
           >
-            {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
 
@@ -132,24 +132,24 @@ const PublicHeader = () => {
         isMenuOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         {/* Sidebar Header */}
-        <div className="bg-blue-700 text-white p-6">
+        <div className="bg-[#24345A] text-white p-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2">
               <img 
                 src={sanJoseLogo} 
                 alt="San Jose Logo" 
-                className="h-10 w-10 object-contain"
+                className="h-6 w-6 object-contain"
               />
               <div>
-                <h2 className="text-lg font-bold">LYDO</h2>
-                <p className="text-sm text-blue-200">San Jose, Batangas</p>
+                <h2 className="text-sm font-bold">LYDO</h2>
+                <p className="text-xs text-white/80">San Jose, Batangas</p>
               </div>
             </div>
             <button
               onClick={() => setIsMenuOpen(false)}
-              className="text-white hover:text-blue-200 transition-colors"
+              className="text-white hover:text-white/80 transition-colors"
             >
-              <X className="w-6 h-6" />
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -186,11 +186,45 @@ const PublicHeader = () => {
 
           {/* Contact Info in Sidebar */}
           <div className="px-6 pt-6 mt-6 border-t border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Quick Contact</h3>
-            <div className="space-y-2 text-sm text-gray-600">
-              <p>Municipal Hall, San Jose</p>
-              <p>Batangas, Philippines</p>
-              <p className="text-blue-600">(043) 756-XXXX</p>
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">Quick Contact</h3>
+            <div className="space-y-4">
+              {/* Address */}
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-5 h-5 bg-[#24345A]/10 rounded-full flex items-center justify-center mt-0.5">
+                  <MapPin className="w-3 h-3 text-[#24345A]" />
+                </div>
+                <div className="text-sm text-gray-600 leading-relaxed">
+                  <p className="font-medium text-gray-800">2nd Floor, Archive Building</p>
+                  <p>New Municipal Government Center</p>
+                  <p>Brgy. Don Luis, San Jose, Batangas</p>
+                </div>
+              </div>
+              
+              {/* Email */}
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0 w-5 h-5 bg-[#24345A]/10 rounded-full flex items-center justify-center">
+                  <Mail className="w-3 h-3 text-[#24345A]" />
+                </div>
+                <a 
+                  href="mailto:lydo@sanjosebatangas.gov.ph" 
+                  className="text-sm text-[#24345A] hover:text-[#24345A]/80 transition-colors"
+                >
+                  lydo@sanjosebatangas.gov.ph
+                </a>
+              </div>
+              
+              {/* Phone */}
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0 w-5 h-5 bg-[#24345A]/10 rounded-full flex items-center justify-center">
+                  <PhoneCall className="w-3 h-3 text-[#24345A]" />
+                </div>
+                <a 
+                  href="tel:+63437798550" 
+                  className="text-sm text-[#24345A] hover:text-[#24345A]/80 transition-colors"
+                >
+                  (043) 779-8550 loc. 4006
+                </a>
+              </div>
             </div>
           </div>
         </div>

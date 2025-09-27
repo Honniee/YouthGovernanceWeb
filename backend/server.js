@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import fs from 'fs';
 // Import custom middleware
 import { corsMiddleware, handlePreflight, securityHeaders } from './middleware/cors.js';
 
@@ -37,6 +38,10 @@ const PORT = process.env.PORT || 3001;
 
 // Enhanced security middleware
 app.use(helmet({
+  // Allow loading images from a different origin (frontend dev server)
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  // COEP can block cross-origin resources; keep disabled unless needed
+  crossOriginEmbedderPolicy: false,
   // Override specific settings for production
   hsts: process.env.NODE_ENV === 'production' ? true : false
 }));
@@ -102,8 +107,24 @@ app.use(handlePreflight);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static files for uploads
-app.use('/uploads', express.static(join(__dirname, 'uploads')));
+// Static files for uploads (configurable via UPLOADS_DIR)
+const uploadsDir = process.env.UPLOADS_DIR 
+  ? process.env.UPLOADS_DIR 
+  : join(__dirname, 'uploads');
+
+try {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  fs.mkdirSync(join(uploadsDir, 'profile_pictures'), { recursive: true });
+} catch (e) {
+  console.warn('⚠️ Unable to ensure uploads directories:', e.message);
+}
+
+app.use('/uploads', (req, res, next) => {
+  // Ensure images can be consumed by other origins (e.g., Vite dev server)
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+}, express.static(uploadsDir));
 
 // Health check endpoints
 import { 

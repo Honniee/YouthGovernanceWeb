@@ -36,8 +36,8 @@ export const getUserNotifications = async (req, res) => {
     const unreadOnly = cleanQuery.unreadOnly === 'true';
     const type = cleanQuery.type || null;
 
-    // Validate and get pagination parameters
-    const { page, limit, offset } = validatePagination(cleanQuery);
+    // Validate and get pagination parameters - allow higher limit for notifications
+    const { page, limit, offset } = validatePagination(cleanQuery, 10000);
     
     // Build query
     let whereClause = 'WHERE (user_id = $1 OR (user_id IS NULL AND user_type = $2))';
@@ -290,10 +290,12 @@ export const markAllAsRead = async (req, res) => {
       SET is_read = true, read_at = CURRENT_TIMESTAMP 
       WHERE (user_id = $1 OR (user_id IS NULL AND user_type = $2))
         AND is_read = false
-      RETURNING COUNT(*) as updated_count
     `;
 
     const result = await query(updateQuery, [userId, req.user?.userType || 'admin']);
+    
+    // Get count of affected rows for logging
+    console.log(`✅ Marked ${result.rowCount || 0} notifications as read`);
 
     res.json({
       success: true,
@@ -305,6 +307,75 @@ export const markAllAsRead = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to mark all notifications as read',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+/**
+ * Delete a notification
+ */
+export const deleteNotification = async (req, res) => {
+  try {
+    const lydoId = req.user?.id;
+    const notificationId = req.params.notificationId;
+
+    if (!lydoId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
+    // Get the User ID from Users table using LYDO ID
+    const userResult = await query(
+      'SELECT user_id FROM "Users" WHERE lydo_id = $1',
+      [lydoId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found in Users table'
+      });
+    }
+
+    const userId = userResult.rows[0].user_id;
+
+    if (!notificationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notification ID is required'
+      });
+    }
+
+    // Delete notification (only if user owns it or it's a general notification for their user type)
+    const deleteQuery = `
+      DELETE FROM "Notifications" 
+      WHERE notification_id = $1 
+        AND (user_id = $2 OR (user_id IS NULL AND user_type = $3))
+      RETURNING notification_id
+    `;
+
+    const result = await query(deleteQuery, [notificationId, userId, req.user?.userType || 'admin']);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found or access denied'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Notification deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('deleteNotification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete notification',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

@@ -3,7 +3,8 @@ import {
   getUserNotifications,
   getUnreadCount,
   markAsRead,
-  markAllAsRead 
+  markAllAsRead,
+  deleteNotification
 } from '../controllers/notificationController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -20,6 +21,9 @@ router.patch('/:notificationId/read', authenticateToken, markAsRead);
 
 // Mark all notifications as read
 router.patch('/mark-all-read', authenticateToken, markAllAsRead);
+
+// Delete a notification
+router.delete('/:notificationId', authenticateToken, deleteNotification);
 
 export default router;
 

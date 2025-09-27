@@ -1,4 +1,4 @@
-import api from './api';
+import api, { apiHelpers } from './api';
 
 /**
  * Notification Service
@@ -66,11 +66,30 @@ class NotificationService {
    */
   async markAllAsRead() {
     try {
-      const response = await api.patch('/notifications/mark-all-read');
+      console.log('🔗 NotificationService: Making markAllAsRead API call...');
+      const response = await apiHelpers.patch('/notifications/mark-all-read');
+      console.log('✅ NotificationService: markAllAsRead response:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ NotificationService: Error marking all notifications as read:', error);
+      throw error; // Re-throw the error to preserve the full error object
+    }
+  }
+
+  /**
+   * Delete a notification
+   * @param {string} notificationId - Notification ID
+   * @returns {Promise<Object>} API response
+   */
+  async deleteNotification(notificationId) {
+    try {
+      console.log('🗑️ NotificationService: Making deleteNotification API call...');
+      const response = await api.delete(`/notifications/${notificationId}`);
+      console.log('✅ NotificationService: deleteNotification response:', response);
       return response.data;
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
-      throw new Error(error.response?.data?.message || 'Failed to mark all notifications as read');
+      console.error('❌ NotificationService: Error deleting notification:', error);
+      throw new Error(error.response?.data?.message || 'Failed to delete notification');
     }
   }
 

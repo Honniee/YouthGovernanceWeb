@@ -28,12 +28,16 @@ export const apiLimiter = rateLimit({
 });
 
 // Login rate limiter (more restrictive for security)
+const isProduction = process.env.NODE_ENV === 'production';
+const loginWindowMs = isProduction ? 15 * 60 * 1000 : 5 * 60 * 1000; // 15m prod, 5m dev
+const loginMax = isProduction ? 5 : 50; // 5 prod, 50 dev
+
 export const loginRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login attempts per windowMs
+  windowMs: loginWindowMs,
+  max: loginMax,
   message: {
     error: 'Too many login attempts, please try again later.',
-    retryAfter: '15 minutes'
+    retryAfter: isProduction ? '15 minutes' : '5 minutes'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -41,7 +45,7 @@ export const loginRateLimiter = rateLimit({
     res.status(429).json({
       success: false,
       message: 'Too many login attempts, please try again later.',
-      retryAfter: Math.ceil(req.rateLimit.resetTime / 1000)
+      retryAfter: Math.ceil((req.rateLimit.resetTime || loginWindowMs) / 1000)
     });
   }
 });

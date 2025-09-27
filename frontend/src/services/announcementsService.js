@@ -26,7 +26,18 @@ export const getAnnouncements = async (params = {}) => {
     if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
     
     const url = `/announcements${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiHelpers.get(url);
+    const response = await apiHelpers.get(url);
+    
+    // Transform the response to match frontend expectations
+    return {
+      data: response.data || [],
+      pagination: response.pagination || {
+        page: 1,
+        limit: 10,
+        total: 0,
+        pages: 0
+      }
+    };
   } catch (error) {
     console.error('Error fetching announcements:', error);
     throw error;
@@ -95,6 +106,41 @@ export const deleteAnnouncement = async (id) => {
     return await apiHelpers.delete(`/announcements/${id}`);
   } catch (error) {
     console.error('Error deleting announcement:', error);
+    throw error;
+  }
+};
+
+// Update single announcement status
+export const updateAnnouncementStatus = async (id, status) => {
+  try {
+    return await apiHelpers.patch(`/announcements/${id}/status`, {
+      status: status
+    });
+  } catch (error) {
+    console.error('Error updating announcement status:', error);
+    throw error;
+  }
+};
+
+// Bulk update announcement status
+export const bulkUpdateAnnouncementStatus = async (announcementIds, status) => {
+  try {
+    return await apiHelpers.patch('/announcements/bulk/status', {
+      announcement_ids: announcementIds,
+      status: status
+    });
+  } catch (error) {
+    console.error('Error bulk updating announcement status:', error);
+    throw error;
+  }
+};
+
+// Get announcement statistics
+export const getAnnouncementStatistics = async () => {
+  try {
+    return await apiHelpers.get('/announcements/admin/statistics');
+  } catch (error) {
+    console.error('Error fetching announcement statistics:', error);
     throw error;
   }
 };

@@ -266,15 +266,6 @@ const LYDOCouncil = () => {
       <PageHero
         title="LYDO Council"
         subtitle="Meet the Local Youth Development Council members representing diverse sectors and advocacy areas in San Jose, Batangas"
-        videoSrc={heroVideo}
-        overlayClass="bg-black/15"
-        minHeightClass=""
-        parallax
-        showTint
-        tintClass="bg-[#24345A]/10"
-        vignette
-        showDivider
-        adjustForHeader
       />
 
       {/* Council Overview */}

@@ -28,6 +28,8 @@ import TermHistory from '../pages/admin/TermHistory';
 import SystemHealth from '../pages/admin/SystemHealth';
 import AdminProfile from '../pages/admin/AdminProfile';
 import ChangePassword from '../pages/admin/ChangePassword';
+import Notifications from '../pages/admin/Notifications';
+import PortalNotFound from '../components/porrtal/PortalNotFound';
 
 const AdminStack = () => {
   return (
@@ -56,8 +58,10 @@ const AdminStack = () => {
         <Route path="/system/health" element={<SystemHealth />} />
         <Route path="/profile" element={<AdminProfile />} />
         <Route path="/change-password" element={<ChangePassword />} />
+        <Route path="/notifications" element={<Notifications />} />
         
-        {/* Other routes will be added when components are created */}
+        {/* Fallback for unknown routes under /admin */}
+        <Route path="*" element={<PortalNotFound homePath="/admin/dashboard" />} />
       </Routes>
     </AdminLayout>
     </ProtectedRoute>

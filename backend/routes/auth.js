@@ -6,6 +6,11 @@ import { query } from '../config/database.js';
 import { verifyRecaptcha, bypassRecaptchaInDev } from '../middleware/recaptcha.js';
 import { loginRateLimiter, recordFailedAttempt, resetFailedAttempts } from '../middleware/rateLimiter.js';
 import { authenticateToken as auth } from '../middleware/auth.js';
+import multer from 'multer';
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
+import activityLogService from '../services/activityLogService.js';
 
 const router = express.Router();
 
@@ -397,6 +402,91 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// ---------------- Profile Picture Upload ----------------
+const uploadsBase = process.env.UPLOADS_DIR || path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'uploads');
+const profileDir = path.join(uploadsBase, 'profile_pictures');
+try { fs.mkdirSync(profileDir, { recursive: true }); } catch {}
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: parseInt(process.env.UPLOAD_MAX_SIZE || '5242880', 10) },
+  fileFilter: (req, file, cb) => {
+    const allowed = (process.env.ALLOWED_FILE_TYPES || 'jpg,jpeg,png,webp')
+      .split(',').map(s => s.trim().toLowerCase());
+    const ext = (file.mimetype.split('/')[1] || '').toLowerCase();
+    if (file.mimetype.startsWith('image/') && allowed.includes(ext)) return cb(null, true);
+    cb(new Error('Invalid file type'));
+  }
+});
+
+// Upload profile picture
+router.post('/me/profile-picture', auth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    const target = path.join(profileDir, `${req.user.id}.jpg`);
+    // Process with sharp, enforce square and reasonable size
+    const image = sharp(req.file.buffer).rotate();
+    const metadata = await image.metadata();
+    if ((metadata.width || 0) < 800 || (metadata.height || 0) < 800) {
+      return res.status(400).json({ success: false, message: 'Image must be at least 800x800' });
+    }
+    await image.resize(800, 800, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(target);
+
+    // Save URL in DB
+    const relUrl = `/uploads/profile_pictures/${req.user.id}.jpg`;
+    await query('UPDATE "LYDO" SET profile_picture=$1, updated_at=NOW() WHERE lydo_id=$2', [relUrl, req.user.id]);
+    // Log success
+    try {
+      await activityLogService.logUserActivity(req.user.id, req.user.userType, activityLogService.logActions.PROFILE_PHOTO_UPLOAD, {
+        targetUserId: req.user.id,
+        targetUserType: 'user',
+        changes: { profile_picture: 'updated' },
+        metadata: { fileSize: req.file.size, mimeType: req.file.mimetype }
+      });
+    } catch {}
+    res.json({ success: true, url: relUrl, updatedAt: new Date().toISOString() });
+  } catch (e) {
+    console.error('Upload error:', e);
+    try {
+      await activityLogService.logUserActivity(req.user?.id, req.user?.userType, activityLogService.logActions.PROFILE_PHOTO_UPLOAD, {
+        targetUserId: req.user?.id,
+        targetUserType: 'user',
+        changes: {},
+        metadata: { error: e.message || 'upload_failed' }
+      });
+    } catch {}
+    res.status(500).json({ success: false, message: 'Upload failed' });
+  }
+});
+
+// Remove profile picture
+router.delete('/me/profile-picture', auth, async (req, res) => {
+  try {
+    const target = path.join(profileDir, `${req.user.id}.jpg`);
+    try { fs.unlinkSync(target); } catch {}
+    await query('UPDATE "LYDO" SET profile_picture=NULL, updated_at=NOW() WHERE lydo_id=$1', [req.user.id]);
+    try {
+      await activityLogService.logUserActivity(req.user.id, req.user.userType, activityLogService.logActions.PROFILE_PHOTO_REMOVE, {
+        targetUserId: req.user.id,
+        targetUserType: 'user',
+        changes: { profile_picture: 'removed' }
+      });
+    } catch {}
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Remove photo error:', e);
+    try {
+      await activityLogService.logUserActivity(req.user?.id, req.user?.userType, activityLogService.logActions.PROFILE_PHOTO_REMOVE, {
+        targetUserId: req.user?.id,
+        targetUserType: 'user',
+        metadata: { error: e.message || 'remove_failed' }
+      });
+    } catch {}
+    res.status(500).json({ success: false, message: 'Unable to remove photo' });
+  }
+});
+
 // @route   PUT /api/auth/me
 // @desc    Update current LYDO user's profile (first/last/middle/suffix/personal_email/profile_picture)
 // @access  Private
@@ -453,7 +543,7 @@ router.put('/me', async (req, res) => {
     );
     const roleInfo = roleResult.rows[0] || {};
 
-    return res.json({
+    const response = {
       success: true,
       user: {
         id: user.id,
@@ -473,9 +563,36 @@ router.put('/me', async (req, res) => {
         role: roleInfo.role_name,
         permissions: roleInfo.permissions
       }
-    });
+    };
+
+    // Log profile update
+    try {
+      await activityLogService.logUserActivity(user.id, decoded.userType, activityLogService.logActions.PROFILE_UPDATE, {
+        targetUserId: user.id,
+        targetUserType: 'user',
+        changes: Object.keys(req.body || {}).reduce((acc, k) => { acc[k] = 'updated'; return acc; }, {}),
+        newValues: {
+          first_name: user.first_name,
+          middle_name: user.middle_name,
+          last_name: user.last_name,
+          suffix: user.suffix,
+          personal_email: user.personal_email
+        }
+      });
+    } catch {}
+
+    return res.json(response);
   } catch (error) {
     console.error('Update user error:', error);
+    try {
+      const token = req.header('Authorization')?.replace('Bearer ', '');
+      const decoded = token ? jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') : null;
+      await activityLogService.logUserActivity(decoded?.userId, decoded?.userType, activityLogService.logActions.PROFILE_UPDATE, {
+        targetUserId: decoded?.userId,
+        targetUserType: 'user',
+        metadata: { error: error.message || 'update_failed' }
+      });
+    } catch {}
     return res.status(500).json({ success: false, message: 'Failed to update profile.' });
   }
 });
@@ -517,6 +634,114 @@ router.post('/logout', auth, async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: 'Something went wrong during logout.' 
+    });
+  }
+});
+
+// @route   PUT /api/auth/change-password
+// @desc    Change user password
+// @access  Private
+router.put('/change-password', auth, [
+  body('currentPassword').isLength({ min: 6 }).withMessage('Current password is required'),
+  body('newPassword').isLength({ min: 8 }).withMessage('New password must be at least 8 characters long'),
+  body('confirmPassword').custom((value, { req }) => {
+    if (value !== req.body.newPassword) {
+      throw new Error('Password confirmation does not match new password');
+    }
+    return true;
+  })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user.id;
+    const userType = req.user.userType;
+
+    // Determine which table to query based on user type
+    let userQuery, updateQuery;
+    let tableName, idField;
+
+    if (userType === 'lydo_staff' || userType === 'admin') {
+      tableName = '"LYDO"';
+      idField = 'lydo_id';
+    } else if (userType === 'sk_official') {
+      tableName = '"SK_Officials"';
+      idField = 'sk_id';
+    } else if (userType === 'youth') {
+      tableName = '"Youth"';
+      idField = 'youth_id';
+    } else {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Invalid user type for password change' 
+      });
+    }
+
+    // Get current user's password hash
+    userQuery = `SELECT ${idField}, password_hash FROM ${tableName} WHERE ${idField} = $1`;
+    const userResult = await query(userQuery, [userId]);
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    const user = userResult.rows[0];
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Current password is incorrect' 
+      });
+    }
+
+    // Hash new password
+    const saltRounds = 12;
+    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update password in database
+    updateQuery = `
+      UPDATE ${tableName} 
+      SET password_hash = $1, updated_at = NOW() 
+      WHERE ${idField} = $2
+    `;
+    
+    await query(updateQuery, [newPasswordHash, userId]);
+
+    // Log password change activity
+    try {
+      await activityLogService.logUserActivity(userId, userType, activityLogService.logActions.PASSWORD_CHANGE, {
+        targetUserId: userId,
+        targetUserType: 'user',
+        changes: { password: 'changed' },
+        metadata: { passwordChanged: true }
+      });
+    } catch (logError) {
+      console.error('Failed to log password change activity:', logError);
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Password changed successfully' 
+    });
+
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to change password' 
     });
   }
 });

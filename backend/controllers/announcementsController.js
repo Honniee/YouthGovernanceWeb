@@ -14,7 +14,7 @@ export const getAllAnnouncements = async (req, res) => {
     const {
       page = 1,
       limit = 10,
-      status = 'published',
+      status,
       category,
       search,
       sortBy = 'published_at',

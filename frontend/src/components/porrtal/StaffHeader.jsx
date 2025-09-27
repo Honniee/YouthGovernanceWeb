@@ -2,19 +2,19 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Menu, Bell, Grid3X3, User, Settings, LogOut, ChevronDown, X, Check, Clock, AlertTriangle, Info, CheckCircle, Zap, Eye, EyeOff, RefreshCw, ArrowRight } from 'lucide-react';
 import sanJoseLogo from '../../assets/logos/san_jose_logo.webp';
 import notificationService from '../../services/notificationService';
-import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
+const StaffHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showApps, setShowApps] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [markingAllAsRead, setMarkingAllAsRead] = useState(false);
+  const [markAllSuccess, setMarkAllSuccess] = useState(false);
   const notificationRef = useRef(null);
   const profileRef = useRef(null);
-  const { logout } = useAuth();
   const navigate = useNavigate();
 
   // Load notifications data
@@ -67,13 +67,49 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   // Mark all notifications as read
   const handleMarkAllAsRead = async () => {
     try {
-      await notificationService.markAllAsRead();
+      setMarkingAllAsRead(true);
+      console.log('🔄 Marking all notifications as read...');
+      
+      // Try the API call first
+      let apiSuccess = false;
+      try {
+        console.log('🔗 Making API call to mark all as read...');
+        const response = await notificationService.markAllAsRead();
+        console.log('✅ Mark all as read response:', response);
+        apiSuccess = true;
+      } catch (apiError) {
+        console.error('❌ API call failed:', apiError);
+        console.error('📝 Error details:', {
+          message: apiError.message,
+          response: apiError.response?.data,
+          status: apiError.response?.status,
+          statusText: apiError.response?.statusText
+        });
+        
+        // Don't update local state if API fails - show error instead
+        throw new Error(`API call failed: ${apiError.message}`);
+      }
+      
+      // Update local state (this will work regardless of API status)
       setNotifications(prev => 
         prev.map(notification => ({ ...notification, isRead: true }))
       );
       setUnreadCount(0);
+      
+      console.log('✅ All notifications marked as read successfully');
+      
+      // Show success feedback
+      setMarkAllSuccess(true);
+      setTimeout(() => setMarkAllSuccess(false), 2000); // Hide after 2 seconds
+      
     } catch (error) {
-      console.error('Failed to mark all notifications as read:', error);
+      console.error('❌ Failed to mark all notifications as read:', error);
+      console.error('📝 Error details:', error.message);
+      
+      // Show user feedback - you can replace this with a proper toast system
+      console.error('❌ Failed to mark all notifications as read. Please try again.');
+    } finally {
+      setMarkingAllAsRead(false);
     }
   };
 
@@ -125,40 +161,63 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
     return user?.email ? user.email.charAt(0).toUpperCase() : 'A';
   };
 
+  // Reusable Avatar (same behavior as AdminProfile)
+  const Avatar = ({ name, src, version, size = 40 }) => {
+    const getFileUrl = (p) => {
+      if (!p) return '';
+      if (/^https?:\/\//i.test(p)) return p;
+      let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+      if (!base && window?.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+        base = 'http://localhost:3001';
+      }
+      let url = `${base}${p}`;
+      if (version && !/\?/.test(url)) url += `?v=${encodeURIComponent(version)}`;
+      return url;
+    };
+    const [errored, setErrored] = useState(false);
+    useEffect(() => { setErrored(false); }, [src, version]);
+    const initials = (name || 'A').split(' ').slice(0,2).map(s=>s.charAt(0)).join('').toUpperCase();
+    const url = src ? getFileUrl(src) : '';
+    if (url && !errored) {
+      return (
+        <img
+          src={url}
+          alt="Avatar"
+          className="rounded-full object-cover shadow-sm"
+          style={{ width: size, height: size }}
+          onError={() => setErrored(true)}
+        />
+      );
+    }
+    return (
+      <div className="rounded-full bg-gradient-to-br from-emerald-600 to-green-500 text-white flex items-center justify-center font-semibold shadow-sm" style={{ width: size, height: size }}>
+        {initials}
+      </div>
+    );
+  };
+
   const getUserName = () => {
     if (user?.firstName && user?.lastName) {
       return `${user.firstName} ${user.lastName}`;
     }
-    return user?.email || 'SK Official';
+    return user?.email || 'Staff Member';
   };
 
   const getUserRole = () => {
-    if (user?.userType === 'sk_official' || user?.role === 'sk_official' || user?.role === 'SK') {
-      return 'SK Official';
+    if (user?.userType === 'staff' || user?.role === 'staff') {
+      return 'Staff';
     }
-    return user?.role || 'SK Official';
+    return 'Staff';
   };
 
   const handleGoProfile = () => {
-    navigate('/sk/profile');
+    navigate('/staff/profile');
     setShowUserMenu(false);
   };
 
   const handleGoChangePassword = () => {
-    navigate('/sk/change-password');
+    navigate('/staff/change-password');
     setShowUserMenu(false);
-  };
-
-  const handleSignOut = async () => {
-    try {
-      if (onLogout) {
-        await onLogout('header');
-      } else {
-        await logout('header');
-      }
-    } finally {
-      navigate('/');
-    }
   };
 
   return (
@@ -178,7 +237,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
           </button>
           
           {/* Logo and Brand */}
-          <div className="flex items-center space-x-2 md:space-x-3.5">
+          <div className="flex items-center space-x-1.5 md:space-x-3.5">
             <img 
               src={sanJoseLogo} 
               alt="San Jose Logo" 
@@ -189,7 +248,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                 Local Youth Development Office
               </h1>
               <p className="text-xs text-gray-600 dark:text-gray-300">
-                 Municipality of San Jose, Batangas
+                Municipality of San Jose, Batangas
               </p>
             </div>
           </div>
@@ -213,6 +272,8 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                   ? '' 
                   : 'group-hover:scale-110 group-hover:rotate-12'
               }`} />
+              
+              {/* Enhanced notification badge */}
               {unreadCount > 0 && (
                 <div className="absolute -top-1 -right-1 w-4 h-4 md:w-5 md:h-5 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg animate-bounce">
                   <span className="text-xs font-bold">
@@ -222,12 +283,16 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                   <div className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-75"></div>
                 </div>
               )}
+              
+              {/* Hover effect */}
+              {!showNotifications && (
+                <div className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-500/10 to-indigo-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              )}
             </button>
             
             {/* Enhanced Notifications Dropdown */}
             {showNotifications && (
-              <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-[420px] bg-white rounded-2xl shadow-2xl border border-gray-100 dark:bg-gray-800 dark:border-gray-700 z-50 max-h-[85vh] overflow-hidden backdrop-blur-sm">
-                {/* Header with Gradient */}
+              <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-[420px] bg-white rounded-2xl shadow-2xl border border-gray-100 dark:bg-gray-800 dark:border-gray-700 z-50 max-h-[85vh] overflow-hidden backdrop-blur-sm">                {/* Header with Gradient */}
                 <div className="relative p-3 md:p-5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-700 border-b border-gray-100 dark:border-gray-600">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2 md:space-x-3">
@@ -244,10 +309,31 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                     {unreadCount > 0 && (
                       <button
                         onClick={handleMarkAllAsRead}
-                        className="flex items-center space-x-1 px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-lg transition-all duration-200 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                        disabled={markingAllAsRead}
+                        className={`flex items-center space-x-1 px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
+                          markingAllAsRead
+                            ? 'text-gray-500 bg-gray-100 dark:text-gray-400 dark:bg-gray-700 cursor-not-allowed'
+                            : markAllSuccess
+                            ? 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/30'
+                            : 'text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50'
+                        }`}
                       >
-                        <Check className="w-3 h-3" />
-                        <span className="hidden sm:inline">Mark all read</span>
+                        {markingAllAsRead ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-gray-300 border-t-transparent rounded-full animate-spin"></div>
+                            <span className="hidden sm:inline">Marking...</span>
+                          </>
+                        ) : markAllSuccess ? (
+                          <>
+                            <Check className="w-3 h-3 text-green-600" />
+                            <span className="hidden sm:inline text-green-600">Done!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3 h-3" />
+                            <span className="hidden sm:inline">Mark all read</span>
+                          </>
+                        )}
                       </button>
                     )}
                   </div>
@@ -292,6 +378,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                   ) : (
                     <div className="divide-y divide-gray-100 dark:divide-gray-700">
                       {notifications.map((notification, index) => {
+                        const style = notificationService.getNotificationStyle(notification.type);
                         const getNotificationIcon = (type) => {
                           const iconProps = "w-5 h-5";
                           switch (type) {
@@ -381,7 +468,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                   <div className="flex items-center justify-between">
                     <button 
                       onClick={() => {
-                        navigate('/sk/notifications');
+                        navigate('/staff/notifications');
                         setShowNotifications(false);
                       }}
                       className="flex items-center space-x-1.5 md:space-x-2 px-3 md:px-4 py-2 md:py-2.5 bg-blue-600 text-white rounded-lg md:rounded-xl hover:bg-blue-700 transition-all duration-200 font-medium text-xs md:text-sm shadow-lg hover:shadow-xl group"
@@ -428,11 +515,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
               <div className="flex items-center space-x-2 md:space-x-3.5">
                 {/* Avatar */}
                 <div className={`relative rounded-full ${showUserMenu ? 'ring-2 ring-blue-200 dark:ring-blue-700' : ''}`}>
-                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center shadow-sm bg-gradient-to-br from-blue-500 to-indigo-600">
-                    <span className="text-white font-semibold text-sm">
-                      {getUserInitials()}
-                    </span>
-                  </div>
+                  <Avatar name={getUserName()} src={user?.profilePicture} version={user?.updatedAt} size={32} />
                 </div>
                 
                 {/* User Info - Hidden on small screens */}
@@ -456,10 +539,8 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
               <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-80 bg-white rounded-xl shadow-lg border border-gray-200 dark:bg-gray-700 dark:border-gray-600 z-50">
                 <div className="p-4 border-b border-gray-100 dark:border-gray-600">
                   <div className="flex items-center space-x-3">
-                    <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
-                      <span className="text-white font-semibold text-sm">
-                        {getUserInitials()}
-                      </span>
+                    <div className="w-11 h-11 rounded-full overflow-hidden">
+                      <Avatar name={getUserName()} src={user?.profilePicture} version={user?.updatedAt} size={44} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">
@@ -490,7 +571,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                 
                 <div className="p-2 border-t border-gray-100 dark:border-gray-600">
                   <button
-                    onClick={handleSignOut}
+                    onClick={() => onLogout('header')}
                     className="w-full flex items-center space-x-3 px-3 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors duration-150"
                   >
                     <LogOut className="w-4.5 h-4.5 flex-shrink-0" />
@@ -506,4 +587,4 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   );
 };
 
-export default SKHeader;
+export default StaffHeader;

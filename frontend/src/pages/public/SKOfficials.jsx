@@ -257,15 +257,6 @@ const SKOfficials = () => {
       <PageHero
         title="SK Officials & Contact Directory"
         subtitle="Meet the Sangguniang Kabataan Federation officers and connect with SK Chairpersons across San Jose, Batangas"
-        videoSrc={heroVideo}
-        overlayClass="bg-black/15"
-        minHeightClass=""
-        parallax
-        showTint
-        tintClass="bg-[#24345A]/10"
-        vignette
-        showDivider
-        adjustForHeader
       />
 
       {/* SK Federation Officers */}

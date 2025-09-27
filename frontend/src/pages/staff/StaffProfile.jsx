@@ -171,7 +171,7 @@ const Avatar = ({ name, src, size = 56, version }) => {
   );
 };
 
-const AdminProfile = () => {
+const StaffProfile = () => {
   const { user, updateUser } = useAuth();
   const [profile, setProfile] = useState({ 
     lydo_id: '', 
@@ -918,4 +918,4 @@ const AdminProfile = () => {
 };
 
 export { Avatar };
-export default AdminProfile;
+export default StaffProfile;

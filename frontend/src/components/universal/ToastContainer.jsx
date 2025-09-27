@@ -53,25 +53,27 @@ const ToastContainer = ({ maxToasts = 5, position = 'top-right' }) => {
   }, [addToast, clearAllToasts]);
 
   return (
-    <>
-      {toasts.map((toast, index) => (
-        <div
-          key={toast.id}
-          style={{
-            zIndex: 100 - index // Stack toasts properly
-          }}
-        >
-          <ToastNotification
-            {...toast}
-            onClose={removeToast}
-            position={position}
-            className={`transition-transform duration-200 ${
-              index > 0 ? `transform translate-y-${index * 2}` : ''
-            }`}
-          />
-        </div>
-      ))}
-    </>
+    <div className="pointer-events-none fixed inset-0 z-[99998] flex items-start justify-end p-3 sm:p-4">
+      {/* Mobile constraint wrapper: keeps toasts inside viewport with margins */}
+      <div className="w-full max-w-full sm:max-w-none flex flex-col items-end gap-2 px-0">
+        {toasts.map((toast, index) => (
+          <div
+            key={toast.id}
+            className="pointer-events-auto"
+            style={{ zIndex: 100 - index }}
+          >
+            <div className="max-w-[calc(100vw-24px)] sm:max-w-none mx-[12px] sm:mx-0">
+              <ToastNotification
+                {...toast}
+                onClose={removeToast}
+                position={position}
+                className={`transition-transform duration-200 ${index > 0 ? `transform translate-y-${index * 2}` : ''}`}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 };
 

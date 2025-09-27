@@ -81,7 +81,10 @@ const Announcements = () => {
   const filterTriggerRef = React.useRef(null);
   const sortModal = useSortModal('published_at', 'desc');
   // Category-based fallback images (SVG data URIs) to avoid external image failures
-  const buildSvgPlaceholder = (_label, colorFrom, colorTo) => {
+  const buildSvgPlaceholder = (_label, colorFrom, colorTo, title = '') => {
+    // Truncate title if too long for display
+    const displayTitle = title && title.length > 50 ? title.substring(0, 47) + '...' : title;
+    
     const svg = `
       <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675' preserveAspectRatio='xMidYMid slice'>
         <defs>
@@ -96,6 +99,11 @@ const Announcements = () => {
           <circle cx='1050' cy='560' r='120'/>
           <circle cx='950' cy='90' r='60'/>
         </g>
+        ${displayTitle ? `
+        <text x='600' y='350' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-size='45' font-weight='bold' opacity='0.9'>
+          <tspan x='600' dy='0'>${displayTitle}</tspan>
+        </text>
+        ` : ''}
       </svg>`;
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
@@ -105,20 +113,20 @@ const Announcements = () => {
     const label = (title || '').trim() || (category ? String(category) : 'LYDO');
     switch (key) {
       case 'programs':
-        return buildSvgPlaceholder(label, '#3b82f6', '#1e40af');
+        return buildSvgPlaceholder(label, '#3b82f6', '#1e40af', title);
       case 'projects':
-        return buildSvgPlaceholder(label, '#10b981', '#065f46');
+        return buildSvgPlaceholder(label, '#10b981', '#065f46', title);
       case 'activities':
-        return buildSvgPlaceholder(label, '#8b5cf6', '#4c1d95');
+        return buildSvgPlaceholder(label, '#8b5cf6', '#4c1d95', title);
       case 'meetings':
       case 'meeting':
-        return buildSvgPlaceholder(label, '#f97316', '#7c2d12');
+        return buildSvgPlaceholder(label, '#f97316', '#7c2d12', title);
       case 'announcements':
-        return buildSvgPlaceholder(label, '#f59e0b', '#92400e');
+        return buildSvgPlaceholder(label, '#f59e0b', '#92400e', title);
       case 'achievement':
-        return buildSvgPlaceholder(label, '#facc15', '#854d0e');
+        return buildSvgPlaceholder(label, '#facc15', '#854d0e', title);
       default:
-        return buildSvgPlaceholder(label || 'LYDO', '#64748b', '#111827');
+        return buildSvgPlaceholder(label || 'LYDO', '#64748b', '#111827', title);
     }
   };
 
@@ -173,6 +181,7 @@ const Announcements = () => {
   const [featuredLoading, setFeaturedLoading] = useState(false);
   const [featuredError, setFeaturedError] = useState('');
   const [currentFeatured, setCurrentFeatured] = useState(0);
+  const [featuredReloadKey, setFeaturedReloadKey] = useState(0);
   const gradientOptions = [
     'from-blue-600 via-purple-600 to-blue-800',
     'from-emerald-600 via-teal-600 to-green-700',
@@ -239,13 +248,15 @@ const Announcements = () => {
       try {
         setFeaturedLoading(true);
         setFeaturedError('');
+        console.log('🔍 Fetching featured announcements...');
         const res = await getAnnouncements({ limit: 5, status: 'published', sortBy: 'published_at', sortOrder: 'DESC' });
+        console.log('📊 Featured response:', res);
         if (!mounted) return;
-        if (res?.success) {
+        if (res?.data) {
           setFeatured(res.data || []);
         } else {
           setFeatured([]);
-          setFeaturedError(res?.message || 'Failed to load recent updates');
+          setFeaturedError('Failed to load recent updates');
         }
       } catch (e) {
         if (!mounted) return;
@@ -257,7 +268,7 @@ const Announcements = () => {
     };
     load();
     return () => { mounted = false; };
-  }, []);
+  }, [featuredReloadKey]);
 
   // Fetch announcements from API
   useEffect(() => {
@@ -266,6 +277,15 @@ const Announcements = () => {
       try {
         setLoading(true);
         setError('');
+        console.log('🔍 Fetching main announcements...', {
+          page: currentPage,
+          limit: itemsPerPage,
+          status: 'published',
+          category: apiCategory,
+          search: searchTerm,
+          sortBy: apiSortBy,
+          sortOrder: apiSortOrder.toUpperCase(),
+        });
         const result = await getAnnouncements({
           page: currentPage,
           limit: itemsPerPage,
@@ -275,14 +295,15 @@ const Announcements = () => {
           sortBy: apiSortBy,
           sortOrder: apiSortOrder.toUpperCase(),
         });
+        console.log('📊 Main announcements response:', result);
         if (!isMounted) return;
-        if (result?.success) {
+        if (result?.data) {
           setAnnouncements(result.data || []);
           setPagination(result.pagination || { page: currentPage, limit: itemsPerPage, total: 0, pages: 0 });
         } else {
           setAnnouncements([]);
           setPagination({ page: currentPage, limit: itemsPerPage, total: 0, pages: 0 });
-          setError(result?.message || 'Failed to load announcements');
+          setError('Failed to load announcements');
         }
       } catch (e) {
         if (!isMounted) return;
@@ -426,15 +447,6 @@ const Announcements = () => {
       <PageHero
         title="Announcements & Programs"
         subtitle="Stay informed with the latest news, events, and opportunities from the Local Youth Development Office. Discover upcoming programs, important deadlines, and community initiatives designed for San Jose's youth."
-        videoSrc={heroVideo}
-        overlayClass="bg-black/15"
-        minHeightClass=""
-        parallax
-        showTint
-        tintClass="bg-[#24345A]/10"
-        vignette
-        showDivider
-        adjustForHeader
       />
 
       {/* Featured Programs & Announcements - AWS Style Grid */}

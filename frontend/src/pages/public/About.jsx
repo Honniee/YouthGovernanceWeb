@@ -101,15 +101,6 @@ const About = () => {
       <PageHero
         title="About the Local Youth Development Office"
         subtitle="We empower, engage, and support the youth of San Jose, Batangas through programs, participation, and partnerships."
-        videoSrc={heroVideo}
-        overlayClass="bg-black/15"
-        minHeightClass=""
-        parallax
-        showTint
-        tintClass="bg-[#24345A]/10"
-        vignette
-        showDivider
-        adjustForHeader
       />
 
       {/* Mission • Vision • Mandate - AWS-like layout */}

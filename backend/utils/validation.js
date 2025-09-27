@@ -344,12 +344,12 @@ export const validateBulkOperation = (data) => {
  * @param {object} params - Query parameters
  * @returns {object} Validated pagination object
  */
-export const validatePagination = (params) => {
+export const validatePagination = (params, maxLimit = 100) => {
   const page = parseInt(params.page) || 1;
   const limit = parseInt(params.limit) || 10;
   
-  // Ensure reasonable limits
-  const validatedLimit = Math.min(Math.max(limit, 1), 100);
+  // Ensure reasonable limits - use provided maxLimit parameter
+  const validatedLimit = Math.min(Math.max(limit, 1), maxLimit);
   const validatedPage = Math.max(page, 1);
   
   return {

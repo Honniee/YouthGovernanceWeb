@@ -1,86 +1,83 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-/**
- * PageHero
- * Reusable hero section with background video (or image via children),
- * optional parallax effect, and configurable overlay/min-height.
- */
-const PageHero = ({
-  title,
-  subtitle,
-  videoSrc,
-  overlayClass = 'bg-black/95',
-  minHeightClass = '',
-  parallax = false,
-  showDivider = false,
-  dividerClass = 'mt-3 h-1 w-20 bg-white/70 rounded',
-  overline = '',
-  // Optional color tint and vignette for background mood
-  showTint = true,
-  tintClass = 'bg-[#24345A]/90',
-  vignette = true,
-  adjustForHeader = true,
-  children,
-}) => {
-  const [parallaxY, setParallaxY] = useState(0);
+// Simple scroll reveal hook
+const useScrollReveal = () => {
+  const [isVisible, setIsVisible] = useState(false);
+  const ref = useRef(null);
 
   useEffect(() => {
-    if (!parallax) return;
-    let rafId = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        setParallaxY(window.scrollY * 0.5);
-      });
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.removeEventListener('scroll', onScroll);
-    };
-  }, [parallax]);
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -50px 0px' }
+    );
+
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, isVisible];
+};
+
+const PageHero = ({ 
+  badge,
+  title,
+  subtitle,
+  description,
+  backgroundGradient = "from-[#24345A] via-[#1a2a47] to-[#0f1a2e]",
+  showBackgroundEffects = true,
+  className = ""
+}) => {
+  const [heroRef, heroVisible] = useScrollReveal();
 
   return (
-    <section className={`relative overflow-hidden py-16 ${adjustForHeader ? '-mt-12 sm:mt-0' : ''} ${minHeightClass}`}>
-      {videoSrc && (
-        <video
-          className="absolute left-0 right-0 w-full object-cover will-change-transform pointer-events-none blur-sm md:blur-[3px]"
-          style={parallax ? { top: '-60px', height: 'calc(100% + 120px)', transform: `translateY(${ -Math.min(120, parallaxY * 0.5) }px)` } : { top: 0, height: '100%' }}
-          autoPlay
-          muted
-          loop
-          playsInline
-        >
-          <source src={videoSrc} type="video/mp4" />
-        </video>
+    <section className={`relative overflow-hidden bg-gradient-to-br ${backgroundGradient} text-white -mt-16 sm:-mt-20 md:mt-0 ${className}`}>
+      {showBackgroundEffects && (
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-20 left-10 w-32 h-32 bg-gradient-to-br from-white to-transparent rounded-full blur-xl" />
+          <div className="absolute bottom-20 right-10 w-40 h-40 bg-gradient-to-tl from-white to-transparent rounded-full blur-xl" />
+          <div className="absolute top-1/2 left-1/2 w-24 h-24 bg-gradient-to-br from-white to-transparent rounded-full blur-lg" />
+        </div>
       )}
-      <div className={`absolute inset-0 ${overlayClass}`} aria-hidden="true" />
-      {showTint && (
-        <div className={`absolute inset-0 ${tintClass}`} aria-hidden="true" />
-      )}
-      {vignette && (
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/35" aria-hidden="true" />
-      )}
-
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        {overline && (
-          <div className="text-xs tracking-widest uppercase text-white/80 mb-3">{overline}</div>
-        )}
-        {title && (
-          <h1 className="text-2xl md:text-3xl font-extrabold uppercase text-white tracking-wide">{title}</h1>
-        )}
-        {showDivider && (
-          <div className={`${dividerClass} mx-auto`} aria-hidden="true" />
-        )}
-        {subtitle && (
-          <p className="mt-4 text-lg text-white max-w-3xl mx-auto font-medium leading-relaxed">{subtitle}</p>
-        )}
-        {children}
+      
+      <div 
+        ref={heroRef}
+        className={`relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24 transition-all duration-1000 ease-out ${
+          heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+        }`}
+      >
+        <div className="text-center">
+          {badge && (
+            <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/10 backdrop-blur-sm text-white/90 text-xs font-semibold uppercase tracking-wider mb-3 sm:mb-4">
+              {badge}
+            </div>
+          )}
+          
+          {title && (
+            <h1 className="text-xl sm:text-2xl md:text-4xl lg:text-5xl font-bold mb-3 sm:mb-4">
+              {title}
+            </h1>
+          )}
+          
+          {subtitle && (
+            <p className="text-sm sm:text-base md:text-xl text-white/90 mb-2">
+              {subtitle}
+            </p>
+          )}
+          
+          {description && (
+            <p className="text-xs sm:text-sm text-white/80">
+              {description}
+            </p>
+          )}
+        </div>
       </div>
     </section>
   );
 };
 
 export default PageHero;
-
-

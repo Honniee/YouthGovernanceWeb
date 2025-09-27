@@ -199,9 +199,11 @@ const Home = () => {
         setLoadingFeatured(true);
         setErrorFeatured(null);
         
+        console.log('🔍 Fetching featured announcements in Home...');
         const response = await getFeaturedAnnouncements(8); // Get up to 8 featured items
+        console.log('📊 Featured response in Home:', response);
         
-        if (response.success && response.data) {
+        if (response?.data) {
           // Transform database data to match our carousel format
           const transformedData = response.data.map((announcement, index) => ({
             id: announcement.announcement_id,
@@ -985,13 +987,17 @@ const Home = () => {
           {errorFeatured && !loadingFeatured && (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-red-100 flex items-center justify-center">
+                  <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <p className="text-red-600 mb-2">Failed to load featured content</p>
-                <p className="text-gray-500 text-sm mb-4">Please try again</p>
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                  Failed to load featured content
+                </h3>
+                <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                  Please try again or check back later.
+                </p>
                 <button
                   onClick={() => setFeaturedReloadKey((k) => k + 1)}
                   className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
@@ -1167,11 +1173,15 @@ const Home = () => {
           {!loadingFeatured && !errorFeatured && featuredContent.length === 0 && (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <BookOpen className="w-8 h-8 text-gray-400" />
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-100 flex items-center justify-center">
+                  <BookOpen className="w-10 h-10 text-gray-400" />
                 </div>
-                <p className="text-gray-600 mb-2">No featured content available</p>
-                <p className="text-gray-500 text-sm">Check back later for updates</p>
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                  No featured content available
+                </h3>
+                <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                  Check back later for new programs and events.
+                </p>
               </div>
             </div>
           )}

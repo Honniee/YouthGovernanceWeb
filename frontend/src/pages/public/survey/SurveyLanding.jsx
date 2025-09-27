@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, ShieldCheck, Users, BarChart3, Clock, MapPin, CheckCircle, User, GraduationCap, Vote, FileText, ChevronLeft, ChevronDown } from 'lucide-react';
 import PublicLayout from '../../../components/layouts/PublicLayout';
+import PageHero from '../../../components/website/PageHero';
 
 // Simple scroll reveal (aligned with Programs/Barangays)
 const useScrollReveal = () => {
@@ -49,7 +50,6 @@ const SurveyLanding = () => {
   const isClosed = !isLive && new Date(surveyData.end).getTime() < Date.now();
 
   // Scroll reveal refs
-  const [heroRef, heroVisible] = useScrollReveal();
   const [overviewRef, overviewVisible] = useScrollReveal();
   const [contentRef, contentVisible] = useScrollReveal();
   const [participationRef, participationVisible] = useScrollReveal();
@@ -69,18 +69,16 @@ const SurveyLanding = () => {
   const [mobileIndicatorWidth, setMobileIndicatorWidth] = useState(0);
   useEffect(() => {
     const computeHeaderOffset = () => {
-      const heroEl = heroRef?.current;
-      if (!heroEl) return;
-      // Distance from document top to hero top ~= header height
-      const headerH = heroEl.getBoundingClientRect().top + window.scrollY;
-      if (headerH && headerH > 0) setHeaderOffsetPx(headerH);
+      // Use a fixed header height since we can't access hero element
+      const headerH = 80; // Approximate header height
+      setHeaderOffsetPx(headerH);
       if (tabsRef.current) setTabsHeight(tabsRef.current.offsetHeight || 64);
     };
     const handle = () => {
-      const heroEl = heroRef?.current;
-      if (!heroEl) return;
-      const heroBottom = heroEl.getBoundingClientRect().bottom + window.scrollY;
-      const shouldFix = window.scrollY + headerOffsetPx >= heroBottom;
+      const tabsEl = tabsRef?.current;
+      if (!tabsEl) return;
+      const tabsTop = tabsEl.getBoundingClientRect().top;
+      const shouldFix = tabsTop <= headerOffsetPx;
       setTabsFixed(shouldFix);
     };
     computeHeaderOffset();
@@ -88,7 +86,7 @@ const SurveyLanding = () => {
     window.addEventListener('scroll', handle, { passive: true });
     window.addEventListener('resize', computeHeaderOffset);
     return () => { window.removeEventListener('scroll', handle); window.removeEventListener('resize', computeHeaderOffset); };
-  }, [heroRef, headerOffsetPx]);
+  }, [headerOffsetPx]);
 
   // placeholder: mobile underline indicator effect moved below activeTab initialization
 
@@ -157,30 +155,13 @@ const SurveyLanding = () => {
 
   return (
     <PublicLayout>
-      {/* Hero Section (match Programs/Barangays gradient style) */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-[#24345A] via-[#1a2a47] to-[#0f1a2e] text-white -mt-12 sm:mt-0">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-10 w-32 h-32 bg-gradient-to-br from-white to-transparent rounded-full blur-xl" />
-          <div className="absolute bottom-20 right-10 w-40 h-40 bg-gradient-to-tl from-white to-transparent rounded-full blur-xl" />
-          <div className="absolute top-1/2 left-1/2 w-24 h-24 bg-gradient-to-br from-white to-transparent rounded-full blur-lg" />
-        </div>
-        <div 
-          ref={heroRef}
-          className={`relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 transition-all duration-1000 ease-out ${
-            heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-          }`}
-        >
-          
-          <div className="text-center">
-            <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-white/90 text-xs font-semibold uppercase tracking-wider mb-4">
-              KK Survey
-            </div>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-4">Katipunan ng Kabataan Survey</h1>
-            <p className="text-xl md:text-2xl text-white/90 mb-2">Demographic Assessment of Youth in San Jose, Batangas</p>
-            <p className="text-white/80">Help shape youth policy through your participation.</p>
-          </div>
-            </div>
-      </section>
+      {/* Hero Section */}
+      <PageHero
+        badge="KK Survey"
+        title="Katipunan ng Kabataan Survey"
+        subtitle="Demographic Assessment of Youth in San Jose, Batangas"
+        description="Help shape youth policy through your participation."
+      />
 
       {/* Sticky Section Tabs */}
       <div ref={tabsRef} className={`${tabsFixed ? 'fixed left-0 right-0 z-[40]' : 'relative'} bg-gradient-to-r from-[#F6F8FF] via-[#EEF3FF] to-[#F6F8FF] border-b border-gray-100 shadow-sm`} style={tabsFixed ? { top: `${headerOffsetPx + -16}px` } : {}}>

@@ -21,7 +21,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 
 
-const StaffDashboard = () => {
+const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('sk-officials');
   const [viewMode, setViewMode] = useState('grid');
   const [selectedItems, setSelectedItems] = useState([]);
@@ -45,5 +45,5 @@ const StaffDashboard = () => {
   );
 };
 
-export default StaffDashboard;
+export default AdminDashboard;
 

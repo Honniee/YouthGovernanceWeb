@@ -76,6 +76,48 @@ export const authService = {
   },
 
   /**
+   * Upload profile picture (FormData with field 'file')
+   */
+  uploadProfilePicture: async (file, onProgress) => {
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await apiHelpers.post('/auth/me/profile-picture', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: onProgress
+      });
+      if (response.success && response.url) {
+        const user = authService.getStoredUser() || {};
+        const merged = { ...user, profilePicture: response.url, updatedAt: response.updatedAt };
+        localStorage.setItem('user', JSON.stringify(merged));
+        return { success: true, url: response.url, updatedAt: response.updatedAt };
+      }
+      return { success: false, message: response.message || 'Upload failed' };
+    } catch (error) {
+      return { success: false, message: error.message || 'Upload failed', errors: error.errors || [] };
+    }
+  },
+
+  /**
+   * Remove profile picture
+   */
+  removeProfilePicture: async () => {
+    try {
+      const response = await apiHelpers.delete('/auth/me/profile-picture');
+      if (response.success) {
+        const user = authService.getStoredUser() || {};
+        const merged = { ...user };
+        delete merged.profilePicture;
+        localStorage.setItem('user', JSON.stringify(merged));
+        return { success: true };
+      }
+      return { success: false, message: response.message || 'Remove failed' };
+    } catch (error) {
+      return { success: false, message: error.message || 'Remove failed', errors: error.errors || [] };
+    }
+  },
+
+  /**
    * Logout current user
    * @param {string} source - Source of logout (header, sidebar, etc.)
    * @returns {Promise} Logout response
@@ -242,6 +284,43 @@ export const authService = {
     };
     
     return roleDisplayMap[user.role] || user.role || 'User';
+  },
+
+  /**
+   * Change user password
+   * @param {string} currentPassword - Current password
+   * @param {string} newPassword - New password
+   * @param {string} confirmPassword - Password confirmation
+   * @returns {Promise<{success:boolean, message?:string, errors?:array}>}
+   */
+  changePassword: async (currentPassword, newPassword, confirmPassword) => {
+    try {
+      const response = await apiHelpers.put('/auth/change-password', {
+        currentPassword,
+        newPassword,
+        confirmPassword
+      });
+      
+      if (response.success) {
+        return { 
+          success: true, 
+          message: response.message || 'Password changed successfully' 
+        };
+      }
+      
+      return { 
+        success: false, 
+        message: response.message || 'Failed to change password',
+        errors: response.errors || []
+      };
+    } catch (error) {
+      console.error('Change password error:', error);
+      return { 
+        success: false, 
+        message: error.message || 'Failed to change password',
+        errors: error.errors || []
+      };
+    }
   },
 
   /**
