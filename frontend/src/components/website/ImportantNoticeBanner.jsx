@@ -66,11 +66,11 @@ const ImportantNoticeBanner = () => {
 
   return (
     <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 relative overflow-hidden">
-      <div className="max-w-screen-2xl mx-auto px-3 sm:px-6 lg:px-8 py-1.5 flex items-center justify-between">
+      <div className="max-w-screen-2xl mx-auto px-2 sm:px-6 lg:px-8 py-1 sm:py-1.5 flex items-center justify-between">
         {/* Scrolling Text Container */}
         <div className="overflow-hidden whitespace-nowrap flex-1 mr-2">
           <div ref={trackRef} className="inline-block will-change-transform">
-            <span className="text-xs font-medium">
+            <span className="text-xs sm:text-xs font-medium">
               🚨 <strong>Important Notice:</strong> LYDO office hours have been extended on Thursdays until 7:00 PM. • New youth registration deadline: December 31, 2024. • KK Survey now available online. • Youth Leadership Training starts January 2025. • Contact us for more information: (043) 756-XXXX
             </span>
           </div>
@@ -80,10 +80,10 @@ const ImportantNoticeBanner = () => {
         <div className="flex-shrink-0">
           <button
             onClick={() => setShowNotice(false)}
-            className="bg-red-500 hover:bg-red-600 text-white rounded-full p-1 transition-colors shadow-md"
+            className="bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 sm:p-1 transition-colors shadow-md"
             aria-label="Close notice"
           >
-            <X className="w-3 h-3" />
+            <X className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
           </button>
         </div>
       </div>

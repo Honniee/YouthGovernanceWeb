@@ -1,4 +1,4 @@
-import React, { useState, memo } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Search, Menu, X, Globe, Phone, HelpCircle, Eye, User, MapPin, Mail, PhoneCall } from 'lucide-react';
 import sanJoseLogo from '../../assets/logos/san_jose_logo.webp';
@@ -10,6 +10,20 @@ const PublicHeader = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const { showNotice, setShowNotice } = useNotice();
   const location = useLocation();
+
+  // Prevent background scrolling when sidebar is open
+  useEffect(() => {
+    if (isMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+
+    // Cleanup on unmount
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isMenuOpen]);
 
   const navItems = [
     { title: 'Home', path: '/' },
@@ -46,7 +60,7 @@ const PublicHeader = () => {
               className="h-8 w-8 md:h-10 md:w-10 object-contain"
             />
             <div>
-              <h1 className="text-base md:text-lg font-bold text-blue-900">
+              <h1 className="text-sm md:text-base font-bold text-blue-900">
                 Local Youth Development Office
               </h1>
               <p className="text-xs text-gray-600">
@@ -97,7 +111,7 @@ const PublicHeader = () => {
             <Link
               key={item.title}
               to={item.path}
-              className={`py-4 px-4 text-sm font-medium border-b-2 transition-colors ${
+              className={`py-3 px-3 text-xs font-medium border-b-2 transition-colors ${
                 isActive(item.path)
                   ? 'border-white text-white'
                   : 'border-transparent text-white/80 hover:text-white hover:border-white/50'
@@ -111,10 +125,10 @@ const PublicHeader = () => {
         {/* Login Button */}
         <Link
           to="/login"
-          className="ml-4 inline-flex items-center gap-2 px-4 py-1.5 rounded-full border-2 border-white/80 text-white hover:bg-white/90 hover:text-[#24345A] focus:outline-none focus:ring-2 focus:ring-white/60 transition-colors shadow-[inset_0_0_0_0_rgba(0,0,0,0)] hover:shadow-sm"
+          className="ml-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full border-2 border-white/80 text-white hover:bg-white/90 hover:text-[#24345A] focus:outline-none focus:ring-2 focus:ring-white/60 transition-colors shadow-[inset_0_0_0_0_rgba(0,0,0,0)] hover:shadow-sm"
         >
           <User className="w-4 h-4" />
-          <span className="text-sm font-medium">Login</span>
+          <span className="text-xs font-medium">Login</span>
         </Link>
       </div>
 
