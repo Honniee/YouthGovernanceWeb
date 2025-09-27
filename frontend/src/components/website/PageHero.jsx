@@ -46,25 +46,25 @@ const PageHero = ({
       
       <div 
         ref={heroRef}
-        className={`relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24 transition-all duration-1000 ease-out ${
+        className={`relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 md:py-12 transition-all duration-1000 ease-out ${
           heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
         }`}
       >
         <div className="text-center">
           {badge && (
-            <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/10 backdrop-blur-sm text-white/90 text-xs font-semibold uppercase tracking-wider mb-3 sm:mb-4">
+            <div className="inline-flex items-center px-2 py-0.5 sm:px-2.5 sm:py-0.5 md:px-3 md:py-1 rounded-full bg-white/10 backdrop-blur-sm text-white/90 text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2 sm:mb-3 md:mb-4">
               {badge}
             </div>
           )}
           
           {title && (
-            <h1 className="text-xl sm:text-2xl md:text-4xl lg:text-5xl font-bold mb-3 sm:mb-4">
+            <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold mb-3 sm:mb-4">
               {title}
             </h1>
           )}
           
           {subtitle && (
-            <p className="text-sm sm:text-base md:text-xl text-white/90 mb-2">
+            <p className="text-sm sm:text-base md:text-lg text-white/90 mb-2">
               {subtitle}
             </p>
           )}

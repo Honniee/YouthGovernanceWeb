@@ -99,8 +99,10 @@ const About = () => {
   return (
     <PublicLayout>
       <PageHero
+        badge="About LYDO"
         title="About the Local Youth Development Office"
-        subtitle="We empower, engage, and support the youth of San Jose, Batangas through programs, participation, and partnerships."
+        subtitle=""
+        description="Learn more about our mission, vision, and comprehensive youth services."
       />
 
       {/* Mission • Vision • Mandate - AWS-like layout */}
@@ -114,17 +116,17 @@ const About = () => {
           }`}
         >
           {/* Overline badge */}
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">About LYDO</div>
+          <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2">About LYDO</div>
           {/* Section heading */}
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Mission, Vision, and Mandate</h2>
-          <p className="text-gray-700 max-w-3xl">For a clear understanding of the LYDO’s purpose and direction, browse our mission, vision, and mandate.</p>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">Mission, Vision, and Mandate</h2>
+          <p className="text-sm sm:text-base text-gray-700 max-w-3xl">For a clear understanding of the LYDO's purpose and direction, browse our mission, vision, and mandate.</p>
           {/* Refined divider */}
-          <div className="mt-5 mb-10 h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+          <div className="mt-4 sm:mt-5 mb-6 sm:mb-8 lg:mb-10 h-[1px] sm:h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
 
           {/* Segmented control */}
-          <div className="flex justify-start mb-10">
+          <div className="flex justify-start mb-6 sm:mb-8 lg:mb-10">
             {/* Segmented control with sliding active pill */}
-            <div className="relative inline-grid grid-cols-3 items-center rounded-full bg-gray-100 ring-1 ring-gray-300 p-2 shadow-sm overflow-hidden">
+            <div className="relative inline-grid grid-cols-3 items-center rounded-full bg-gray-100 ring-1 ring-gray-300 p-1 sm:p-2 shadow-sm overflow-hidden">
               {/* Active slider */}
               <span
                 className={`absolute inset-y-1 left-0 w-1/3 rounded-full bg-gradient-to-r from-rose-200 via-purple-200 to-indigo-200 shadow-md ring-1 ring-gray-200 transition-transform duration-200 ease-out pointer-events-none ${
@@ -141,7 +143,7 @@ const About = () => {
                   key={key}
                   type="button"
                   onClick={() => setMvmTab(key)}
-                  className={`relative z-10 px-8 sm:px-10 py-3 text-base md:text-lg rounded-full transition-colors duration-300 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#24345A]/30 ${
+                  className={`relative z-10 px-3 py-2 sm:px-6 sm:py-3 md:px-8 md:py-3 text-sm sm:text-base md:text-lg rounded-full transition-colors duration-300 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#24345A]/30 ${
                     mvmTab === key ? 'text-[#24345A]' : 'text-gray-700 hover:text-[#24345A] hover:bg-white/40'
                   }`}
                 >
@@ -152,28 +154,28 @@ const About = () => {
           </div>
 
           {/* Two-column content */}
-          <div className="grid md:grid-cols-2 gap-12 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 items-start">
             <div className="order-2 md:order-1">
               {mvmTab === 'mission' && (
                 <div>
-                  <h3 className="text-2xl md:text-3xl font-semibold text-gray-900 mb-3">Our Mission</h3>
-                  <p className="text-gray-600 leading-relaxed">
+                  <h3 className="text-xl sm:text-2xl md:text-3xl font-semibold text-gray-900 mb-2 sm:mb-3">Our Mission</h3>
+                  <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
                     To ignite youth involvement in public and civic affairs that ought to inculcate patriotism, nationalism, and other desirable values in the youth and empower them to play a vital role in their own development as well as in our community.
                   </p>
                 </div>
               )}
               {mvmTab === 'vision' && (
                 <div>
-                  <h3 className="text-2xl md:text-3xl font-semibold text-gray-900 mb-3">Our Vision</h3>
-                  <p className="text-gray-600 leading-relaxed">
+                  <h3 className="text-xl sm:text-2xl md:text-3xl font-semibold text-gray-900 mb-2 sm:mb-3">Our Vision</h3>
+                  <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
                     To establish adequate, effective, responsive and enabling mechanisms and support systems that will empower the youth and ensure their meaningful participation in governance.
                   </p>
                 </div>
               )}
               {mvmTab === 'mandate' && (
                 <div>
-                  <h3 className="text-2xl md:text-3xl font-semibold text-gray-900 mb-3">Our Mandate</h3>
-                  <p className="text-gray-600 leading-relaxed">
+                  <h3 className="text-xl sm:text-2xl md:text-3xl font-semibold text-gray-900 mb-2 sm:mb-3">Our Mandate</h3>
+                  <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
                     Implement youth empowerment and development programs in accordance with Republic Act No. 10742, as amended by Republic Act No. 11768.
                   </p>
                 </div>
@@ -181,7 +183,7 @@ const About = () => {
             </div>
 
             <div className="order-1 md:order-2">
-              <div className="rounded-2xl ring-1 ring-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow">
+              <div className="rounded-xl sm:rounded-2xl ring-1 ring-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow">
                 <div className="relative aspect-[16/9] bg-gradient-to-br from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1]">
                   <img
                     src="https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?q=80&w=1200&auto=format&fit=crop"
@@ -206,11 +208,11 @@ const About = () => {
               : 'opacity-0 translate-y-8'
           }`}
         >
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">What we do</div>
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Programs and Services</h2>
-          <p className="text-gray-600 max-w-3xl">Explore our core programs and services that support youth development, SK governance, and community engagement.</p>
-          <div className="mt-5 mb-10 h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2">What we do</div>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">Programs and Services</h2>
+          <p className="text-sm sm:text-base text-gray-600 max-w-3xl">Explore our core programs and services that support youth development, SK governance, and community engagement.</p>
+          <div className="mt-4 sm:mt-5 mb-6 sm:mb-8 lg:mb-10 h-[1px] sm:h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6 lg:gap-8 items-stretch">
             {[
               { icon: BookOpen, title: 'Youth Programs', desc: 'Education, skills, health, and leadership development.' },
               { icon: Users, title: 'SK Governance Support', desc: 'Capacity building, compliance, and coordination.' },
@@ -221,20 +223,20 @@ const About = () => {
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="group relative">
                 {/* Glow background */}
-                <div className="absolute -inset-2 rounded-3xl bg-gradient-to-br from-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
+                <div className="absolute -inset-1 sm:-inset-2 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
                 {/* Card */}
-                <div className="relative rounded-3xl p-6 bg-gray-50 ring-1 ring-gray-200 shadow-sm transition-transform duration-200 group-hover:shadow-md group-hover:-translate-y-0.5">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
-                      <Icon className="w-5 h-5" />
+                <div className="relative rounded-2xl sm:rounded-3xl p-3 sm:p-4 md:p-6 bg-gray-50 ring-1 ring-gray-200 shadow-sm transition-transform duration-200 group-hover:shadow-md group-hover:-translate-y-0.5 h-full flex flex-col min-h-[200px] sm:min-h-[220px] md:min-h-[240px]">
+                  <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3 md:mb-4">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 md:w-10 md:h-10 rounded-lg sm:rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
+                      <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5" />
                     </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">Service</span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-0.5 md:px-2.5 md:py-0.5 text-[9px] sm:text-[10px] md:text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">Service</span>
                   </div>
-                  <h3 className="mt-3 text-xl font-semibold text-gray-900">{title}</h3>
-                  <p className="mt-2 text-gray-600 text-sm leading-relaxed">{desc}</p>
-                  <div className="mt-6 relative inline-flex items-center text-gray-400 group-hover:text-[#24345A] transition-colors w-32">
-                    <span className="absolute left-0 text-sm font-medium opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100">Learn more</span>
-                    <ArrowRight className="w-5 h-5 transform transition-transform duration-200 group-hover:translate-x-20" />
+                  <h3 className="mt-1 sm:mt-2 md:mt-3 text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-gray-900 leading-tight">{title}</h3>
+                  <p className="mt-1 sm:mt-2 text-gray-600 text-xs sm:text-sm leading-relaxed flex-grow">{desc}</p>
+                  <div className="mt-3 sm:mt-4 md:mt-6 relative inline-flex items-center text-gray-400 group-hover:text-[#24345A] transition-colors w-20 sm:w-24 md:w-32">
+                    <span className="absolute left-0 text-[10px] sm:text-xs md:text-sm font-medium opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100">Learn more</span>
+                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 transform transition-transform duration-200 group-hover:translate-x-12 sm:group-hover:translate-x-16 md:group-hover:translate-x-20" />
                   </div>
                 </div>
               </div>
@@ -255,27 +257,27 @@ const About = () => {
               : 'opacity-0 translate-y-8'
           }`}
         >
-          <div className="rounded-3xl bg-white ring-1 ring-gray-200 p-6 md:p-10">
-            <div className="grid md:grid-cols-2 gap-10">
+          <div className="rounded-2xl sm:rounded-3xl bg-white ring-1 ring-gray-200 p-4 sm:p-6 md:p-8 lg:p-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 lg:gap-10">
               {/* Left intro */}
               <div>
-                <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">Process</div>
-                <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">How We Work</h2>
-                <p className="text-gray-600 max-w-xl">Here are the ways we work with youth and SK councils. If you need more help, feel free to contact us.</p>
-                <div className="mt-5 mb-6 h-[2px] w-full max-w-xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+                <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2">Process</div>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">How We Work</h2>
+                <p className="text-sm sm:text-base text-gray-600 max-w-xl">Here are the ways we work with youth and SK councils. If you need more help, feel free to contact us.</p>
+                <div className="mt-4 sm:mt-5 mb-2 sm:mb-3 h-[1px] sm:h-[2px] w-full max-w-xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
                 {/* Contact Support link removed as requested */}
               </div>
               {/* Right: accordions */}
-              <div className="space-y-3">
+              <div className="space-y-2 sm:space-y-3">
                 <AccordionItem title="For Youth" defaultOpen variant="faq">
-                  <ul className="list-disc ml-5 text-gray-600 space-y-1">
+                  <ul className="list-disc ml-4 sm:ml-5 text-gray-600 space-y-1 text-sm sm:text-base">
                     <li>Join programs and events</li>
                     <li>Volunteer and participate in surveys</li>
                     <li>Get updates via announcements and social media</li>
                   </ul>
                 </AccordionItem>
                 <AccordionItem title="For SK Councils" variant="faq">
-                  <ul className="list-disc ml-5 text-gray-600 space-y-1">
+                  <ul className="list-disc ml-4 sm:ml-5 text-gray-600 space-y-1 text-sm sm:text-base">
                     <li>Coordination for projects and reports</li>
                     <li>Capacity building and compliance support</li>
                     <li>Data and research collaboration</li>
@@ -307,15 +309,15 @@ const AccordionItem = ({ title, children, defaultOpen = false, variant }) => {
         onClick={() => setOpen((v) => !v)}
         className={`relative w-full flex items-center justify-between text-left transition-colors duration-200 ${
           variant === 'faq'
-            ? 'py-5 border-b border-gray-200 text-gray-900 hover:text-[#24345A]'
-            : 'rounded-3xl p-5 bg-gray-50 ring-1 ring-gray-200 shadow-sm'
+            ? 'py-3 sm:py-4 md:py-5 border-b border-gray-200 text-gray-900 hover:text-[#24345A]'
+            : 'rounded-2xl sm:rounded-3xl p-4 sm:p-5 bg-gray-50 ring-1 ring-gray-200 shadow-sm'
         }`}
       >
-        <span className={`text-lg font-semibold ${variant === 'faq' ? '' : 'text-gray-900'}`}>{title}</span>
-        <ChevronDown className={`w-5 h-5 ${variant === 'faq' ? 'text-gray-600' : 'text-gray-500'} transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <span className={`text-base sm:text-lg font-semibold ${variant === 'faq' ? '' : 'text-gray-900'}`}>{title}</span>
+        <ChevronDown className={`w-4 h-4 sm:w-5 sm:h-5 ${variant === 'faq' ? 'text-gray-600' : 'text-gray-500'} transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       <div className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-out ${open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
-        <div className={`${variant === 'faq' ? 'py-4 border-b border-gray-200 text-gray-600' : 'px-5 pb-5 pt-2 bg-gray-50 rounded-b-3xl ring-1 ring-gray-200 ring-t-0'}`}>
+        <div className={`${variant === 'faq' ? 'py-3 sm:py-4 border-b border-gray-200 text-gray-600' : 'px-4 sm:px-5 pb-4 sm:pb-5 pt-2 bg-gray-50 rounded-b-2xl sm:rounded-b-3xl ring-1 ring-gray-200 ring-t-0'}`}>
           {children}
         </div>
       </div>

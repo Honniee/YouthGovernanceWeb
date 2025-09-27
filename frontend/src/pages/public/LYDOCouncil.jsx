@@ -53,13 +53,13 @@ const AccordionItem = ({ title, children, defaultOpen = false }) => {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="relative w-full flex items-center justify-between text-left py-5 border-b border-gray-200 text-gray-900 hover:text-[#24345A] transition-colors duration-200"
+        className="relative w-full flex items-center justify-between text-left py-3 sm:py-4 lg:py-5 border-b border-gray-200 text-gray-900 hover:text-[#24345A] transition-colors duration-200"
       >
-        <span className="text-lg font-semibold">{title}</span>
-        <ChevronDown className={`w-5 h-5 text-gray-600 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <span className="text-base sm:text-lg font-semibold">{title}</span>
+        <ChevronDown className={`w-4 h-4 sm:w-5 sm:h-5 text-gray-600 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       <div className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-out ${open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
-        <div className="py-4 border-b border-gray-200 text-gray-600">
+        <div className="py-3 sm:py-4 border-b border-gray-200 text-gray-600">
           {children}
         </div>
       </div>
@@ -264,8 +264,10 @@ const LYDOCouncil = () => {
   return (
     <PublicLayout>
       <PageHero
+        badge="LYDO Council"
         title="LYDO Council"
         subtitle="Meet the Local Youth Development Council members representing diverse sectors and advocacy areas in San Jose, Batangas"
+        description="Discover the dedicated individuals who guide youth development initiatives and represent various sectors across our community."
       />
 
       {/* Council Overview */}
@@ -279,29 +281,29 @@ const LYDOCouncil = () => {
           }`}
         >
           {/* Overline badge */}
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">About LYDC</div>
+          <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2 sm:mb-3 lg:mb-4">About LYDC</div>
           {/* Section heading */}
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Council Overview</h2>
-          <p className="text-gray-700 max-w-3xl">The Local Youth Development Council serves as a collaborative body that guides youth development initiatives and ensures comprehensive representation across all sectors.</p>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3 lg:mb-4">Council Overview</h2>
+          <p className="text-sm sm:text-base lg:text-lg text-gray-700 max-w-3xl">The Local Youth Development Council serves as a collaborative body that guides youth development initiatives and ensures comprehensive representation across all sectors.</p>
           {/* Refined divider */}
-          <div className="mt-5 mb-10 h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+          <div className="mt-4 sm:mt-5 mb-6 sm:mb-8 lg:mb-10 h-[1px] sm:h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
 
           {/* Two-column content */}
-          <div className="grid md:grid-cols-2 gap-12 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 items-start">
             <div className="order-2 md:order-1">
               <div>
-                <h3 className="text-2xl md:text-3xl font-semibold text-gray-900 mb-3">Our Purpose</h3>
-                <p className="text-gray-600 leading-relaxed mb-6">
+                <h3 className="text-xl sm:text-2xl md:text-3xl font-semibold text-gray-900 mb-2 sm:mb-3">Our Purpose</h3>
+                <p className="text-sm sm:text-base text-gray-600 leading-relaxed mb-4 sm:mb-6">
                   The LYDC serves as a collaborative body that supports youth development initiatives in San Jose, Batangas. It brings together SK leaders and sectoral representatives to guide programs aligned with national and local youth priorities.
                 </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-50 rounded-xl p-4 ring-1 ring-gray-200">
-                    <h4 className="font-semibold text-gray-900 mb-1">13 Members</h4>
-                    <p className="text-sm text-gray-600">Diverse sectoral representation</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="bg-gray-50 rounded-lg sm:rounded-xl p-3 sm:p-4 ring-1 ring-gray-200">
+                    <h4 className="text-sm sm:text-base font-semibold text-gray-900 mb-1">13 Members</h4>
+                    <p className="text-xs sm:text-sm text-gray-600">Diverse sectoral representation</p>
                   </div>
-                  <div className="bg-gray-50 rounded-xl p-4 ring-1 ring-gray-200">
-                    <h4 className="font-semibold text-gray-900 mb-1">12 Focus Areas</h4>
-                    <p className="text-sm text-gray-600">Comprehensive advocacy coverage</p>
+                  <div className="bg-gray-50 rounded-lg sm:rounded-xl p-3 sm:p-4 ring-1 ring-gray-200">
+                    <h4 className="text-sm sm:text-base font-semibold text-gray-900 mb-1">12 Focus Areas</h4>
+                    <p className="text-xs sm:text-sm text-gray-600">Comprehensive advocacy coverage</p>
                   </div>
                 </div>
               </div>
@@ -310,7 +312,7 @@ const LYDOCouncil = () => {
             <div className="order-1 md:order-2">
               <div 
                 ref={carouselRef}
-                className="relative rounded-2xl ring-1 ring-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow"
+                className="relative rounded-xl sm:rounded-2xl ring-1 ring-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow"
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
@@ -334,9 +336,9 @@ const LYDOCouncil = () => {
                         />
                         {/* Image Overlay with Title and Description */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                        <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                          <h4 className="text-xl font-semibold mb-2">{image.title}</h4>
-                          <p className="text-sm opacity-90">{image.description}</p>
+                        <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 text-white">
+                          <h4 className="text-base sm:text-xl font-semibold mb-1 sm:mb-2">{image.title}</h4>
+                          <p className="text-xs sm:text-sm opacity-90">{image.description}</p>
                         </div>
                       </div>
                     ))}
@@ -345,26 +347,26 @@ const LYDOCouncil = () => {
                   {/* Navigation Arrows */}
                   <button
                     onClick={prevSlide}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-lg flex items-center justify-center text-gray-700 hover:text-[#24345A] transition-all duration-200 hover:scale-110"
+                    className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white/90 hover:bg-white shadow-lg flex items-center justify-center text-gray-700 hover:text-[#24345A] transition-all duration-200 hover:scale-110"
                     aria-label="Previous image"
                   >
-                    <ChevronLeft className="w-5 h-5" />
+                    <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                   <button
                     onClick={nextSlide}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-lg flex items-center justify-center text-gray-700 hover:text-[#24345A] transition-all duration-200 hover:scale-110"
+                    className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white/90 hover:bg-white shadow-lg flex items-center justify-center text-gray-700 hover:text-[#24345A] transition-all duration-200 hover:scale-110"
                     aria-label="Next image"
                   >
-                    <ChevronRight className="w-5 h-5" />
+                    <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
 
                   {/* Slide Indicators */}
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-2">
+                  <div className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 flex space-x-1.5 sm:space-x-2">
                     {councilImages.map((_, index) => (
                       <button
                         key={index}
                         onClick={() => goToSlide(index)}
-                        className={`w-2 h-2 rounded-full transition-all duration-200 ${
+                        className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full transition-all duration-200 ${
                           index === currentSlide 
                             ? 'bg-white scale-125' 
                             : 'bg-white/50 hover:bg-white/75'
@@ -390,27 +392,27 @@ const LYDOCouncil = () => {
               : 'opacity-0 translate-y-8'
           }`}
         >
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">Leadership</div>
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Council Members</h2>
-          <p className="text-gray-600 max-w-3xl">Meet the dedicated individuals who represent various sectors and advocate for youth development across San Jose, Batangas.</p>
-          <div className="mt-5 mb-10 h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+          <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2 sm:mb-3 lg:mb-4">Leadership</div>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3 lg:mb-4">Council Members</h2>
+          <p className="text-sm sm:text-base lg:text-lg text-gray-600 max-w-3xl">Meet the dedicated individuals who represent various sectors and advocate for youth development across San Jose, Batangas.</p>
+          <div className="mt-4 sm:mt-5 mb-6 sm:mb-8 lg:mb-10 h-[1px] sm:h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {councilMembers.map((member, index) => (
               <div key={index} className="group relative">
                 {/* Glow background */}
-                <div className="absolute -inset-2 rounded-3xl bg-gradient-to-br from-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
+                <div className="absolute -inset-1 sm:-inset-2 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
                 {/* Card */}
-                <div className="relative rounded-3xl p-6 bg-gray-50 ring-1 ring-gray-200 shadow-sm transition-transform duration-200 group-hover:shadow-md group-hover:-translate-y-0.5">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
-                      <member.icon className="w-5 h-5" />
+                <div className="relative rounded-2xl sm:rounded-3xl p-4 sm:p-6 bg-gray-50 ring-1 ring-gray-200 shadow-sm transition-transform duration-200 group-hover:shadow-md group-hover:-translate-y-0.5">
+                  <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
+                      <member.icon className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">{member.role}</span>
+                    <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 sm:py-0.5 text-[10px] sm:text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">{member.role}</span>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">{member.name}</h3>
-                  <p className="text-sm font-medium text-[#24345A] mb-3">{member.focus}</p>
-                  <p className="text-gray-600 text-sm leading-relaxed">{member.description}</p>
+                  <h3 className="text-sm sm:text-lg font-semibold text-gray-900 mb-1">{member.name}</h3>
+                  <p className="text-xs sm:text-sm font-medium text-[#24345A] mb-2 sm:mb-3">{member.focus}</p>
+                  <p className="text-gray-600 text-xs sm:text-sm leading-relaxed">{member.description}</p>
                 </div>
               </div>
             ))}
@@ -428,43 +430,43 @@ const LYDOCouncil = () => {
               : 'opacity-0 translate-y-8'
           }`}
         >
-          <div className="rounded-3xl bg-white ring-1 ring-gray-200 p-6 md:p-10">
-            <div className="grid md:grid-cols-2 gap-10">
+          <div className="rounded-2xl sm:rounded-3xl bg-white ring-1 ring-gray-200 p-4 sm:p-6 md:p-8 lg:p-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 lg:gap-10">
               {/* Left intro */}
               <div>
-                <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">Structure</div>
-                <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Council Structure</h2>
-                <p className="text-gray-600 max-w-xl">The LYDC is organized into leadership roles and sectoral representatives, each focusing on specific advocacy areas for comprehensive youth development.</p>
-                <div className="mt-5 mb-6 h-[2px] w-full max-w-xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+                <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2 sm:mb-3">Structure</div>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3 lg:mb-4">Council Structure</h2>
+                <p className="text-sm sm:text-base text-gray-600 max-w-xl">The LYDC is organized into leadership roles and sectoral representatives, each focusing on specific advocacy areas for comprehensive youth development.</p>
+                <div className="mt-4 sm:mt-5 mb-4 sm:mb-6 h-[1px] sm:h-[2px] w-full max-w-xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
               </div>
               {/* Right: accordions */}
-              <div className="space-y-3">
+              <div className="space-y-2 sm:space-y-3">
                 <AccordionItem title="Leadership" defaultOpen variant="faq">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <Users className="w-5 h-5 text-[#24345A]" />
+                  <div className="space-y-2 sm:space-y-3">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <Users className="w-4 h-4 sm:w-5 sm:h-5 text-[#24345A]" />
                       <div>
-                        <p className="font-semibold text-gray-900">Hon. Mark H. Arre</p>
-                        <p className="text-sm text-gray-600">Chairperson - SK Federation President</p>
+                        <p className="text-sm sm:text-base font-semibold text-gray-900">Hon. Mark H. Arre</p>
+                        <p className="text-xs sm:text-sm text-gray-600">Chairperson - SK Federation President</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Users className="w-5 h-5 text-[#24345A]" />
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <Users className="w-4 h-4 sm:w-5 sm:h-5 text-[#24345A]" />
                       <div>
-                        <p className="font-semibold text-gray-900">Hon. Julie Anne G. Flores</p>
-                        <p className="text-sm text-gray-600">Vice Chairperson - SK Federation Vice President</p>
+                        <p className="text-sm sm:text-base font-semibold text-gray-900">Hon. Julie Anne G. Flores</p>
+                        <p className="text-xs sm:text-sm text-gray-600">Vice Chairperson - SK Federation Vice President</p>
                       </div>
                     </div>
                   </div>
                 </AccordionItem>
                 <AccordionItem title="Sectoral Representatives" variant="faq">
-                  <div className="space-y-2">
+                  <div className="space-y-1.5 sm:space-y-2">
                     {councilMembers.slice(2).map((member, index) => (
-                      <div key={index} className="flex items-center gap-3 py-2">
-                        <member.icon className="w-4 h-4 text-[#24345A] flex-shrink-0" />
+                      <div key={index} className="flex items-center gap-2 sm:gap-3 py-1.5 sm:py-2">
+                        <member.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#24345A] flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{member.name}</p>
-                          <p className="text-xs text-gray-600 truncate">{member.focus}</p>
+                          <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">{member.name}</p>
+                          <p className="text-[10px] sm:text-xs text-gray-600 truncate">{member.focus}</p>
                         </div>
                       </div>
                     ))}

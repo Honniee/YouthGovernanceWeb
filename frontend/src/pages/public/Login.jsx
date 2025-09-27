@@ -186,7 +186,7 @@ const Login = () => {
   return (
     <PublicLayout>
       {/* Video Background */}
-      <div className="relative min-h-screen overflow-hidden">
+      <div className="relative min-h-screen overflow-hidden -mt-16 sm:mt-0">
         {/* Video Background */}
         <div className="absolute inset-0 z-0">
           <video
@@ -203,55 +203,55 @@ const Login = () => {
         </div>
 
         {/* Main Content */}
-        <div className="relative z-10 min-h-screen flex items-center justify-center py-8 px-4 sm:px-6 lg:px-8">
+        <div className="relative z-10 min-h-screen flex items-center justify-center pt-20 pb-4 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8">
           <div className="w-full max-w-6xl">
             {/* Main Card with enhanced animations */}
             <div className="bg-white shadow-2xl overflow-hidden transform transition-all duration-700 ease-out hover:shadow-3xl animate-fade-in-up">
-              <div className="grid lg:grid-cols-2 min-h-[500px] lg:min-h-[600px]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[400px] sm:min-h-[500px] lg:min-h-[600px]">
                 
                 {/* Left Section - Information Panel */}
-                <div className="bg-gradient-to-br from-[#24345A] to-[#1e2a47] p-6 sm:p-8 lg:p-12 flex flex-col justify-center text-white">
+                <div className="bg-gradient-to-br from-[#24345A] to-[#1e2a47] p-4 sm:p-6 lg:p-8 xl:p-12 flex flex-col justify-center text-white">
                   {/* Logo and Title */}
-                  <div className="mb-6 animate-fade-in-left">
-                    <div className="flex items-center mb-4">
-                      <div className="relative mr-4">
+                  <div className="mb-4 sm:mb-6 animate-fade-in-left">
+                    <div className="flex items-center mb-3 sm:mb-4">
+                      <div className="relative mr-3 sm:mr-4">
                         <div className="absolute inset-0 bg-white/20 backdrop-blur-sm rounded-full"></div>
-                        <div className="relative p-3">
+                        <div className="relative p-2 sm:p-3">
                           <img 
                             src={sanJoseLogo} 
                             alt="San Jose Logo" 
-                            className="h-12 w-12 object-contain"
+                            className="h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 object-contain"
                           />
                         </div>
                       </div>
                       <div>
-                        <h1 className="text-3xl font-bold">LYDO Portal</h1>
-                        <p className="text-blue-200">Youth Governance System</p>
+                        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">LYDO Portal</h1>
+                        <p className="text-blue-200 text-sm sm:text-base">Youth Governance System</p>
                       </div>
                     </div>
                   </div>
 
                   {/* Quote Section */}
-                  <div className="mb-4 animate-fade-in-left delay-200">
+                  <div className="mb-3 sm:mb-4 animate-fade-in-left delay-200">
                     <div className="relative text-center">
-                      <div className="text-6xl font-bold text-white/30 absolute -top-2 -left-2">"</div>
-                      <blockquote className="text-lg font-medium leading-relaxed px-8 py-4">
+                      <div className="text-3xl sm:text-4xl lg:text-6xl font-bold text-white/30 absolute -top-1 sm:-top-2 -left-1 sm:-left-2">"</div>
+                      <blockquote className="text-sm sm:text-base lg:text-lg font-medium leading-relaxed px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
                         To ignite youth involvement in public and civic affairs that ought to inculcate patriotism, nationalism, and other desirable values in the youth and empower them to play a vital role in their own development as well as in our community.
                       </blockquote>
-                      <div className="text-6xl font-bold text-white/30 absolute -bottom-4 -right-2">"</div>
-                      <div className="text-center mt-6 text-white/90 text-sm font-medium">
+                      <div className="text-3xl sm:text-4xl lg:text-6xl font-bold text-white/30 absolute -bottom-2 sm:-bottom-4 -right-1 sm:-right-2">"</div>
+                      <div className="text-center mt-4 sm:mt-6 text-white/90 text-xs sm:text-sm font-medium">
                         - LYDO Mission
                       </div>
                     </div>
                   </div>
 
                   {/* Security Notice */}
-                  <div className="mt-6 animate-fade-in-left delay-400">
-                    <div className="bg-white/10 backdrop-blur-sm border border-white/20 p-4">
-                      <p className="text-sm text-white font-medium mb-1 text-center">
+                  <div className="mt-4 sm:mt-6 animate-fade-in-left delay-400">
+                    <div className="bg-white/10 backdrop-blur-sm border border-white/20 p-3 sm:p-4">
+                      <p className="text-xs sm:text-sm text-white font-medium mb-1 text-center">
                         Official portal for LYDO staff and authorized personnel only
                       </p>
-                      <p className="text-xs text-white/80 text-center">
+                      <p className="text-[10px] sm:text-xs text-white/80 text-center">
                         Protected by advanced security measures
                       </p>
                     </div>
@@ -259,14 +259,14 @@ const Login = () => {
                 </div>
 
                 {/* Right Section - Login Form */}
-                <div className="p-6 sm:p-8 lg:p-12 flex flex-col justify-center animate-fade-in-right">
+                <div className="p-4 sm:p-6 lg:p-8 xl:p-12 flex flex-col justify-center animate-fade-in-right">
                   {/* Form Header */}
-                  <div className="text-center mb-6 sm:mb-8">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                  <div className="text-center mb-4 sm:mb-6 lg:mb-8">
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-4">
                       Sign In
                     </h2>
-                    <div className="bg-gray-50 border border-gray-200 p-4">
-                      <p className="text-sm text-gray-700 font-medium text-center">
+                    <div className="bg-gray-50 border border-gray-200 p-3 sm:p-4">
+                      <p className="text-xs sm:text-sm text-gray-700 font-medium text-center">
                         Welcome back! Please enter your credentials to continue.
                       </p>
                     </div>
@@ -277,11 +277,11 @@ const Login = () => {
                     ref={formRef}
                     onSubmit={handleSubmit} 
                     noValidate
-                    className="space-y-4 sm:space-y-6"
+                    className="space-y-3 sm:space-y-4 lg:space-y-6"
                   >
                     {/* Email Field */}
                     <div className="animate-fade-in-up delay-400">
-                      <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                      <label htmlFor="email" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
                         Email Address *
                       </label>
                       <div className="relative group">
@@ -295,12 +295,12 @@ const Login = () => {
                           autoComplete="email"
                           value={formData.email}
                           onChange={handleInputChange}
-                          className="block w-full pl-10 pr-3 py-3 sm:py-3 border border-gray-300 bg-white hover:bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-300"
+                          className="block w-full pl-10 pr-3 py-2.5 sm:py-3 border border-gray-300 bg-white hover:bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-300 text-sm sm:text-base"
                           placeholder="Enter your email"
                         />
                       </div>
                       {errors.email && (
-                        <div className="mt-2 flex items-center text-sm text-red-600 animate-shake">
+                        <div className="mt-1 sm:mt-2 flex items-center text-xs sm:text-sm text-red-600 animate-shake">
                           <span className="mr-1">⚠️</span>
                           {errors.email}
                         </div>
@@ -309,7 +309,7 @@ const Login = () => {
 
                     {/* Password Field */}
                     <div className="animate-fade-in-up delay-500">
-                      <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                      <label htmlFor="password" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
                         Password *
                       </label>
                       <div className="relative group">
@@ -323,7 +323,7 @@ const Login = () => {
                           autoComplete="current-password"
                           value={formData.password}
                           onChange={handleInputChange}
-                          className="block w-full pl-10 pr-12 py-3 sm:py-3 border border-gray-300 bg-white hover:bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-300"
+                          className="block w-full pl-10 pr-12 py-2.5 sm:py-3 border border-gray-300 bg-white hover:bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-300 text-sm sm:text-base"
                           placeholder="Enter your password"
                         />
                         <button
@@ -339,7 +339,7 @@ const Login = () => {
                         </button>
                       </div>
                       {errors.password && (
-                        <div className="mt-2 flex items-center text-sm text-red-600 animate-shake">
+                        <div className="mt-1 sm:mt-2 flex items-center text-xs sm:text-sm text-red-600 animate-shake">
                           <span className="mr-1">⚠️</span>
                           {errors.password}
                         </div>
@@ -347,7 +347,7 @@ const Login = () => {
                     </div>
 
                     {/* Remember Me & Forgot Password */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-fade-in-up delay-600">
+                    <div className="flex flex-row items-center justify-between gap-2 sm:gap-3 animate-fade-in-up delay-600">
                       <div className="flex items-center">
                         <input
                           id="rememberMe"
@@ -357,13 +357,13 @@ const Login = () => {
                           onChange={handleInputChange}
                           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 transition-colors duration-300"
                         />
-                        <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-700 cursor-pointer">
+                        <label htmlFor="rememberMe" className="ml-2 block text-xs sm:text-sm text-gray-700 cursor-pointer">
                           Remember me
                         </label>
                       </div>
                       <Link
                         to="/forgot-password"
-                        className="text-sm text-blue-600 hover:text-blue-500 font-medium transition-colors duration-300"
+                        className="text-xs sm:text-sm text-blue-600 hover:text-blue-500 font-medium transition-colors duration-300"
                       >
                         Forgot Password?
                       </Link>
@@ -376,10 +376,10 @@ const Login = () => {
                         onVerify={recaptcha.onVerify}
                         onError={recaptcha.onError}
                         onExpire={recaptcha.onExpire}
-                        className="mb-2"
+                        className="mb-2 scale-90 sm:scale-100"
                       />
                       {errors.recaptcha && (
-                        <div className="mt-2 flex items-center text-sm text-red-600 animate-shake">
+                        <div className="mt-1 sm:mt-2 flex items-center text-xs sm:text-sm text-red-600 animate-shake">
                           <span className="mr-1">⚠️</span>
                           {errors.recaptcha}
                         </div>
@@ -391,7 +391,7 @@ const Login = () => {
                       <button
                         type="submit"
                         disabled={!recaptcha.isVerified || isSubmitting}
-                        className={`w-full flex justify-center items-center py-3 px-4 border border-transparent text-sm font-medium text-white transition-all duration-300 ${
+                        className={`w-full flex justify-center items-center py-2.5 sm:py-3 px-4 border border-transparent text-xs sm:text-sm font-medium text-white transition-all duration-300 ${
                           !recaptcha.isVerified || isSubmitting
                             ? 'bg-gray-400 cursor-not-allowed transform scale-95'
                             : 'bg-[#24345A] hover:bg-[#1e2a47] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#24345A] hover:shadow-lg'
@@ -399,26 +399,26 @@ const Login = () => {
                       >
                         {isSubmitting ? (
                           <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            <span className="animate-pulse">Signing in...</span>
+                            <div className="animate-spin rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 border-b-2 border-white mr-2"></div>
+                            <span className="animate-pulse text-xs sm:text-sm">Signing in...</span>
                           </>
                         ) : !recaptcha.isVerified ? (
                           <>
-                            <Shield className="ml-2 h-4 w-4 mr-2" />
-                            Complete reCAPTCHA to continue
+                            <Shield className="ml-2 h-3.5 w-3.5 sm:h-4 sm:w-4 mr-2" />
+                            <span className="text-xs sm:text-sm">Complete reCAPTCHA to continue</span>
                           </>
                         ) : (
                           <>
-                            <span>Sign in</span>
-                            <ArrowRight className="ml-2 h-4 w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
+                            <span className="text-xs sm:text-sm">Sign in</span>
+                            <ArrowRight className="ml-2 h-3.5 w-3.5 sm:h-4 sm:w-4 transform transition-transform duration-300 group-hover:translate-x-1" />
                           </>
                         )}
                       </button>
                       
                       {/* Helper text for disabled button */}
                       {!recaptcha.isVerified && (
-                        <p className="text-xs text-gray-500 text-center mt-2 flex items-center justify-center gap-1 animate-fade-in">
-                          <Shield className="w-3 h-3" />
+                        <p className="text-[10px] sm:text-xs text-gray-500 text-center mt-1 sm:mt-2 flex items-center justify-center gap-1 animate-fade-in">
+                          <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                           Please complete the reCAPTCHA verification above to enable sign in
                         </p>
                       )}

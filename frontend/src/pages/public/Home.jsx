@@ -32,6 +32,7 @@ import { LoadingSpinner } from '../../components/portal_main_content';
 import { useAuth } from '../../context/AuthContext';
 import surveyBatchesService from '../../services/surveyBatchesService';
 import useConfirmation from '../../hooks/useConfirmation';
+import { useNotice } from '../../context/NoticeContext';
 
 // Scroll reveal hook (from About page)
 const useScrollReveal = () => {
@@ -104,6 +105,7 @@ const Home = () => {
   const { statistics, isLoading: statisticsLoading, error: statisticsError, refreshStatistics } = useStatistics();
   const { isAuthenticated, hasRole } = useAuth();
   const { showConfirmation } = useConfirmation();
+  const { showNotice } = useNotice();
   
   // Pause/Resume state
   const [isPauseResumeLoading, setIsPauseResumeLoading] = useState(false);
@@ -393,7 +395,7 @@ const Home = () => {
   return (
     <PublicLayout>
       {/* Hero Section with Background Video */}
-      <section className="relative overflow-hidden min-h-[100dvh] -mt-12 sm:mt-0">
+      <section className={`relative overflow-hidden min-h-[100dvh] ${showNotice ? '-mt-[140px]' : '-mt-[104px]'}`}>
         {/* Background video */}
         <video
           className="absolute inset-0 w-full h-full object-cover"
@@ -401,45 +403,46 @@ const Home = () => {
           muted
           loop
           playsInline
+          style={{ 
+            width: '100vw', 
+            height: showNotice ? 'calc(100vh + 140px)' : 'calc(100vh + 104px)', 
+            objectFit: 'cover',
+            top: showNotice ? '-140px' : '-104px'
+          }}
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
         {/* Dark overlay for readability */}
         <div className="absolute inset-0 bg-black/60" aria-hidden="true" />
 
-        {/* Foreground content - perfectly centered between fixed 64px top and bottom offsets */}
-        <div className="relative z-10 min-h-[100dvh] flex flex-col">
-          <div className="h-[0px] shrink-0" aria-hidden="true" />
-          <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 flex items-center justify-center">
+        {/* Foreground content - perfectly centered */}
+        <div className="relative z-10 min-h-[100dvh] flex items-center justify-center pt-16 sm:pt-20 md:pt-24 lg:pt-30">
+          <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8">
             <div className="text-center w-full">
               <img
                 src={sanJoseLogo}
                 alt="San Jose Logo"
-                className="mx-auto mb-6 h-20 w-20 md:h-24 md:w-24 lg:h-28 lg:w-28 object-contain rounded-full bg-white/90 ring-2 ring-white/50 shadow-lg"
+                className="mx-auto mb-4 sm:mb-6 h-16 w-16 sm:h-20 sm:w-20 md:h-24 md:w-24 lg:h-28 lg:w-28 object-contain rounded-full bg-white/90 ring-2 ring-white/50 shadow-lg"
               />
-              <h1 className="font-sans text-3xl md:text-4xl lg:text-5xl font-bold text-white leading-tight mb-6">
-                <span className="text-2xl md:text-3xl lg:text-4xl font-medium text-white/90">Welcome to</span>
+              <h1 className="font-sans text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white leading-tight mb-4 sm:mb-6">
+                <span className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-medium text-white/90">Welcome to</span>
                 <br />
-              Local Youth Development Office
-            </h1>
-              <div className="mx-auto mb-6 h-px w-32 bg-white/80" aria-hidden="true" />
-              <p className="font-sans text-lg md:text-xl text-white/95 mb-4 font-medium">
-              Municipality of San Jose, Batangas
-            </p>
-              <p className="text-base md:text-lg text-white/90 mb-8 max-w-2xl mx-auto italic font-sans">
-              "Connect. Engage. Govern."
-            </p>
-              {/* Removed descriptive paragraph for a cleaner, more formal hero */}
-            
-            
+                <span className="text-xl sm:text-3xl md:text-4xl lg:text-5xl">Local Youth Development Office</span>
+              </h1>
+              <div className="mx-auto mb-4 sm:mb-6 h-px w-24 sm:w-32 bg-white/80" aria-hidden="true" />
+              <p className="font-sans text-base sm:text-lg md:text-xl text-white/95 mb-3 sm:mb-4 font-medium">
+                Municipality of San Jose, Batangas
+              </p>
+              <p className="text-sm sm:text-base md:text-lg text-white/90 mb-6 sm:mb-8 max-w-2xl mx-auto italic font-sans">
+                "Connect. Engage. Govern."
+              </p>
+            </div>
           </div>
-          </div>
-          <div className="h-[90px] shrink-0" aria-hidden="true" />
         </div>
       </section>
 
       {/* Active Survey - Single Card Container */}
-      <section className="relative z-20 -mt-28 md:-mt-40 lg:-mt-48 mb-10 md:mb-14">
+      <section className="relative z-20 -mt-12 md:-mt-16 lg:-mt-20 mb-10 md:mb-14">
         <div 
           ref={surveyBannerRef}
           className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 transition-all duration-1000 ease-out ${
@@ -831,80 +834,80 @@ const Home = () => {
           }`}
         >
           {/* Section header like About page */}
-          <div className="mb-10">
-            <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">Statistics</div>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">A Few Facts About Our Office</h2>
-            <p className="text-gray-600 max-w-3xl">Quick figures that reflect our work with the youth of San Jose, Batangas.</p>
-            <div className="mt-5 mb-10 h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+          <div className="mb-8 sm:mb-10">
+            <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2">Statistics</div>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">A Few Facts About Our Office</h2>
+            <p className="text-sm sm:text-base text-gray-600 max-w-3xl">Quick figures that reflect our work with the youth of San Jose, Batangas.</p>
+            <div className="mt-4 sm:mt-5 mb-6 sm:mb-8 lg:mb-10 h-[1px] sm:h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
           </div>
 
           {/* Cards grid like About page */}
           {statisticsLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
               {[1, 2, 3, 4].map((index) => (
                 <div key={index} className="group relative">
-                  <div className="relative rounded-3xl p-6 bg-gradient-to-br from-white via-gray-50/50 to-white ring-1 ring-gray-200 shadow-lg overflow-hidden">
+                  <div className="relative rounded-2xl sm:rounded-3xl p-4 sm:p-6 bg-gradient-to-br from-white via-gray-50/50 to-white ring-1 ring-gray-200 shadow-lg overflow-hidden">
                     <LoadingSpinner 
                       variant="spinner"
                       message="Loading..." 
                       size="sm"
                       color="blue"
-                      height="h-32"
+                      height="h-24 sm:h-32"
           />
         </div>
                 </div>
               ))}
             </div>
           ) : statisticsError ? (
-            <div className="flex items-center justify-center py-16">
+            <div className="flex items-center justify-center py-12 sm:py-16">
               <div className="text-center">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
               </div>
-                <p className="text-red-600 mb-2">Failed to load statistics</p>
-                <p className="text-gray-500 text-sm mb-4">Please try again</p>
+                <p className="text-red-600 mb-2 text-sm sm:text-base">Failed to load statistics</p>
+                <p className="text-gray-500 text-xs sm:text-sm mb-4">Please try again</p>
               <button
                 onClick={refreshStatistics}
-                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  className="inline-flex items-center px-3 py-2 sm:px-4 sm:py-2 bg-blue-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >
                   Retry
               </button>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 lg:gap-8">
               {kpis.map(({ label, value, suffix = '', icon: Icon, href }) => {
                 const CardContent = () => (
                   <div className="group relative">
                     {/* Glow background */}
-                    <div className="absolute -inset-2 rounded-3xl bg-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
+                    <div className="absolute -inset-1 sm:-inset-2 rounded-2xl sm:rounded-3xl bg-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
                     {/* Card */}
-                    <div className={`relative rounded-3xl p-6 bg-gradient-to-br from-white via-gray-50/50 to-white ring-1 ring-gray-200 shadow-lg transition-all duration-300 group-hover:shadow-xl group-hover:ring-gray-300 overflow-hidden ${
+                    <div className={`relative rounded-2xl sm:rounded-3xl p-3 sm:p-4 md:p-6 bg-gradient-to-br from-white via-gray-50/50 to-white ring-1 ring-gray-200 shadow-lg transition-all duration-300 group-hover:shadow-xl group-hover:ring-gray-300 overflow-hidden ${
                       href ? 'group-hover:scale-[1.02] cursor-pointer' : ''
                     }`}>
                       {/* Card background pattern */}
                       <div className="absolute inset-0 opacity-5">
-                        <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-[#24345A] to-transparent rounded-full -translate-y-10 translate-x-10" />
-                        <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-[#24345A] to-transparent rounded-full translate-y-8 -translate-x-8" />
+                        <div className="absolute top-0 right-0 w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-gradient-to-br from-[#24345A] to-transparent rounded-full -translate-y-6 translate-x-6 sm:-translate-y-8 sm:translate-x-8 md:-translate-y-10 md:translate-x-10" />
+                        <div className="absolute bottom-0 left-0 w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-gradient-to-tr from-[#24345A] to-transparent rounded-full translate-y-4 -translate-x-4 sm:translate-y-6 sm:-translate-x-6 md:translate-y-8 md:-translate-x-8" />
                       </div>
                       <div className="relative z-10">
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-10 h-10 rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
-                            <Icon className="w-5 h-5" />
+                        <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3 md:mb-4">
+                          <div className="w-7 h-7 sm:w-8 sm:h-8 md:w-10 md:h-10 rounded-lg sm:rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
+                            <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5" />
                           </div>
-                          <span className="inline-flex items-center px-2.5 py-0.5 text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">Stat</span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-0.5 md:px-2.5 md:py-0.5 text-[9px] sm:text-[10px] md:text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">Stat</span>
                     </div>
-                        <h3 className="mt-3 text-xl font-semibold text-gray-900">{label}</h3>
-                        <div className="mt-4 text-3xl font-bold text-[#24345A]">
+                        <h3 className="mt-1 sm:mt-2 md:mt-3 text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-gray-900 leading-tight">{label}</h3>
+                        <div className="mt-2 sm:mt-3 md:mt-4 text-xl sm:text-2xl md:text-3xl font-bold text-[#24345A]">
                         <AnimatedNumber value={value} suffix={suffix} />
                         </div>
-                        <div className="mt-6 relative inline-flex items-center text-gray-400 group-hover:text-[#24345A] transition-colors w-32">
-                          <span className="absolute left-0 text-sm font-medium opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100">
+                        <div className="mt-3 sm:mt-4 md:mt-6 relative inline-flex items-center text-gray-400 group-hover:text-[#24345A] transition-colors w-20 sm:w-24 md:w-32">
+                          <span className="absolute left-0 text-[10px] sm:text-xs md:text-sm font-medium opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100">
                             {href ? 'View details' : 'Information'}
                           </span>
-                          <ArrowRight className="w-5 h-5 transform transition-transform duration-200 group-hover:translate-x-20" />
+                          <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 transform transition-transform duration-200 group-hover:translate-x-12 sm:group-hover:translate-x-16 md:group-hover:translate-x-20" />
                         </div>
                       </div>
                     </div>
@@ -943,36 +946,36 @@ const Home = () => {
           }`}
         >
           {/* Section header */}
-          <div className="mb-12">
-            <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-4">Featured</div>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Programs & Announcements</h2>
-            <p className="text-gray-600 max-w-3xl text-lg">Stay updated with our latest programs, events, and important announcements for the youth community.</p>
+          <div className="mb-8 sm:mb-10 lg:mb-12">
+            <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2 sm:mb-3 lg:mb-4">Featured</div>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3 lg:mb-4">Programs & Announcements</h2>
+            <p className="text-sm sm:text-base lg:text-lg text-gray-600 max-w-3xl">Stay updated with our latest programs, events, and important announcements for the youth community.</p>
           </div>
 
           {/* Loading State */}
           {loadingFeatured && (
             <div className="relative">
-              <div className="grid grid-cols-12 gap-4 items-center">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 sm:gap-4 items-center">
                 {/* Left placeholder */}
-                <div className="col-span-2 hidden md:block">
-                  <div className="relative rounded-2xl overflow-hidden bg-white ring-1 ring-gray-200 shadow-sm">
-                    <div className="h-72 md:h-80 lg:h-[22rem] bg-gray-100">
+                <div className="col-span-2 hidden lg:block">
+                  <div className="relative rounded-xl sm:rounded-2xl overflow-hidden bg-white ring-1 ring-gray-200 shadow-sm">
+                    <div className="h-64 sm:h-72 md:h-80 lg:h-[22rem] bg-gray-100">
                       <div className="w-full h-full bg-gradient-to-r from-gray-100 via-gray-200 to-gray-100 animate-[shimmer_1.5s_infinite] bg-[length:200%_100%]" />
               </div>
                   </div>
                 </div>
                 {/* Center placeholder */}
-                <div className="col-span-12 md:col-span-8">
-                  <div className="relative rounded-2xl overflow-hidden bg-white ring-1 ring-gray-200 shadow-sm">
-                    <div className="h-96 md:h-[28rem] bg-gray-100">
+                <div className="col-span-12 lg:col-span-8">
+                  <div className="relative rounded-xl sm:rounded-2xl overflow-hidden bg-white ring-1 ring-gray-200 shadow-sm">
+                    <div className="h-80 sm:h-96 md:h-[28rem] bg-gray-100">
                       <div className="w-full h-full bg-gradient-to-r from-gray-100 via-gray-200 to-gray-100 animate-[shimmer_1.5s_infinite] bg-[length:200%_100%]" />
                     </div>
                   </div>
                 </div>
                 {/* Right placeholder */}
-                <div className="col-span-2 hidden md:block">
-                  <div className="relative rounded-2xl overflow-hidden bg-white ring-1 ring-gray-200 shadow-sm">
-                    <div className="h-72 md:h-80 lg:h-[22rem] bg-gray-100">
+                <div className="col-span-2 hidden lg:block">
+                  <div className="relative rounded-xl sm:rounded-2xl overflow-hidden bg-white ring-1 ring-gray-200 shadow-sm">
+                    <div className="h-64 sm:h-72 md:h-80 lg:h-[22rem] bg-gray-100">
                       <div className="w-full h-full bg-gradient-to-r from-gray-100 via-gray-200 to-gray-100 animate-[shimmer_1.5s_infinite] bg-[length:200%_100%]" />
                     </div>
                   </div>
@@ -1138,19 +1141,19 @@ const Home = () => {
                 </div>
 
                 {/* Navigation Controls */}
-                <div className="flex justify-center mt-8">
-                  <div className="flex items-center bg-gray-900/90 text-white rounded-full shadow-lg px-5 py-2.5 gap-4">
+                <div className="flex justify-center mt-6 sm:mt-8">
+                  <div className="flex items-center bg-gray-900/90 text-white rounded-full shadow-lg px-3 py-1.5 sm:px-4 sm:py-2 gap-2 sm:gap-3">
                     <button
                       onClick={() => {
                         const newIndex = currentFeatured === 0 ? featuredContent.length - 1 : currentFeatured - 1;
                         navigateToCard(newIndex);
                       }}
-                      className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                      className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors"
                       aria-label="Previous"
                     >
-                      <ArrowRight className="w-4 h-4 rotate-180" />
+                      <ArrowRight className="w-3 h-3 sm:w-4 sm:h-4 rotate-180" />
                     </button>
-                    <div className="text-sm font-semibold tracking-wide">
+                    <div className="text-xs sm:text-sm font-semibold tracking-wide">
                       {currentFeatured + 1} / {featuredContent.length}
                     </div>
                     <button
@@ -1158,10 +1161,10 @@ const Home = () => {
                         const newIndex = (currentFeatured + 1) % featuredContent.length;
                         navigateToCard(newIndex);
                       }}
-                      className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                      className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors"
                       aria-label="Next"
                     >
-                      <ArrowRight className="w-4 h-4" />
+                      <ArrowRight className="w-3 h-3 sm:w-4 sm:h-4" />
                     </button>
                   </div>
                 </div>
@@ -1205,15 +1208,15 @@ const Home = () => {
           }`}
         >
           {/* Section header like About page */}
-          <div className="mb-10">
-            <div className="inline-flex items-center px-3 py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-xs font-semibold uppercase tracking-wider mb-2">Our Services</div>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Comprehensive Youth Services</h2>
-            <p className="text-gray-600 max-w-3xl">Comprehensive youth development services designed to empower and engage the young people of San Jose, Batangas.</p>
-            <div className="mt-5 mb-10 h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
+          <div className="mb-8 sm:mb-10">
+            <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2 sm:mb-3">Our Services</div>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3">Comprehensive Youth Services</h2>
+            <p className="text-sm sm:text-base text-gray-600 max-w-3xl">Comprehensive youth development services designed to empower and engage the young people of San Jose, Batangas.</p>
+            <div className="mt-4 sm:mt-5 mb-6 sm:mb-8 lg:mb-10 h-[1px] sm:h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
           </div>
 
           {/* Cards grid like About page */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             {[
               { icon: BookOpen, title: 'Youth Programs', desc: 'Educational and skill development programs to help youth reach their potential.', href: '/programs' },
               { icon: Users, title: 'SK Governance', desc: 'Sangguniang Kabataan leadership and governance training for young leaders.', href: '/sk-officials' },
@@ -1221,20 +1224,20 @@ const Home = () => {
             ].map(({ icon: Icon, title, desc, href }) => (
               <Link key={title} to={href} className="group relative block" aria-label={`${title} - Learn more`}>
                 {/* Glow background */}
-                <div className="absolute -inset-2 rounded-3xl bg-gradient-to-br from-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
+                <div className="absolute -inset-1 sm:-inset-2 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
                 {/* Card */}
-                <div className="relative rounded-3xl p-6 bg-gray-50 ring-1 ring-gray-200 shadow-sm transition-shadow duration-200 group-hover:shadow-md">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
-                      <Icon className="w-5 h-5" />
+                <div className="relative rounded-2xl sm:rounded-3xl p-4 sm:p-6 bg-gray-50 ring-1 ring-gray-200 shadow-sm transition-shadow duration-200 group-hover:shadow-md">
+                  <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
+                      <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">Service</span>
+                    <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 sm:py-0.5 text-[10px] sm:text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200">Service</span>
             </div>
-                  <h3 className="mt-3 text-xl font-semibold text-gray-900">{title}</h3>
-                  <p className="mt-2 text-gray-600 text-sm leading-relaxed">{desc}</p>
-                  <div className="mt-6 relative inline-flex items-center text-gray-400 group-hover:text-[#24345A] transition-colors w-32">
-                    <span className="absolute left-0 text-sm font-medium opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100">Learn more</span>
-                    <ArrowRight className="w-5 h-5 transform transition-transform duration-200 group-hover:translate-x-20" />
+                  <h3 className="mt-2 sm:mt-3 text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-gray-900">{title}</h3>
+                  <p className="mt-1 sm:mt-2 text-gray-600 text-xs sm:text-sm leading-relaxed">{desc}</p>
+                  <div className="mt-4 sm:mt-6 relative inline-flex items-center text-gray-400 group-hover:text-[#24345A] transition-colors w-24 sm:w-32">
+                    <span className="absolute left-0 text-xs sm:text-sm font-medium opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100">Learn more</span>
+                    <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 transform transition-transform duration-200 group-hover:translate-x-16 sm:group-hover:translate-x-20" />
               </div>
             </div>
               </Link>
