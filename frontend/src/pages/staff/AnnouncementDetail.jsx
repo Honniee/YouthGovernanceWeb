@@ -129,6 +129,14 @@ const AnnouncementDetail = () => {
     });
   };
 
+  const formatDateOnly = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
   const capitalizeStatus = (status) => {
     if (!status) return '';
     return status.charAt(0).toUpperCase() + status.slice(1);
@@ -343,6 +351,20 @@ const AnnouncementDetail = () => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
 
+  // Helper function to convert relative URLs to full URLs
+  const getFileUrl = (path) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+    if (!base) {
+      // sensible dev fallback if env not set
+      if (window.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+        base = 'http://localhost:3001';
+      }
+    }
+    return `${base}${path}`;
+  };
+
   const getFallbackImage = (category, title) => {
     const key = (category || '').toString().toLowerCase();
     const label = (title || '').trim() || (category ? String(category) : 'LYDO');
@@ -491,7 +513,7 @@ const AnnouncementDetail = () => {
             {/* Image */}
             <div className="relative aspect-[16/9] overflow-hidden">
               <img
-                src={announcement.image_url || getFallbackImage(announcement.category, announcement.title)}
+                src={announcement.image_url ? getFileUrl(announcement.image_url) : getFallbackImage(announcement.category, announcement.title)}
                 alt={announcement.title}
                 className="w-full h-full object-cover"
                 loading="lazy"
@@ -534,11 +556,11 @@ const AnnouncementDetail = () => {
                 <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-600 mb-4">
                   <div className="flex items-center">
                     <User className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
-                    <span>By {announcement.author_name || 'LYDO Staff'}</span>
+                    <span>By {announcement.creator_name || announcement.author_name || 'LYDO Staff'}</span>
                   </div>
                   <div className="flex items-center">
                     <Calendar className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
-                    <span>Published {formatDate(announcement.published_at)}</span>
+                    <span>Published {formatDateOnly(announcement.published_at)}</span>
                   </div>
                 </div>
 

@@ -26,11 +26,12 @@ import {
   Activity,
   Award
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   getAnnouncements, 
   deleteAnnouncement, 
   bulkUpdateAnnouncementStatus,
+  updateAnnouncement,
   getAnnouncementStatistics 
 } from '../../services/announcementsService';
 
@@ -48,6 +49,7 @@ import {
   BulkActionsBar,
   LoadingSpinner
 } from '../../components/portal_main_content';
+import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 
 // Note: Dummy data removed - now using real API calls
 
@@ -167,8 +169,24 @@ const capitalizeCategory = (category) => {
   return category.charAt(0).toUpperCase() + category.slice(1);
 };
 
+// Helper function to convert relative URLs to full URLs
+const getFileUrl = (path) => {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+  if (!base) {
+    // sensible dev fallback if env not set
+    if (window.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+      base = 'http://localhost:3001';
+    }
+  }
+  return `${base}${path}`;
+};
+
 const Announcements = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const confirmation = (useConfirmation && useConfirmation()) || { showConfirmation: async () => true, hideConfirmation: () => {}, setLoading: () => {}, modalProps: {} };
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -187,8 +205,10 @@ const Announcements = () => {
   const [statisticsLoading, setStatisticsLoading] = useState(true);
 
   // Sort / Filter (advanced)
-  const [authorFilter, setAuthorFilter] = useState('all');
-  const [tagFilter, setTagFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [featuredFilter, setFeaturedFilter] = useState('all');
+  const [pinnedFilter, setPinnedFilter] = useState('all');
+  const [dateRangeFilter, setDateRangeFilter] = useState({ start: '', end: '' });
   const [sortBy, setSortBy] = useState('publishAt');
   const [sortOrder, setSortOrder] = useState('desc');
   const sortModal = useSortModal('publishAt', 'desc', (by, order) => {
@@ -198,9 +218,25 @@ const Announcements = () => {
   });
   const filterTriggerRef = useRef(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showBulkActionsModal, setShowBulkActionsModal] = useState(false);
+  // Auto-publish tracking to avoid reprocessing the same IDs
+  const autoPublishProcessedRef = useRef(new Set());
+  // Guard to ensure flash toast is processed only once
+  const flashHandledRef = useRef(false);
 
   // Fetch announcements data
   useEffect(() => {
+    // Handle flash toast from navigation state (once)
+    if (!flashHandledRef.current && location?.state?.flash) {
+      flashHandledRef.current = true;
+      const { type, title, message } = location.state.flash;
+      if (type === 'success') showSuccessToast && showSuccessToast(title || 'Success', message || '');
+      else if (type === 'error') showErrorToast && showErrorToast(title || 'Error', message || '');
+      else showInfoToast && showInfoToast(title || 'Info', message || '');
+      // Clear flash state so it doesn't reappear on back/forward
+      navigate('.', { replace: true, state: {} });
+    }
+
     const fetchAnnouncements = async () => {
       try {
         setLoading(true);
@@ -211,6 +247,11 @@ const Announcements = () => {
           limit: itemsPerPage,
           status: statusFilter === 'all' ? undefined : statusFilter,
           search: searchQuery || undefined,
+          category: categoryFilter === 'all' ? undefined : categoryFilter,
+          is_featured: featuredFilter === 'all' ? undefined : featuredFilter === 'featured',
+          is_pinned: pinnedFilter === 'all' ? undefined : pinnedFilter === 'pinned',
+          date_from: dateRangeFilter.start || undefined,
+          date_to: dateRangeFilter.end || undefined,
           sortBy: sortBy === 'publishAt' ? 'published_at' : sortBy,
           sortOrder: sortOrder.toUpperCase()
         };
@@ -235,7 +276,48 @@ const Announcements = () => {
     };
 
     fetchAnnouncements();
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery, sortBy, sortOrder]);
+  }, [location?.state?.flash, currentPage, itemsPerPage, statusFilter, searchQuery, categoryFilter, featuredFilter, pinnedFilter, dateRangeFilter, sortBy, sortOrder]);
+
+  // Auto-publish sweep: publish drafts whose published_at is due
+  useEffect(() => {
+    const runAutoPublishIfNeeded = async () => {
+      if (!announcements || announcements.length === 0) return;
+
+      // Find drafts that should be published now (published_at <= now)
+      const now = new Date();
+      const dueDrafts = announcements.filter(a => {
+        if (!a) return false;
+        const isDraft = (a.status || '').toString().toLowerCase() === 'draft';
+        if (!isDraft) return false;
+        if (!a.published_at) return false; // Only auto-publish if user set a date
+        const due = new Date(a.published_at) <= now;
+        const id = a.announcement_id || a.id;
+        const alreadyProcessed = id && autoPublishProcessedRef.current.has(id);
+        return due && !alreadyProcessed;
+      });
+
+      if (dueDrafts.length === 0) return;
+      try {
+        for (const item of dueDrafts) {
+          const id = item.announcement_id || item.id;
+          if (!id) continue;
+          try {
+            await updateAnnouncement(id, { status: 'published' });
+            autoPublishProcessedRef.current.add(id);
+          } catch (e) {
+            // Continue with others even if one fails
+            console.error('Auto-publish failed for', id, e);
+          }
+        }
+        // Refresh after auto-publishing
+        await refreshData();
+      } catch (e) {
+        console.error('Auto-publish sweep error:', e);
+      }
+    };
+
+    runAutoPublishIfNeeded();
+  }, [announcements]);
 
   // Fetch statistics for tab counts
   useEffect(() => {
@@ -261,13 +343,19 @@ const Announcements = () => {
     fetchStatistics();
   }, []);
 
-  // Derived options
-  const authors = useMemo(() => ['all', ...Array.from(new Set(announcements.map(a => a.creator_name || a.author)))], [announcements]);
-  const tags = useMemo(() => {
-    const all = new Set();
-    announcements.forEach(a => (a.tags || []).forEach(t => all.add(t)));
-    return ['all', ...Array.from(all)];
-  }, [announcements]);
+  // Derived options - All possible categories
+  const categories = useMemo(() => {
+    // Define all possible categories in the system (matching the UI)
+    const allCategories = [
+      'projects',
+      'programs', 
+      'activities',
+      'meetings',
+      'achievement',
+      'announcements'
+    ];
+    return ['all', ...allCategories];
+  }, []);
 
   // Status counts - using real database statistics
   const statusCounts = useMemo(() => {
@@ -279,8 +367,8 @@ const Announcements = () => {
     };
   }, [statistics]);
 
-  const hasActiveFilters = (authorFilter !== 'all') || (tagFilter !== 'all');
-  const activeFilterCount = (authorFilter !== 'all' ? 1 : 0) + (tagFilter !== 'all' ? 1 : 0);
+  const hasActiveFilters = (categoryFilter !== 'all') || (featuredFilter !== 'all') || (pinnedFilter !== 'all') || (dateRangeFilter.start || dateRangeFilter.end);
+  const activeFilterCount = (categoryFilter !== 'all' ? 1 : 0) + (featuredFilter !== 'all' ? 1 : 0) + (pinnedFilter !== 'all' ? 1 : 0) + (dateRangeFilter.start || dateRangeFilter.end ? 1 : 0);
 
   // Since API handles filtering and pagination, we use announcements directly
   const paged = announcements;
@@ -295,7 +383,7 @@ const Announcements = () => {
   };
 
   const handleSelectAll = () => {
-    const allAnnouncementIds = paged.map(item => item.id).filter(Boolean);
+    const allAnnouncementIds = paged.map(item => item.announcement_id || item.id).filter(Boolean);
     setSelectedItems(selectedItems.length === allAnnouncementIds.length ? [] : allAnnouncementIds);
   };
 
@@ -355,7 +443,10 @@ const Announcements = () => {
   };
 
   const handleActionClick = async (action, item) => {
+    let modalUsed = false;
     try {
+      console.log('🎯 Action clicked:', action, 'for item:', item);
+      
       switch (action) {
         case 'view':
           navigate(`/staff/announcements/${item.announcement_id || item.id}`);
@@ -364,33 +455,141 @@ const Announcements = () => {
           navigate(`/staff/announcements/${item.announcement_id || item.id}/edit`);
           break;
         case 'publish':
+          // Confirm publish
+          {
+            const ok = await (confirmation.showConfirmation
+              ? confirmation.showConfirmation({
+                  title: 'Publish announcement?',
+                  message: 'This will make the announcement publicly visible.',
+                  confirmText: 'Publish',
+                  cancelText: 'Cancel',
+                  variant: 'success'
+                })
+              : Promise.resolve(true));
+            if (!ok) return;
+            modalUsed = true;
+            confirmation.setLoading && confirmation.setLoading(true);
+          }
+          
           // Update status to published
-          await bulkUpdateAnnouncementStatus([item.announcement_id || item.id], 'published');
+          console.log('🔄 Publishing announcement:', item.announcement_id || item.id);
+          const publishResult = await updateAnnouncement(item.announcement_id || item.id, { status: 'published' });
+          console.log('📊 Publish result:', publishResult);
           // Refresh data and statistics
           await refreshData();
+          showSuccessToast && showSuccessToast('Published', 'Announcement published successfully');
           break;
         case 'archive':
+          // Confirm archive
+          {
+            const ok = await (confirmation.showConfirmation
+              ? confirmation.showConfirmation({
+                  title: 'Archive announcement?',
+                  message: 'This will move the announcement to Archived. You can restore it later.',
+                  confirmText: 'Archive',
+                  cancelText: 'Cancel',
+                  variant: 'warning'
+                })
+              : Promise.resolve(true));
+            if (!ok) return;
+            modalUsed = true;
+            confirmation.setLoading && confirmation.setLoading(true);
+          }
+          
           // Update status to archived
-          await bulkUpdateAnnouncementStatus([item.announcement_id || item.id], 'archived');
+          console.log('🔄 Archiving announcement:', item.announcement_id || item.id);
+          try {
+            const archiveResult = await updateAnnouncement(item.announcement_id || item.id, { status: 'archived' });
+            console.log('📊 Archive result:', archiveResult);
+            console.log('✅ Archive operation completed successfully');
           // Refresh data and statistics
           await refreshData();
+            showSuccessToast && showSuccessToast('Archived', 'Announcement archived successfully');
+          } catch (archiveError) {
+            console.error('❌ Archive operation failed:', archiveError);
+            throw archiveError; // Re-throw to be caught by outer catch
+          }
           break;
         case 'restore':
+          // Confirm restore
+          {
+            const ok = await (confirmation.showConfirmation
+              ? confirmation.showConfirmation({
+                  title: 'Restore announcement?',
+                  message: 'This will restore the announcement from Archived to Published.',
+                  confirmText: 'Restore',
+                  cancelText: 'Cancel',
+                  variant: 'success'
+                })
+              : Promise.resolve(true));
+            if (!ok) return;
+            modalUsed = true;
+            confirmation.setLoading && confirmation.setLoading(true);
+          }
+          
           // Update status to published
-          await bulkUpdateAnnouncementStatus([item.announcement_id || item.id], 'published');
+          console.log('🔄 Restoring announcement:', item.announcement_id || item.id);
+          const restoreResult = await updateAnnouncement(item.announcement_id || item.id, { status: 'published' });
+          console.log('📊 Restore result:', restoreResult);
           // Refresh data and statistics
           await refreshData();
+          showSuccessToast && showSuccessToast('Restored', 'Announcement restored successfully');
           break;
         case 'delete':
+          // Confirm delete
+          {
+            const ok = await (confirmation.showConfirmation
+              ? confirmation.showConfirmation({
+                  title: 'Delete announcement?',
+                  message: 'This will permanently delete the announcement. This action cannot be undone.',
+                  confirmText: 'Delete',
+                  cancelText: 'Cancel',
+                  variant: 'danger'
+                })
+              : Promise.resolve(true));
+            if (!ok) return;
+            modalUsed = true;
+            confirmation.setLoading && confirmation.setLoading(true);
+          }
+          
           // Delete announcement
-          await deleteAnnouncement(item.announcement_id || item.id);
+          console.log('🔄 Deleting announcement:', item.announcement_id || item.id);
+          try {
+            const deleteResult = await deleteAnnouncement(item.announcement_id || item.id);
+            console.log('📊 Delete result:', deleteResult);
+            console.log('✅ Delete operation completed successfully');
           // Refresh data and statistics
           await refreshData();
+            showSuccessToast && showSuccessToast('Deleted', 'Announcement deleted successfully');
+          } catch (deleteError) {
+            console.error('❌ Delete operation failed:', deleteError);
+            throw deleteError; // Re-throw to be caught by outer catch
+          }
           break;
       }
     } catch (error) {
-      console.error(`Error performing ${action} action:`, error);
-      setError(`Failed to ${action} announcement`);
+      console.error(`❌ Error performing ${action} action:`, error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      // Check if it's actually a success response that's being treated as an error
+      if (error.response?.data?.success === true) {
+        console.log('✅ Operation actually succeeded, refreshing data...');
+        await refreshData();
+        showSuccessToast && showSuccessToast('Completed', `Announcement ${action}d successfully`);
+        return;
+      }
+      
+      showErrorToast && showErrorToast('Operation failed', `Failed to ${action} announcement. Please try again.`);
+    } finally {
+      // Ensure modal loading is cleared and modal closed if used
+      if (modalUsed) {
+        confirmation.setLoading && confirmation.setLoading(false);
+        confirmation.hideConfirmation && confirmation.hideConfirmation();
+      }
     }
   };
 
@@ -403,6 +602,11 @@ const Announcements = () => {
         limit: itemsPerPage,
         status: statusFilter === 'all' ? undefined : statusFilter,
         search: searchQuery || undefined,
+        category: categoryFilter === 'all' ? undefined : categoryFilter,
+        is_featured: featuredFilter === 'all' ? undefined : featuredFilter === 'featured',
+        is_pinned: pinnedFilter === 'all' ? undefined : pinnedFilter === 'pinned',
+        date_from: dateRangeFilter.start || undefined,
+        date_to: dateRangeFilter.end || undefined,
         sortBy: sortBy === 'publishAt' ? 'published_at' : sortBy,
         sortOrder: sortOrder.toUpperCase()
       };
@@ -425,6 +629,89 @@ const Announcements = () => {
       console.error('Error refreshing data:', error);
     } finally {
       setStatisticsLoading(false);
+    }
+  };
+
+  // Bulk update handler
+  const handleBulkUpdate = async (action) => {
+    if (selectedItems.length === 0) {
+      showInfoToast && showInfoToast('No items selected', 'Please select at least one announcement');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      let newStatus;
+      let actionText;
+      
+      switch (action) {
+        case 'archive':
+          newStatus = 'archived';
+          actionText = 'archived';
+          break;
+        case 'publish':
+          newStatus = 'published';
+          actionText = 'published';
+          break;
+        case 'restore':
+          newStatus = 'published';
+          actionText = 'restored';
+          break;
+        case 'delete':
+          // Handle bulk delete with confirmation
+          {
+            const ok = await (confirmation.showConfirmation
+              ? confirmation.showConfirmation({
+                  title: 'Delete announcements?',
+                  message: `This will permanently delete ${selectedItems.length} announcement(s). This action cannot be undone.`,
+                  confirmText: 'Delete',
+                  cancelText: 'Cancel',
+                  variant: 'danger'
+                })
+              : Promise.resolve(true));
+            if (!ok) return;
+            confirmation.setLoading && confirmation.setLoading(true);
+          }
+          showInfoToast && showInfoToast('Deleting…', 'Please wait while we delete the selected announcements');
+          
+          for (const id of selectedItems) {
+            await deleteAnnouncement(id);
+          }
+          actionText = 'deleted';
+          break;
+        default:
+          return;
+      }
+
+      if (action !== 'delete') {
+        // Use individual updates instead of bulk update to avoid backend issues
+        console.log(`🔄 Performing individual ${action} for ${selectedItems.length} announcements`);
+        
+        for (const id of selectedItems) {
+          try {
+            await updateAnnouncement(id, { status: newStatus });
+            console.log(`✅ ${action} successful for announcement: ${id}`);
+          } catch (individualError) {
+            console.error(`❌ Failed to ${action} announcement ${id}:`, individualError);
+            // Continue with other announcements even if one fails
+          }
+        }
+      }
+
+      // Clear selection and refresh data
+      setSelectedItems([]);
+      await refreshData();
+      
+      showSuccessToast && showSuccessToast('Completed', `Successfully ${actionText} ${selectedItems.length} announcement(s)`);
+      
+    } catch (error) {
+      console.error(`Error performing bulk ${action}:`, error);
+      showErrorToast && showErrorToast('Bulk operation failed', `Failed to ${action} announcements. Please try again.`);
+    } finally {
+      setLoading(false);
+      confirmation.setLoading && confirmation.setLoading(false);
+      confirmation.hideConfirmation && confirmation.hideConfirmation();
     }
   };
  
@@ -573,9 +860,8 @@ const Announcements = () => {
                 triggerRef={sortModal.triggerRef}
             title="Sort Announcements"
                 sortFields={[
-              { value: 'publishAt', label: 'Date' },
-                  { value: 'title', label: 'Title' },
-              { value: 'views', label: 'Views' }
+              { value: 'publishAt', label: 'Published Date' },
+                  { value: 'title', label: 'Title' }
             ]}
             sortBy={sortBy}
             sortOrder={sortOrder}
@@ -593,30 +879,67 @@ const Announcements = () => {
             title="Filter Announcements"
                 filters={[
                   {
-                id: 'author',
-                label: 'Author',
+                    id: 'category',
+                    label: 'Category',
                     type: 'select',
-                placeholder: 'All Authors',
-                options: authors.slice(1).map(a => ({ value: a, label: a }))
-              },
-              {
-                id: 'tag',
-                label: 'Tag',
+                    placeholder: 'All Categories',
+                    options: categories.slice(1).map(c => ({ 
+                      value: c, 
+                      label: c.charAt(0).toUpperCase() + c.slice(1).replace('_', ' ')
+                    }))
+                  },
+                  {
+                    id: 'featured',
+                    label: 'Featured',
                     type: 'select',
-                placeholder: 'All Tags',
-                options: tags.slice(1).map(t => ({ value: t, label: t }))
-              }
-            ]}
-            values={{ author: authorFilter === 'all' ? '' : authorFilter, tag: tagFilter === 'all' ? '' : tagFilter }}
-            onChange={() => {}}
+                    placeholder: 'All Announcements',
+                    options: [
+                      { value: 'featured', label: 'Featured Only' },
+                      { value: 'not_featured', label: 'Not Featured' }
+                    ]
+                  },
+                  {
+                    id: 'pinned',
+                    label: 'Pinned',
+                    type: 'select',
+                    placeholder: 'All Announcements',
+                    options: [
+                      { value: 'pinned', label: 'Pinned Only' },
+                      { value: 'not_pinned', label: 'Not Pinned' }
+                    ]
+                  },
+                  {
+                    id: 'dateRange',
+                    label: 'Published Date Range',
+                    type: 'daterange',
+                    placeholder: 'Select published date range'
+                  }
+                ]}
+                values={{ 
+                  category: categoryFilter === 'all' ? '' : categoryFilter, 
+                  featured: featuredFilter === 'all' ? '' : featuredFilter,
+                  pinned: pinnedFilter === 'all' ? '' : pinnedFilter,
+                  dateRange: dateRangeFilter
+                }}
+                onChange={(vals) => {
+                  // Update the values immediately when changed
+                  setCategoryFilter(vals.category || 'all');
+                  setFeaturedFilter(vals.featured || 'all');
+                  setPinnedFilter(vals.pinned || 'all');
+                  setDateRangeFilter(vals.dateRange || { start: '', end: '' });
+                }}
             onApply={(vals) => {
-              setAuthorFilter(vals.author || 'all');
-              setTagFilter(vals.tag || 'all');
+                  setCategoryFilter(vals.category || 'all');
+                  setFeaturedFilter(vals.featured || 'all');
+                  setPinnedFilter(vals.pinned || 'all');
+                  setDateRangeFilter(vals.dateRange || { start: '', end: '' });
                   setCurrentPage(1);
                 }}
             onClear={() => {
-              setAuthorFilter('all');
-              setTagFilter('all');
+                  setCategoryFilter('all');
+                  setFeaturedFilter('all');
+                  setPinnedFilter('all');
+                  setDateRangeFilter({ start: '', end: '' });
                   setCurrentPage(1);
                 }}
                 applyButtonText="Apply Filters"
@@ -629,7 +952,7 @@ const Announcements = () => {
               <label className="flex items-center">
                         <input
                           type="checkbox"
-                  checked={paged.length > 0 && selectedItems.length === paged.length}
+                  checked={paged.length > 0 && selectedItems.length === paged.length && paged.every(item => selectedItems.includes(item.announcement_id || item.id))}
                           onChange={handleSelectAll}
                   className="rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
                 />
@@ -642,12 +965,7 @@ const Announcements = () => {
               selectedCount={selectedItems.length}
               itemName="announcement"
               itemNamePlural="announcements"
-              onBulkAction={() => console.log('Bulk action clicked')}
-              exportConfig={{
-                formats: ['csv'],
-                onExport: (format) => console.log('Export selected:', format),
-                isExporting: false
-              }}
+              onBulkAction={() => setShowBulkActionsModal(true)}
               primaryColor="blue"
             />
 
@@ -684,7 +1002,7 @@ const Announcements = () => {
               <p className="text-gray-600">Try adjusting filters or search terms.</p>
                   </div>
                 ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
               {paged.map(a => {
                 const isPinned = a.is_pinned;
                 const isFeatured = a.is_featured;
@@ -693,8 +1011,9 @@ const Announcements = () => {
                   Icon: getCategoryIcon(a.category || 'announcements')
                 };
                 
+                const key = a.announcement_id || a.id || `${a.title}-${a.updated_at}`;
                 return (
-                  <div key={a.id} className="group relative h-full">
+                  <div key={key} className="group relative h-full">
                     {/* Glow effect for featured items */}
                     {isFeatured && (
                       <div className="absolute -inset-2 rounded-2xl bg-gradient-to-br from-yellow-300/30 via-orange-200/25 to-red-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
@@ -717,6 +1036,9 @@ const Announcements = () => {
                                 e.stopPropagation();
                               handleSelectItem(a.announcement_id || a.id);
                               }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                              }}
                             className="w-4 h-4 text-blue-600 bg-white/90 backdrop-blur-sm border-gray-300 rounded-md focus:ring-blue-500 focus:ring-2 shadow-sm"
                             />
                         </label>
@@ -726,7 +1048,7 @@ const Announcements = () => {
                       <div className="absolute top-3 right-3 z-20">
                         <ActionMenu
                           items={getActionMenuItems(a)}
-                          onActionClick={(action) => handleActionClick(action, a)}
+                          onAction={(action) => handleActionClick(action, a)}
                           trigger={
                                 <button
                               onClick={(e) => e.stopPropagation()}
@@ -740,7 +1062,7 @@ const Announcements = () => {
                       {/* Image Section */}
                       <div className="relative overflow-hidden flex-shrink-0 aspect-[16/9]">
                         <img
-                          src={a.image_url || getFallbackImage(a.category || 'announcements', a.title)}
+                          src={a.image_url ? getFileUrl(a.image_url) : getFallbackImage(a.category || 'announcements', a.title)}
                           alt={a.title || 'Announcement image'}
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                           loading="lazy"
@@ -760,18 +1082,19 @@ const Announcements = () => {
                           </div>
                               </div>
                         
-                        {/* Featured/Pinned Badge - Bottom Right */}
+                        {/* Featured/Pinned Badges - Bottom Right */}
                         {(isFeatured || isPinned) && (
-                          <div className="absolute bottom-2 right-2">
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center shadow-sm border border-white/20 ${
-                              isFeatured ? 'bg-yellow-400/90 backdrop-blur-sm' : 'bg-red-500/90 backdrop-blur-sm'
-                            }`}>
-                              {isFeatured ? (
+                          <div className="absolute bottom-2 right-2 flex items-center space-x-1">
+                            {isFeatured && (
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center shadow-sm border border-white/20 bg-yellow-400/90 backdrop-blur-sm">
                                 <Star className="w-3 h-3 text-yellow-800" />
-                              ) : (
+                              </div>
+                            )}
+                            {isPinned && (
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center shadow-sm border border-white/20 bg-red-500/90 backdrop-blur-sm">
                                 <Pin className="w-3 h-3 text-white" />
+                              </div>
                 )}
-              </div>
             </div>
             )}
           </div>
@@ -884,6 +1207,92 @@ const Announcements = () => {
             />
         </div>
       )}
+      </div>
+
+      {/* Bulk Actions Modal */}
+      {showBulkActionsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4" onClick={() => setShowBulkActionsModal(false)}>
+          <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-xl max-w-md w-full mx-4 border border-gray-200/70" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">Bulk Actions</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {selectedItems.length} announcement{selectedItems.length !== 1 ? 's' : ''} selected
+              </p>
+            </div>
+            
+            <div className="px-6 py-4 space-y-3">
+              <button
+                onClick={() => {
+                  handleBulkUpdate('archive');
+                  setShowBulkActionsModal(false);
+                }}
+                className="w-full flex items-center px-4 py-3 text-left text-gray-700 hover:bg-orange-50 rounded-lg transition-all duration-200 hover:shadow-sm border border-transparent hover:border-orange-200"
+              >
+                <Archive className="w-5 h-5 mr-3 text-orange-500" />
+                <div>
+                  <div className="font-medium">Archive</div>
+                  <div className="text-sm text-gray-500">Move to archived status</div>
+                </div>
+              </button>
+              
+              <button
+                onClick={() => {
+                  handleBulkUpdate('publish');
+                  setShowBulkActionsModal(false);
+                }}
+                className="w-full flex items-center px-4 py-3 text-left text-gray-700 hover:bg-green-50 rounded-lg transition-all duration-200 hover:shadow-sm border border-transparent hover:border-green-200"
+              >
+                <Check className="w-5 h-5 mr-3 text-green-500" />
+                <div>
+                  <div className="font-medium">Publish</div>
+                  <div className="text-sm text-gray-500">Make announcements public</div>
+                </div>
+              </button>
+              
+              <button
+                onClick={() => {
+                  handleBulkUpdate('restore');
+                  setShowBulkActionsModal(false);
+                }}
+                className="w-full flex items-center px-4 py-3 text-left text-gray-700 hover:bg-blue-50 rounded-lg transition-all duration-200 hover:shadow-sm border border-transparent hover:border-blue-200"
+              >
+                <ArrowRight className="w-5 h-5 mr-3 text-blue-500" />
+                <div>
+                  <div className="font-medium">Restore</div>
+                  <div className="text-sm text-gray-500">Restore from archived</div>
+                </div>
+              </button>
+              
+              <button
+                onClick={() => {
+                  handleBulkUpdate('delete');
+                  setShowBulkActionsModal(false);
+                }}
+                className="w-full flex items-center px-4 py-3 text-left text-red-700 hover:bg-red-50 rounded-lg transition-all duration-200 hover:shadow-sm border border-transparent hover:border-red-200"
+              >
+                <Trash2 className="w-5 h-5 mr-3 text-red-500" />
+                <div>
+                  <div className="font-medium">Delete</div>
+                  <div className="text-sm text-gray-500">Permanently remove announcements</div>
+                </div>
+              </button>
+            </div>
+            
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowBulkActionsModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Toast container */}
+      <ToastContainer position="top-right" maxToasts={5} />
+      <div className="relative z-[99999]">
+        <ConfirmationModal {...(confirmation?.modalProps || {})} />
       </div>
     </div>
   );

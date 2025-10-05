@@ -140,7 +140,7 @@ const Barangays = () => {
   return (
     <PublicLayout>
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-[#24345A] via-[#1a2a47] to-[#0f1a2e] text-white -mt-16 sm:-mt-20 md:mt-0">
+      <section className="relative overflow-hidden bg-gradient-to-br from-[#24345A] via-[#1a2a47] to-[#0f1a2e] text-white">
         {/* Background decorative elements */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-10 w-32 h-32 bg-gradient-to-br from-white to-transparent rounded-full blur-xl" />

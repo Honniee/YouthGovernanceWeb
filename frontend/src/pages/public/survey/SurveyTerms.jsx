@@ -1,12 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  ShieldCheck, 
   FileText, 
-  ArrowRight, 
   ChevronDown, 
   ChevronUp,
-  ArrowLeft, 
   Mail, 
   User, 
   Shield, 
@@ -20,18 +17,17 @@ import {
   CheckCircle,
   AlertCircle,
   Phone,
-  MapPin
+  MapPin,
+  ArrowLeft
 } from 'lucide-react';
-import { 
-  SurveyLayout, 
-  SurveyHeader, 
-  Card, 
-  Button, 
-  Input, 
-  Select, 
-  RadioGroup,
-  SurveySummary 
-} from '../../../components/survey';
+import PublicLayout from '../../../components/layouts/PublicLayout';
+import SurveyLayout from '../../../components/layouts/SurveyLayout';
+import PageHero from '../../../components/website/PageHero';
+
+// Import hooks
+import { useReCaptcha } from '../../../hooks/useReCaptcha';
+import { useSurveySession } from '../../../hooks/useSurveySession';
+import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
 
 // Theme configuration
 const theme = {
@@ -102,55 +98,197 @@ const legalContent = {
 
 const SurveyTerms = () => {
   const navigate = useNavigate();
-  const [acceptedSections, setAcceptedSections] = useState({
-    terms: false,
-    privacy: false,
-    voluntary: false,
-    dataUse: false,
-    rights: false
-  });
+  const location = useLocation();
+  
+  // Survey session management
+  const { 
+    activeSurvey, 
+    hasActiveSurvey, 
+    isLoading: surveyLoading,
+    formData,
+    updateFormData,
+    isSaving,
+    error: sessionError,
+    clearErrors,
+    initializeSession
+  } = useSurveySession();
 
-  const [viewedSections, setViewedSections] = useState({
-    terms: false,
-    privacy: false,
-    voluntary: false,
-    dataUse: false,
-    rights: false
-  });
-
-  const [expandedSections, setExpandedSections] = useState({});
-  const [allAccepted, setAllAccepted] = useState(false);
-  const [showMobileDetails, setShowMobileDetails] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState(null);
-
-  // Check if all sections are accepted and viewed
+  // reCAPTCHA verification guard
   useEffect(() => {
+    // Check if user has completed reCAPTCHA verification
+    const recaptchaVerified = sessionStorage.getItem('recaptcha_verified');
+    
+    if (!recaptchaVerified) {
+      console.log('🚫 No reCAPTCHA verification found, redirecting to survey landing');
+      navigate('/kk-survey', { replace: true });
+      return;
+    }
+    
+    // Check if verification is still valid (expires after 30 minutes)
+    const verificationTime = parseInt(recaptchaVerified);
+    const currentTime = Date.now();
+    const thirtyMinutes = 30 * 60 * 1000; // 30 minutes in milliseconds
+    
+    if (currentTime - verificationTime > thirtyMinutes) {
+      console.log('⏰ reCAPTCHA verification expired, redirecting to survey landing');
+      sessionStorage.removeItem('recaptcha_verified');
+      navigate('/kk-survey', { replace: true });
+      return;
+    }
+    
+    console.log('✅ reCAPTCHA verification valid, allowing access to terms page');
+  }, [navigate]);
+
+  // Local UI state
+  const [expandedSections, setExpandedSections] = useState({});
+  const [sessionInitialized, setSessionInitialized] = useState(false);
+  const [showProfileForm, setShowProfileForm] = useState(false);
+
+  // Get terms data from survey session or localStorage
+  const getTermsData = () => {
+    // First, try to get from survey session (if youth profile exists)
+    if (formData?.acceptedSections && formData?.viewedSections) {
+      console.log('📋 Found terms data in survey session');
+      return {
+        acceptedSections: formData.acceptedSections,
+        viewedSections: formData.viewedSections
+      };
+    }
+    
+    // Fallback to localStorage
+    try {
+      const savedTerms = localStorage.getItem('kk_survey_terms_temp');
+      if (savedTerms) {
+        console.log('📋 Found terms data in localStorage');
+        return JSON.parse(savedTerms);
+      }
+    } catch (error) {
+      console.error('Error parsing saved terms:', error);
+    }
+    
+    console.log('📋 No terms data found, using defaults');
+    return null;
+  };
+
+  const termsData = getTermsData();
+  
+  // ✅ FIXED: Use useState instead of constants for proper re-rendering
+  const [acceptedSections, setAcceptedSections] = useState(
+    termsData?.acceptedSections || {
+    terms: false,
+    privacy: false,
+    voluntary: false,
+    dataUse: false,
+    rights: false
+    }
+  );
+
+  const [viewedSections, setViewedSections] = useState(
+    termsData?.viewedSections || {
+    terms: false,
+    privacy: false,
+    voluntary: false,
+    dataUse: false,
+    rights: false
+    }
+  );
+
+  // Calculate if all sections are accepted and viewed
     const allSectionsAccepted = Object.values(acceptedSections).every(accepted => accepted);
     const allSectionsViewed = Object.values(viewedSections).every(viewed => viewed);
-    setAllAccepted(allSectionsAccepted && allSectionsViewed);
-  }, [acceptedSections, viewedSections]);
+  const allAccepted = allSectionsAccepted && allSectionsViewed;
 
-  // Auto-save functionality
+  // ✅ FIXED: Sync state with formData when it changes (from session restore)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsSaving(true);
+    if (formData?.acceptedSections && formData?.viewedSections) {
+      console.log('📋 Syncing state with formData from session');
+      setAcceptedSections(formData.acceptedSections);
+      setViewedSections(formData.viewedSections);
+    }
+  }, [formData]);
+
+  // Debug logging
+  useEffect(() => {
+    console.log('Terms data loaded:', { acceptedSections, viewedSections, termsData });
+    console.log('All sections accepted:', allSectionsAccepted);
+    console.log('All sections viewed:', allSectionsViewed);
+    console.log('All accepted (can continue):', allAccepted);
+  }, [acceptedSections, viewedSections, allSectionsAccepted, allSectionsViewed, allAccepted, termsData]);
+
+  // Auto-save is now handled by the survey session
+  // No need for local auto-save since updateFormData handles it
+
+  // Initialize session on component mount - but don't create youth profile yet
+  useEffect(() => {
+    const initializeSurveySession = async () => {
+      if (!hasActiveSurvey || sessionInitialized) return;
+
       try {
-        const draft = { 
-          terms: { 
-            acceptedSections, 
-            viewedSections, 
-            allAccepted 
-          } 
-        };
-        localStorage.setItem('kk_survey_terms_draft_v1', JSON.stringify(draft));
-        setLastSavedAt(new Date());
-      } finally {
-        setIsSaving(false);
+        // For terms page, we don't need to create a youth profile yet
+        // We just need to check if there's an active survey
+        console.log('✅ Survey terms page initialized with active survey');
+        setSessionInitialized(true);
+        
+        // Check if user has previously accepted terms
+        const termsData = getTermsData();
+        if (termsData) {
+          console.log('📋 Found previously saved terms:', termsData);
+        } else {
+          console.log('📋 No previously saved terms found');
+        }
+        
+      } catch (error) {
+        console.error('Failed to initialize survey session:', error);
+        setSessionInitialized(true); // Still allow user to proceed
       }
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [acceptedSections, viewedSections, allAccepted]);
+    };
+
+    initializeSurveySession();
+  }, [hasActiveSurvey, sessionInitialized, updateFormData]);
+
+  // Note: Loading states are now handled inside SurveyLayout
+
+  if (!hasActiveSurvey && !surveyLoading) {
+    return (
+      <SurveyLayout
+        currentStep={1}
+        totalSteps={5}
+        stepTitle="Survey Not Available"
+        isSaving={false}
+        backToPath="/kk-survey"
+        showProgress={true}
+        showSaveStatus={false}
+        canContinue={false}
+        onBackClick={() => navigate('/kk-survey')}
+        onContinueClick={() => {}}
+        continueButtonText="Continue"
+        statusMessage="No active survey available"
+        statusType="error"
+        showStatus={true}
+        disabled={true}
+        isLoading={false}
+      >
+        <div className="min-h-screen bg-gray-50">
+          <div className="max-w-4xl mx-auto px-6 py-8">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
+          <AlertCircle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Survey Not Available</h2>
+          <p className="text-gray-600 mb-8">
+            There is currently no active survey for you to participate in.
+          </p>
+          <Link
+            to="/"
+            className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Return to Home
+          </Link>
+        </div>
+          </div>
+        </div>
+      </SurveyLayout>
+    );
+  }
 
   const legalSections = [
     {
@@ -356,29 +494,70 @@ const SurveyTerms = () => {
     
     // Mark section as viewed when expanded for the first time
     if (!expandedSections[sectionId] && !viewedSections[sectionId]) {
-      setViewedSections(prev => ({
-        ...prev,
+      const newViewedSections = {
+        ...viewedSections,
         [sectionId]: true
-      }));
+      };
+      
+      // ✅ FIXED: Update state to trigger re-render
+      setViewedSections(newViewedSections);
+      
+      // Also save to localStorage
+      const termsData = { 
+        acceptedSections,
+        viewedSections: newViewedSections
+      };
+      localStorage.setItem('kk_survey_terms_temp', JSON.stringify(termsData));
+      console.log('✅ Section marked as viewed:', sectionId);
     }
   };
 
-  const toggleAcceptance = (sectionId) => {
-    setAcceptedSections(prev => ({
-      ...prev,
-      [sectionId]: !prev[sectionId]
-    }));
+  const toggleAcceptance = async (sectionId) => {
+    const newAcceptedSections = {
+      ...acceptedSections,
+      [sectionId]: !acceptedSections[sectionId]
+    };
+    console.log('🔄 Toggling acceptance for section:', sectionId);
+    console.log('🔄 New accepted sections:', newAcceptedSections);
+    
+    // ✅ FIXED: Update state to trigger re-render
+    setAcceptedSections(newAcceptedSections);
+    
+    // Also save to localStorage
+    const termsData = { 
+      acceptedSections: newAcceptedSections,
+      viewedSections: viewedSections
+    };
+    localStorage.setItem('kk_survey_terms_temp', JSON.stringify(termsData));
+    console.log('✅ Terms data saved locally and state updated');
   };
 
-  const demoAcceptAll = () => {
-    setViewedSections({ terms: true, privacy: true, voluntary: true, dataUse: true, rights: true });
-    setAcceptedSections({ terms: true, privacy: true, voluntary: true, dataUse: true, rights: true });
+  const demoAcceptAll = async () => {
+    const allViewed = { terms: true, privacy: true, voluntary: true, dataUse: true, rights: true };
+    const allAccepted = { terms: true, privacy: true, voluntary: true, dataUse: true, rights: true };
+    
+    // ✅ FIXED: Update state to trigger re-render
+    setViewedSections(allViewed);
+    setAcceptedSections(allAccepted);
+    
+    // Also save to localStorage
+    const termsData = { 
+      acceptedSections: allAccepted,
+      viewedSections: allViewed
+    };
+    localStorage.setItem('kk_survey_terms_temp', JSON.stringify(termsData));
+    console.log('✅ All terms accepted - state and localStorage updated');
   };
 
   const onContinue = () => {
+    console.log('🚀 Continue button clicked!');
+    console.log('Current state:', { allAccepted, acceptedSections, viewedSections });
+    
     if (!allAccepted) {
       const unviewedSections = Object.keys(viewedSections).filter(key => !viewedSections[key]);
       const unacceptedSections = Object.keys(acceptedSections).filter(key => !acceptedSections[key]);
+      
+      console.log('❌ Cannot continue:', { unviewedSections, unacceptedSections });
       
       let message = "";
       if (unviewedSections.length > 0) {
@@ -396,222 +575,53 @@ const SurveyTerms = () => {
       return;
     }
 
+    // Save final terms data before proceeding
+    const finalTermsData = { 
+      acceptedSections,
+      viewedSections
+    };
+    localStorage.setItem('kk_survey_terms_temp', JSON.stringify(finalTermsData));
+    console.log('✅ Final terms data saved before proceeding to step 1');
+
     console.log('Legal consent data:', {
       acceptedAt: new Date().toISOString(),
       acceptedSections,
       ipAddress: 'N/A',
       userAgent: navigator.userAgent
     });
+    
+    console.log('🎯 Attempting navigation to /kk-survey/step-2');
+    // Navigate to SurveyStep1 where youth profile will be created
     navigate('/kk-survey/step-2');
+    console.log('✅ Navigation command executed');
   };
 
 
   return (
-    <SurveyLayout>
-      {/* Top utility bar */}
-      <div className="bg-[#24345A] fixed top-0 left-0 right-0 z-40">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 h-10 flex items-center justify-between">
-          <button 
-            onClick={() => navigate('/')} 
-            title="Return to main website"
-            className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white hover:bg-white/10 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 opacity-90" />
-            <span className="tracking-wide">Back to Website</span>
-          </button>
-          <a
-            href="mailto:lydo@sanjosebatangas.gov.ph"
-            title="Contact LYDO via email"
-            className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            <Mail className="w-3.5 h-3.5 opacity-90" />
-            <span className="tracking-wide">lydo@sanjosebatangas.gov.ph</span>
-          </a>
-        </div>
-        </div>
-
-      {/* Enhanced Survey Header */}
-      <div className="bg-white border-b border-gray-200 fixed top-[40px] left-0 right-0 z-30">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Main Header Row */}
-          <div className="py-3 sm:py-4">
-            {/* Desktop: Horizontal Layout */}
-            <div className="hidden sm:grid grid-cols-3 items-center">
-              {/* Left: Municipality Info */}
-              <div className="flex items-center gap-3">
-                <img src={new URL('../../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} alt="Municipality Seal" className="w-9 h-9 rounded-full border" />
-                <div>
-                  <div className="text-sm text-gray-600">Municipality of San Jose, Batangas</div>
-                  <div className="text-xs text-gray-500">Local Youth Development Office</div>
-          </div>
-        </div>
-
-              {/* Center: Survey Title */}
-              <div className="flex justify-center">
-                <h1 className="text-xl font-bold text-gray-900">KK Survey 2025</h1>
-              </div>
-
-              {/* Right: Progress & Status */}
-              <div className="flex items-center gap-6 justify-end">
-                {/* Progress Info */}
-                <div className="text-right">
-                  <div className="text-sm font-semibold text-gray-900">Step 1 of 5</div>
-                  <div className="text-sm text-gray-600">Terms & Consent</div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-600 transition-all duration-300 rounded-full" style={{ width: `${(1 / 5) * 100}%` }} />
-                    </div>
-                    <span className="text-sm font-semibold text-blue-600">{Math.round((1 / 5) * 100)}%</span>
-                  </div>
-                </div>
-
-                {/* Save Status */}
-                <div className="flex items-center">
-                  {isSaving ? (
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-orange-50 border border-orange-200 rounded-full">
-                      <Loader2 className="w-3 h-3 animate-spin text-orange-500" />
-                      <span className="text-orange-700 text-xs font-medium">Saving...</span>
-                    </div>
-                  ) : lastSavedAt ? (
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
-                      <Check className="w-3 h-3 text-green-600" />
-                      <span className="text-green-700 text-xs font-medium">Last saved: {lastSavedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 border border-gray-200 rounded-full">
-                      <Cloud className="w-3 h-3 text-gray-500" />
-                      <span className="text-gray-600 text-xs font-medium">Auto-save</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Mobile: Stacked Layout */}
-            <div className="block sm:hidden">
-              {/* Municipality Info - Mobile (Always Visible) */}
-              <div className="flex items-center gap-2">
-                <img src={new URL('../../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} alt="Municipality Seal" className="w-7 h-7 rounded-full border flex-shrink-0" />
-                <div className="text-left flex-1 min-h-[28px] flex flex-col justify-center">
-                  <div className="text-xs text-gray-600 leading-tight">Municipality of San Jose, Batangas</div>
-                  <div className="text-xs text-gray-500 leading-tight">Local Youth Development Office</div>
-                </div>
-                <button
-                  onClick={() => setShowMobileDetails(!showMobileDetails)}
-                  className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
-                  aria-label={showMobileDetails ? "Hide survey details" : "Show survey details"}
-                >
-                  <div className={`transition-transform duration-300 ease-in-out ${
-                    showMobileDetails ? 'rotate-180' : 'rotate-0'
-                  }`}>
-                    <ChevronDown className="w-4 h-4 text-gray-500" />
-        </div>
-                </button>
-          </div>
-
-              {/* Collapsible Survey Details - Mobile */}
-              <div className={`transition-all duration-300 ease-in-out ${
-                showMobileDetails 
-                  ? 'max-h-96 opacity-100 transform translate-y-0' 
-                  : 'max-h-0 opacity-0 transform -translate-y-2'
-              } overflow-hidden`}>
-                <div className="space-y-3 border-t border-gray-100 pt-4 mt-3">
-                  {/* Survey Title - Mobile */}
-                  <div className="text-center">
-                    <h1 className="text-lg font-bold text-gray-900">KK Survey 2025</h1>
-        </div>
-
-                  {/* Progress & Status - Mobile */}
-                  <div className="space-y-3">
-                    {/* Progress Info */}
-                    <div className="flex items-center justify-between">
-                      <div className="text-left">
-                        <div className="text-sm font-semibold text-gray-900">Step 1 of 5</div>
-                        <div className="text-xs text-gray-600">Terms & Consent</div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-600 transition-all duration-300 rounded-full" style={{ width: `${(1 / 5) * 100}%` }} />
-                        </div>
-                        <span className="text-sm font-semibold text-blue-600">{Math.round((1 / 5) * 100)}%</span>
-          </div>
-        </div>
-
-                    {/* Save Status */}
-                    <div className="flex items-center justify-center">
-                      {isSaving ? (
-                        <div className="flex items-center gap-1.5 px-2 py-1 bg-orange-50 border border-orange-200 rounded-full">
-                          <Loader2 className="w-3 h-3 animate-spin text-orange-500" />
-                          <span className="text-orange-700 text-xs font-medium">Saving...</span>
-                        </div>
-                      ) : lastSavedAt ? (
-                        <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
-                          <Check className="w-3 h-3 text-green-600" />
-                          <span className="text-green-700 text-xs font-medium">Last saved: {lastSavedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 border border-gray-200 rounded-full">
-                          <Cloud className="w-3 h-3 text-gray-500" />
-                          <span className="text-gray-600 text-xs font-medium">Auto-save</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-              </div>
-                
+    <SurveyLayout
+      // Header props
+      currentStep={1}
+      totalSteps={5}
+      stepTitle="Terms & Consent"
+      isSaving={isSaving}
+      backToPath="/kk-survey"
+      showProgress={true}
+      showSaveStatus={true}
+      // Footer props
+      canContinue={allAccepted}
+      onBackClick={() => navigate('/kk-survey')}
+      onContinueClick={onContinue}
+      continueButtonText="Continue to Step 2"
+      statusMessage={allAccepted ? 'All Terms Accepted' : 'Terms Incomplete'}
+      statusType={allAccepted ? 'success' : 'warning'}
+      showStatus={true}
+      disabled={false}
+      isLoading={false}
+      // Centralized loading/error state
+      showLoadingState={surveyLoading || !sessionInitialized}
+      loadingMessage={surveyLoading ? 'Loading survey...' : 'Initializing survey session...'}
+    >
       <div className="min-h-screen bg-gray-50">
-        {/* Progress Indicator */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Terms Acceptance Progress</h2>
-                <p className="text-sm text-gray-600">
-                  {Object.values(acceptedSections).filter(Boolean).length} of {Object.keys(acceptedSections).length} sections completed
-                </p>
-              </div>
-              <div className="bg-blue-50 px-3 py-1 rounded-full">
-                <span className="text-sm font-semibold text-blue-600">
-                  {Math.round((Object.values(acceptedSections).filter(Boolean).length / Object.keys(acceptedSections).length) * 100)}%
-                </span>
-              </div>
-            </div>
-
-            <div className="relative">
-              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out"
-                  style={{ width: `${(Object.values(acceptedSections).filter(Boolean).length / Object.keys(acceptedSections).length) * 100}%` }}
-                />
-              </div>
-              <div className="absolute top-0 left-0 right-0 bottom-0 flex justify-between items-center px-1">
-                {Object.keys(acceptedSections).map((sectionId, index) => {
-                  const isAccepted = acceptedSections[sectionId];
-                  const isViewed = viewedSections[sectionId];
-                  
-                  return (
-                    <div
-                      key={sectionId}
-                      className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                        isAccepted 
-                          ? 'bg-blue-600' 
-                          : isViewed 
-                          ? 'bg-yellow-500' 
-                          : 'bg-gray-300'
-                      }`}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-                </div>
-            </div>
-
         <div className="max-w-4xl mx-auto px-6 py-8">
 
           {/* Header */}
@@ -745,99 +755,8 @@ const SurveyTerms = () => {
               </div>
             </div>
           </div>
-                </div>
-
-        {/* Sticky Footer Navigation */}
-        <div className="sticky bottom-0 border-t border-gray-200 backdrop-blur supports-[backdrop-filter]:bg-white/85 bg-white/95 shadow-lg">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            {/* Desktop layout */}
-            <div className="hidden sm:grid grid-cols-3 items-center gap-3">
-              <div className="flex">
-                <button
-                  onClick={() => navigate(-1)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full font-semibold transition-colors"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Back
-                </button>
-            </div>
-
-              <div className="flex justify-center">
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${allAccepted ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                  {allAccepted ? 'All Terms Accepted' : 'Terms Incomplete'}
-                </span>
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  onClick={onContinue}
-                  disabled={!allAccepted}
-                  className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-semibold transition-all ${allAccepted ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-                >
-                  Continue to Step 2
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-                </div>
-
-            {/* Mobile Tab Bar Style */}
-            <div className="sm:hidden">
-              <div className="bg-white/90 backdrop-blur-sm">
-                <div className="flex items-center justify-between px-4 py-2">
-                  {/* Back Button */}
-                  <button
-                    onClick={() => navigate(-1)}
-                    className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-                    title="Back"
-                  >
-                    <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center">
-                      <ArrowLeft className="w-3.5 h-3.5 text-gray-600" />
-                    </div>
-                    <span className="text-xs text-gray-600 font-medium">Back</span>
-                  </button>
-
-                  {/* Status Indicator */}
-                  <div className="flex flex-col items-center gap-0.5">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${allAccepted ? 'bg-green-100' : 'bg-amber-100'}`}>
-                      {allAccepted ? (
-                        <ShieldCheck className="w-3.5 h-3.5 text-green-600" />
-                      ) : (
-                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                      )}
-                    </div>
-                    <span className={`text-xs font-medium ${allAccepted ? 'text-green-600' : 'text-amber-600'}`}>
-                      {allAccepted ? 'All Accepted' : 'Incomplete'}
-                    </span>
-                  </div>
-
-                  {/* Continue Button */}
-                  <button
-                    onClick={onContinue}
-                    disabled={!allAccepted}
-                    className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-colors ${
-                      allAccepted
-                        ? 'hover:bg-blue-50'
-                        : 'opacity-50 cursor-not-allowed'
-                    }`}
-                    title="Continue to Step 2"
-                  >
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                      allAccepted
-                        ? 'bg-blue-600 shadow-md'
-                        : 'bg-gray-300'
-                    }`}>
-                      <ArrowRight className={`w-3.5 h-3.5 ${allAccepted ? 'text-white' : 'text-gray-500'}`} />
-                    </div>
-                    <span className={`text-xs font-medium ${allAccepted ? 'text-blue-600' : 'text-gray-500'}`}>
-                      Step 2
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          </div>
         </div>
+      </div>
     </SurveyLayout>
   );
 };

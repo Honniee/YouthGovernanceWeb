@@ -42,11 +42,16 @@ const Select = ({
         {...props}
       >
         <option value="">{placeholder}</option>
-        {options.map((option, index) => (
-          <option key={index} value={option}>
-            {option}
-          </option>
-        ))}
+        {options.map((option, index) => {
+          // Support both string options and {value, label} objects
+          const optionValue = typeof option === 'object' ? option.value : option;
+          const optionLabel = typeof option === 'object' ? option.label : option;
+          return (
+            <option key={index} value={optionValue}>
+              {optionLabel}
+            </option>
+          );
+        })}
       </select>
       {hasError && (
         <div className="flex items-center gap-1 mt-2 text-red-600 text-sm">

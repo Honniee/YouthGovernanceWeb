@@ -176,6 +176,20 @@ const Home = () => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
 
+  // Helper function to convert relative URLs to full URLs
+  const getFileUrl = (path) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+    if (!base) {
+      // sensible dev fallback if env not set
+      if (window.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+        base = 'http://localhost:3001';
+      }
+    }
+    return `${base}${path}`;
+  };
+
   const getFallbackImage = (type, title) => {
     const key = (type || '').toString().toLowerCase();
     const label = (title || '').trim() || (type ? String(type) : 'LYDO');
@@ -395,7 +409,7 @@ const Home = () => {
   return (
     <PublicLayout>
       {/* Hero Section with Background Video */}
-      <section className={`relative overflow-hidden min-h-[100dvh] ${showNotice ? '-mt-[140px]' : '-mt-[104px]'}`}>
+      <section className={`relative overflow-hidden min-h-[100dvh] ${showNotice ? '-mt-[140px]' : '-mt-[50px]'}`}>
         {/* Background video */}
         <video
           className="absolute inset-0 w-full h-full object-cover"
@@ -416,7 +430,7 @@ const Home = () => {
         <div className="absolute inset-0 bg-black/60" aria-hidden="true" />
 
         {/* Foreground content - perfectly centered */}
-        <div className="relative z-10 min-h-[100dvh] flex items-center justify-center pt-16 sm:pt-20 md:pt-24 lg:pt-30">
+        <div className="relative z-10 min-h-[100dvh] flex items-center justify-center pt-16 sm:pt-20 md:pt-24 lg:pt-20">
           <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8">
             <div className="text-center w-full">
               <img
@@ -455,14 +469,31 @@ const Home = () => {
             {/* Loading State */}
             {surveyLoading && (
               <div className="group relative">
-                <div className="relative rounded-3xl p-8 md:p-10 bg-gradient-to-br from-gray-50 via-white to-gray-50/80 ring-1 ring-gray-200 shadow-lg overflow-hidden">
+                <div className="grid place-items-center">
+                  <div className="ring-1 ring-gray-200 overflow-hidden bg-white shadow-lg w-full max-w-[900px]">
+                    <div className="bg-gradient-to-r from-[#24345A] via-[#24345A]/95 to-[#24345A] py-3 px-4 text-center relative overflow-hidden">
+                      {/* Subtle background pattern */}
+                      <div className="absolute inset-0 opacity-10">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-white to-transparent rounded-full -translate-y-8 translate-x-8" />
+                        <div className="absolute bottom-0 left-0 w-12 h-12 bg-gradient-to-tr from-white to-transparent rounded-full translate-y-6 -translate-x-6" />
+                      </div>
+                      <div className="relative z-10">
+                        <div className="mx-auto inline-flex items-center gap-1 text-[10px] font-bold px-3 py-1 rounded-full bg-white/20 text-white ring-white/30">
+                          Loading...
+                        </div>
+                        <div className="mt-2 text-white text-xl sm:text-2xl font-bold truncate">Survey Information</div>
+                      </div>
+                    </div>
+                    <div className="p-8 text-center">
                   <LoadingSpinner 
                     variant="spinner"
                     message="Loading survey information..." 
                     size="md"
                     color="blue"
-                    height="h-32"
+                        height="h-24"
                   />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -470,9 +501,22 @@ const Home = () => {
             {/* Error State */}
             {surveyError && !surveyLoading && (
               <div className="group relative">
-                <div className="relative rounded-3xl p-8 md:p-10 bg-gradient-to-br from-gray-50 via-white to-gray-50/80 ring-1 ring-gray-200 shadow-lg overflow-hidden">
-                  <div className="flex items-center justify-center py-12">
-                    <div className="text-center">
+                <div className="grid place-items-center">
+                  <div className="ring-1 ring-gray-200 overflow-hidden bg-white shadow-lg w-full max-w-[900px]">
+                    <div className="bg-gradient-to-r from-[#24345A] via-[#24345A]/95 to-[#24345A] py-3 px-4 text-center relative overflow-hidden">
+                      {/* Subtle background pattern */}
+                      <div className="absolute inset-0 opacity-10">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-white to-transparent rounded-full -translate-y-8 translate-x-8" />
+                        <div className="absolute bottom-0 left-0 w-12 h-12 bg-gradient-to-tr from-white to-transparent rounded-full translate-y-6 -translate-x-6" />
+                      </div>
+                      <div className="relative z-10">
+                        <div className="mx-auto inline-flex items-center gap-1 text-[10px] font-bold px-3 py-1 rounded-full bg-red-100/20 text-red-200 ring-red-200/30">
+                          Error
+                        </div>
+                        <div className="mt-2 text-white text-xl sm:text-2xl font-bold truncate">Survey Information</div>
+                      </div>
+                    </div>
+                    <div className="p-8 text-center">
                       <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -489,200 +533,202 @@ const Home = () => {
             {/* No Active Survey State */}
             {!surveyLoading && !surveyError && !hasActiveSurvey && (
               <div className="group relative">
-                {/* Glow background */}
-                <div className="absolute -inset-2 rounded-3xl bg-gradient-to-br from-amber-300/20 via-orange-200/15 to-yellow-300/20 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
-                {/* Card */}
-                <div className="relative rounded-3xl p-8 md:p-10 bg-gradient-to-br from-gray-50 via-white to-gray-50/80 ring-1 ring-gray-200 shadow-lg transition-all duration-200 group-hover:shadow-xl group-hover:ring-gray-300 overflow-hidden">
+                <div className="grid place-items-center">
+                  <div className="ring-1 ring-gray-200 overflow-hidden bg-white shadow-lg w-full max-w-[900px]">
+                    <div className="bg-gradient-to-r from-[#24345A] via-[#24345A]/95 to-[#24345A] py-3 px-4 text-center relative overflow-hidden">
                   {/* Subtle background pattern */}
-                  <div className="absolute inset-0 opacity-5">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-[#24345A] to-transparent rounded-full -translate-y-32 translate-x-32" />
-                    <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-[#24345A] to-transparent rounded-full translate-y-24 -translate-x-24" />
+                      <div className="absolute inset-0 opacity-10">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-white to-transparent rounded-full -translate-y-8 translate-x-8" />
+                        <div className="absolute bottom-0 left-0 w-12 h-12 bg-gradient-to-tr from-white to-transparent rounded-full translate-y-6 -translate-x-6" />
                   </div>
-                  <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-10">
-                    
-                    {/* Left side - No Survey Message */}
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-3 mb-5">
-                        <div className="w-10 h-10 rounded-xl grid place-items-center bg-amber-50 text-amber-600 ring-1 ring-amber-200">
-                          <ClipboardList className="w-5 h-5" />
+                      <div className="relative z-10">
+                        <div className="mx-auto inline-flex items-center gap-1 text-[10px] font-bold px-3 py-1 rounded-full bg-white/20 text-white ring-white/30">
+                          Coming Soon
                         </div>
-                        <div className="flex flex-col gap-1">
-                          <h3 className="text-xl font-bold text-gray-900">Survey Coming Soon</h3>
-                          <span className="inline-flex items-center px-2.5 py-0.5 text-[11px] font-medium rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200 w-fit">Upcoming</span>
+                        <div className="mt-2 text-white text-xl sm:text-2xl font-bold truncate">Survey Coming Soon</div>
                         </div>
                     </div>
-                      <div className="space-y-3">
+                    
+                    <div className="p-6">
+                      <div className="text-center space-y-4">
+                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+                          <ClipboardList className="w-8 h-8 text-gray-600" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Active Survey</h3>
                         <p className="text-gray-600 text-sm leading-relaxed">
                           We're currently preparing our next youth demographic survey. Stay tuned for upcoming opportunities to participate and help shape our community programs.
                         </p>
                   </div>
                   
-                      {/* Information */}
                   <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Calendar className="w-4 h-4 text-amber-600" />
+                          <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+                            <Calendar className="w-4 h-4 text-gray-600" />
                           <span>Next survey will be announced soon</span>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <MapPin className="w-4 h-4 text-amber-600" />
+                          <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+                            <MapPin className="w-4 h-4 text-gray-600" />
                           <span>San Jose, Batangas</span>
+                        </div>
+                          <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+                            <Clock className="w-4 h-4 text-gray-600" />
+                            <span>Check back regularly for updates</span>
                         </div>
                     </div>
                     
-                      <div className="pt-4 space-y-3">
-                        <div className="inline-flex items-center px-4 py-2 bg-amber-50 text-amber-700 text-sm font-medium rounded-full ring-1 ring-amber-200">
+                        <div className="pt-2">
+                          <div className="inline-flex items-center px-4 py-2 bg-gray-50 text-gray-700 text-sm font-medium rounded-full ring-1 ring-gray-200">
                           <Clock className="w-4 h-4 mr-2" />
-                          <span>Check back regularly</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5-5-5h5v-12h-5l5-5 5 5h-5v12z" />
-                          </svg>
                           <span>Updates will appear here automatically</span>
                         </div>
                       </div>
                     </div>
-                    
-                    {/* Vertical separator */}
-                    <div className="hidden md:block absolute left-1/2 top-6 bottom-6 w-px bg-gray-200 transform -translate-x-px"></div>
-
-                    {/* Right side - Information */}
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-3 mb-5">
-                        <div className="w-10 h-10 rounded-xl grid place-items-center bg-amber-50 text-amber-600 ring-1 ring-amber-200">
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <h3 className="text-xl font-semibold text-gray-900">About Our Surveys</h3>
-                          <span className="inline-flex items-center px-2.5 py-0.5 text-[11px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200 w-fit">Info</span>
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-gray-600 text-sm leading-relaxed">
-                          Our demographic surveys help us understand our youth population and create better programs for our community.
-                        </p>
-                      </div>
-                      
-                      {/* Benefits */}
-                      <div className="space-y-4">
-                        <div className="text-center py-4">
-                          <div className="text-2xl md:text-3xl font-bold text-amber-600 mb-2">
-                            <svg className="w-8 h-8 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </div>
-                          <div className="text-sm font-medium text-gray-600">Quick & Easy</div>
-                        </div>
-                        
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span>Takes only 5-10 minutes</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span>Helps improve youth programs</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span>Your voice matters</span>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Active Survey Content */}
+            {/* Active Survey Content - Month Card Layout */}
             {!surveyLoading && !surveyError && hasActiveSurvey && (
               <div className="group relative">
-                {/* Glow background */}
-                <div className="absolute -inset-2 rounded-3xl bg-emerald-300/30 via-teal-200/25 to-sky-300/30 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
-                {/* Card */}
-                <div className="relative rounded-3xl p-6 md:p-8 bg-gradient-to-br from-gray-50 via-white to-gray-50/80 ring-1 ring-gray-200 shadow-lg transition-all duration-200 group-hover:shadow-xl group-hover:ring-gray-300 overflow-hidden">
+          {/* Month tile card (standalone, per SurveyLanding design) */}
+          <div className="grid place-items-center">
+            <div className="relative ring-1 ring-gray-200 overflow-hidden bg-white shadow-lg w-full max-w-[900px]">
+                    <div className="bg-gradient-to-r from-[#24345A] via-[#24345A]/95 to-[#24345A] py-3 px-4 text-center relative overflow-hidden">
                   {/* Subtle background pattern */}
-                  <div className="absolute inset-0 opacity-5">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-[#24345A] to-transparent rounded-full -translate-y-32 translate-x-32" />
-                    <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-[#24345A] to-transparent rounded-full translate-y-24 -translate-x-24" />
-                    </div>
-                  <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    
-                    {/* Left side - Survey Details */}
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-3 mb-5">
-                        <div className="w-10 h-10 rounded-xl grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
-                          <ClipboardList className="w-5 h-5" />
+                      <div className="absolute inset-0 opacity-10">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-white to-transparent rounded-full -translate-y-8 translate-x-8" />
+                        <div className="absolute bottom-0 left-0 w-12 h-12 bg-gradient-to-tr from-white to-transparent rounded-full translate-y-6 -translate-x-6" />
                         </div>
-                        <div className="flex flex-col gap-1">
-                          <h3 className="text-xl font-bold text-gray-900">{activeSurvey.batchName}</h3>
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 text-[11px] font-medium rounded-full ring-1 w-fit ${
+                      <div className="relative z-10">
+                        <div className={`mx-auto inline-flex items-center gap-1 text-[10px] font-bold px-3 py-1 rounded-full ring-1 transition-all duration-200 ${
                               activeSurvey.pausedAt 
-                                ? 'bg-orange-100 text-orange-700 ring-orange-200' 
-                                : 'bg-green-100 text-green-700 ring-green-200'
-                            }`}>
-                              {activeSurvey.pausedAt ? 'Paused' : 'Active Survey'}
-                            </span>
-                            {activeSurvey.pausedAt && (
-                              <div className="flex items-center gap-1 text-xs text-orange-600">
-                                <AlertCircle className="w-3 h-3" />
-                                <span>Temporarily unavailable</span>
-                              </div>
-                            )}
-                          </div>
+                            ? 'bg-yellow-100 text-yellow-800 ring-yellow-200' 
+                            : 'bg-white/20 text-white ring-white/30'
+                        }`}>
+                          {activeSurvey.pausedAt ? 'Paused' : 'Open'}
                         </div>
+                        <div className="mt-2 text-white text-xl sm:text-2xl font-bold truncate">{activeSurvey.batchName}</div>
                       </div>
-                      <div className="space-y-3">
-                        <p className="text-gray-600 text-sm leading-relaxed">
+                        </div>
+                    
+                    {/* Survey description */}
+                    <div className="px-4 pt-2">
+                      <p className="text-gray-600 text-base leading-snug text-center line-clamp-2">
                           {activeSurvey.description || 'Participate in our official demographic survey to help shape youth programs and policies in our community.'}
                         </p>
                       </div>
-
-                      {/* Survey details */}
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Calendar className="w-4 h-4 text-[#24345A]" />
-                          <span>
-                            {activeSurvey.startDate ? new Date(activeSurvey.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBA'} – 
-                            {activeSurvey.endDate ? new Date(activeSurvey.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBA'}
-                          </span>
+                      
+                    {/* Timeline inside the month tile */}
+                    <div className="px-4 pt-2">
+                      <div className="flex items-center justify-between text-xs text-gray-700">
+                        <div className="text-left">
+                          <div className="font-medium">Opens</div>
+                          <div>{activeSurvey.startDate ? new Date(activeSurvey.startDate).toLocaleDateString() : 'TBA'}</div>
+                          </div>
+                        <div className="mx-3 h-0.5 flex-1 bg-gradient-to-r from-[#E7EBFF] to-[#24345A] rounded-full" />
+                        <div className="text-right">
+                          <div className="font-medium">Closes</div>
+                          <div>{activeSurvey.endDate ? new Date(activeSurvey.endDate).toLocaleDateString() : 'TBA'}</div>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <MapPin className="w-4 h-4 text-[#24345A]" />
+                          </div>
+                          </div>
+                    
+                    {/* Stats and progress under the tile */}
+                    <div className="px-4 pb-4">
+                      <div className="mt-3 grid grid-cols-2 gap-3 items-center">
+                        <div className="rounded-xl bg-gradient-to-br from-gray-50 to-gray-50/80 ring-1 ring-gray-200 p-3 text-center">
+                          <div className="flex items-center justify-center gap-2 mb-1">
+                            <svg className="w-4 h-4 text-[#24345A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                            <div className="text-sm text-gray-600 font-medium">Participants</div>
+                          </div>
+                          <div className="text-xl font-bold text-gray-900">
+                            <AnimatedNumber value={activeSurvey.statisticsTotalResponses || 0} />
+                        </div>
+                      </div>
+                        <div className="rounded-xl bg-gradient-to-br from-gray-50 to-gray-50/80 ring-1 ring-gray-200 p-3 text-center">
+                          <div className="flex items-center justify-center gap-2 mb-1">
+                            <svg className="w-4 h-4 text-[#24345A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div className="text-sm text-gray-600 font-medium">Days Left</div>
+                    </div>
+                          <div className="text-xl font-bold text-gray-900">
+                            {activeSurvey.endDate ? Math.max(0, Math.ceil((new Date(activeSurvey.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 'TBA'}
+                  </div>
+                </div>
+              </div>
+                      
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-base text-gray-700 mb-2">
+                          <span className="font-medium">Participation Progress</span>
+                          <span className="font-bold text-[#24345A]">{progressPct}%</span>
+                    </div>
+                        <div className="relative h-3 bg-gray-200 rounded-full overflow-hidden ring-1 ring-gray-200">
+                          <div className="h-full bg-gradient-to-r from-[#E7EBFF] to-[#24345A] rounded-full transition-all duration-500 ease-out" style={{ width: `${progressPct}%` }} />
+                        </div>
+                        <div className="mt-2 text-sm text-gray-500 text-center">
+                          Target: {(activeSurvey.statisticsTotalYouths || 0).toLocaleString()} participants
+                              </div>
+                          </div>
+                      
+                      {/* Two column layout: Additional info + CTA */}
+                      <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 items-center">
+                        {/* Left column - Additional info */}
+                        <div className="flex flex-wrap justify-center lg:justify-start gap-4 text-sm text-gray-600">
+                          <div className="flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-[#24345A]" />
                           <span>San Jose, Batangas</span>
+                        </div>
+                          <div className="flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-[#24345A]" />
+                            <span>Takes 5-10 minutes</span>
+                      </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={refreshSurveyData}
+                              disabled={isRefreshing}
+                              className="p-1 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                              title="Refresh data"
+                            >
+                              <svg className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                            </button>
+                            <span className="text-xs text-gray-500">
+                              Updated: {lastUpdated.toLocaleTimeString('en-US', { 
+                                hour: '2-digit', 
+                                minute: '2-digit' 
+                              })}
+                          </span>
                 </div>
             </div>
             
-                      <div className="pt-4 space-y-3">
-                        {/* Survey Button - Conditional based on paused state */}
+                        {/* Right column - Survey Button */}
+                        <div className="flex justify-center lg:justify-end">
                         {activeSurvey.pausedAt ? (
-                          <div className="inline-flex items-center px-5 py-3 bg-gray-300 text-gray-500 text-sm font-medium rounded-full cursor-not-allowed">
+                            <div className="inline-flex items-center px-8 py-4 bg-gray-300 text-gray-500 text-sm font-medium rounded-full cursor-not-allowed shadow-sm">
                             <AlertCircle className="mr-2 w-4 h-4" />
                             Survey Temporarily Unavailable
                           </div>
                         ) : (
                 <Link 
-                  to="/survey" 
-                            className="inline-flex items-center px-5 py-3 bg-[#24345A] text-white text-sm font-medium rounded-full hover:bg-[#1a2a47] transition-colors"
+                   to="/kk-survey"
+                              className="group inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full text-sm font-semibold transition-all duration-200 shadow-lg bg-[#24345A] text-white hover:bg-[#1a2a4a] hover:shadow-xl hover:scale-105"
                 >
                             Take Survey Now
-                            <ArrowRight className="ml-2 w-4 h-4" />
+                              <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
                 </Link>
                         )}
+                        </div>
+                      </div>
                         
                         {/* Admin Controls */}
                         {isAdmin && (
-                          <div className="flex items-center gap-2">
+                        <div className="mt-3 flex justify-center gap-2">
                             {activeSurvey.pausedAt ? (
                               <button
                                 onClick={handleResumeSurvey}
@@ -705,89 +751,9 @@ const Home = () => {
                           </div>
                         )}
                         
-                        
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Clock className="w-4 h-4 text-[#24345A]" />
-                          <span>Takes 5-10 minutes</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Vertical separator */}
-                    <div className="hidden md:block absolute left-1/2 top-6 bottom-6 w-px bg-gray-200 transform -translate-x-px"></div>
-
-                    {/* Right side - Participation Data */}
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="w-8 h-8 rounded-lg grid place-items-center bg-[#E7EBFF] text-[#24345A] ring-1 ring-gray-200">
-                          <TrendingUp className="w-4 h-4" />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-lg font-bold text-gray-900">Participation Data</h3>
-                            <button
-                              onClick={refreshSurveyData}
-                              disabled={isRefreshing}
-                              className="p-1 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-                              title="Refresh data"
-                            >
-                              <svg className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-200 w-fit">Real-time</span>
-                            <span className="text-[9px] text-gray-500">
-                              Updated: {lastUpdated.toLocaleTimeString('en-US', { 
-                                hour: '2-digit', 
-                                minute: '2-digit' 
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <p className="text-gray-600 text-xs leading-relaxed">
-                          Real-time participation statistics and progress tracking.
-                        </p>
-                      </div>
-                      
-                      {/* Statistics - Compact */}
-                      <div className="space-y-3">
-                        <div className="text-center py-2">
-                          <div className="text-2xl md:text-3xl font-bold text-[#24345A] mb-1">
-                            <AnimatedNumber value={activeSurvey.statisticsTotalResponses || 0} />
-                          </div>
-                          <div className="text-xs font-medium text-gray-600">Participants</div>
-                        </div>
-                        
-                        {/* Progress section - Compact */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-medium text-gray-700">Progress</span>
-                            <span className="font-bold text-[#24345A]">{progressPct}%</span>
-                          </div>
-                          
-                          {/* Progress bar */}
-                          <div className="relative">
-                            <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-gradient-to-r from-[#E7EBFF] to-[#24345A] rounded-full transition-all duration-500 ease-out"
-                                style={{ width: `${progressPct}%` }}
-                              />
-                            </div>
-                          </div>
-                          
-                          <div className="flex justify-between text-[10px] text-gray-500">
-                            <span>0</span>
-                            <span className="font-medium">Target: {(activeSurvey.statisticsTotalYouths || 0).toLocaleString()}</span>
-                          </div>
-                        </div>
-                        
-                        {/* Paused Info - Moved to Right Column */}
+                      {/* Paused Info */}
                         {activeSurvey.pausedAt && (
-                          <div className="text-xs text-orange-600 bg-orange-50 px-3 py-2 rounded-lg border border-orange-200">
+                        <div className="mt-3 text-xs text-orange-600 bg-orange-50 px-3 py-2 rounded-lg border border-orange-200">
                             <div className="flex items-center gap-1 mb-1">
                               <AlertCircle className="w-3 h-3" />
                               <span className="font-medium">Survey Paused</span>
@@ -807,7 +773,6 @@ const Home = () => {
                             )}
                           </div>
                         )}
-                </div>
               </div>
             </div>
           </div>
@@ -1047,7 +1012,7 @@ const Home = () => {
                           <div className={`relative rounded-2xl overflow-hidden transition-[height] duration-500 ease-in-out ${isActive ? 'h-[22rem] sm:h-[24rem] md:h-[28rem]' : 'h-64 sm:h-72 md:h-80 lg:h-[22rem]'}`}>
                             {/* Background Image (Announcements-style with object-cover) */}
                             <img
-                              src={card.image || getFallbackImage(card.type, card.title)}
+                              src={card.image ? getFileUrl(card.image) : getFallbackImage(card.type, card.title)}
                               alt={card.title}
                               className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                               loading="lazy"
@@ -1253,3 +1218,4 @@ const Home = () => {
 };
 
 export default Home;
+

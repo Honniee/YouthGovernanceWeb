@@ -22,6 +22,7 @@ import ChangePassword from '../pages/staff/ChangePassword';
 import Notifications from '../pages/staff/Notifications';
 import Announcements from '../pages/staff/Announcements';
 import AnnouncementCreate from '../pages/staff/AnnouncementCreate';
+import AnnouncementEdit from '../pages/staff/AnnouncementEdit';
 import AnnouncementDetail from '../pages/staff/AnnouncementDetail';
 import AnnouncementsFeatured from '../pages/staff/AnnouncementsFeatured';
 
@@ -39,6 +40,7 @@ const StaffStack = () => {
         {/* Staff Announcements */}
         <Route path="/announcements" element={<Announcements />} />
         <Route path="/announcements/create" element={<AnnouncementCreate />} />
+        <Route path="/announcements/:id/edit" element={<AnnouncementEdit />} />
         <Route path="/announcements/:id" element={<AnnouncementDetail />} />
         <Route path="/announcements/featured" element={<AnnouncementsFeatured />} />
         <Route path="/profile" element={<StaffProfile />} />

@@ -28,19 +28,53 @@ const PageHero = ({
   title,
   subtitle,
   description,
-  backgroundGradient = "from-[#24345A] via-[#1a2a47] to-[#0f1a2e]",
+  backgroundGradient = "from-[#24345A] via-[#24345A]/95 to-[#24345A]/80",
   showBackgroundEffects = true,
   className = ""
 }) => {
   const [heroRef, heroVisible] = useScrollReveal();
 
   return (
-    <section className={`relative overflow-hidden bg-gradient-to-br ${backgroundGradient} text-white -mt-16 sm:-mt-20 md:mt-0 ${className}`}>
+    <section className={`relative overflow-hidden bg-gradient-to-br ${backgroundGradient} text-white ${className}`}>
       {showBackgroundEffects && (
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-10 w-32 h-32 bg-gradient-to-br from-white to-transparent rounded-full blur-xl" />
-          <div className="absolute bottom-20 right-10 w-40 h-40 bg-gradient-to-tl from-white to-transparent rounded-full blur-xl" />
-          <div className="absolute top-1/2 left-1/2 w-24 h-24 bg-gradient-to-br from-white to-transparent rounded-full blur-lg" />
+        <div className="absolute inset-0">
+          {/* Original gradient effects */}
+          <div className="opacity-10">
+            <div className="absolute top-20 left-10 w-32 h-32 bg-gradient-to-br from-white to-transparent rounded-full blur-xl" />
+            <div className="absolute bottom-20 right-10 w-40 h-40 bg-gradient-to-tl from-white to-transparent rounded-full blur-xl" />
+            <div className="absolute top-1/2 left-1/2 w-24 h-24 bg-gradient-to-br from-white to-transparent rounded-full blur-lg" />
+          </div>
+          
+          {/* Confetti and Sparkle Effects */}
+          <div className="opacity-30">
+            {/* Confetti lines */}
+            <div className="absolute top-8 left-1/4 w-8 h-0.5 bg-white/40 rotate-45" />
+            <div className="absolute top-12 right-1/3 w-6 h-0.5 bg-white/40 -rotate-12" />
+            <div className="absolute top-16 left-1/3 w-4 h-0.5 bg-white/40 rotate-12" />
+            <div className="absolute top-20 right-1/4 w-10 h-0.5 bg-white/40 -rotate-45" />
+            <div className="absolute top-24 left-1/2 w-6 h-0.5 bg-white/40 rotate-30" />
+            <div className="absolute top-28 right-1/5 w-8 h-0.5 bg-white/40 -rotate-30" />
+            <div className="absolute top-32 left-1/6 w-5 h-0.5 bg-white/40 rotate-60" />
+            <div className="absolute top-36 right-1/3 w-7 h-0.5 bg-white/40 -rotate-60" />
+            
+            {/* Additional confetti for more coverage */}
+            <div className="absolute top-40 left-1/5 w-4 h-0.5 bg-white/40 rotate-15" />
+            <div className="absolute top-44 right-1/6 w-6 h-0.5 bg-white/40 -rotate-15" />
+            <div className="absolute top-48 left-2/3 w-8 h-0.5 bg-white/40 rotate-45" />
+            <div className="absolute top-52 right-2/5 w-5 h-0.5 bg-white/40 -rotate-45" />
+            
+            {/* Sparkle dots */}
+            <div className="absolute top-10 left-1/5 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-14 right-1/4 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-18 left-2/3 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-22 right-1/6 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-26 left-1/6 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-30 right-1/2 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-34 left-3/4 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-38 right-1/8 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-42 left-1/3 w-1 h-1 bg-white/60 rounded-full" />
+            <div className="absolute top-46 right-3/4 w-1 h-1 bg-white/60 rounded-full" />
+          </div>
         </div>
       )}
       

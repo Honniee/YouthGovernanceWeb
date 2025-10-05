@@ -54,6 +54,20 @@ const AnnouncementDetail = () => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
 
+  // Helper function to convert relative URLs to full URLs
+  const getFileUrl = (path) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+    if (!base) {
+      // sensible dev fallback if env not set
+      if (window.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+        base = 'http://localhost:3001';
+      }
+    }
+    return `${base}${path}`;
+  };
+
   const getFallbackImage = (category, title) => {
     const key = (category || '').toString().toLowerCase();
     const label = (title || '').trim() || (category ? String(category) : 'LYDO');
@@ -234,7 +248,7 @@ const AnnouncementDetail = () => {
   return (
       <PublicLayout>
         {/* Main Content */}
-        <section className="py-6 sm:py-8 md:py-16 bg-white -mt-13 sm:-mt-20 md:-mt-5 lg:-mt-5">
+        <section className="py-6 sm:py-8 md:py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Back Button */}
           <div className="mb-6 sm:mb-8">
@@ -256,7 +270,7 @@ const AnnouncementDetail = () => {
             {(
               <div className="relative aspect-[16/9] overflow-hidden">
                 <img
-                  src={announcement.image_url || getFallbackImage(announcement.category, announcement.title)}
+                  src={announcement.image_url ? getFileUrl(announcement.image_url) : getFallbackImage(announcement.category, announcement.title)}
                   alt={announcement.title}
                   className="w-full h-full object-cover"
                   loading="lazy"
@@ -619,7 +633,7 @@ const AnnouncementDetail = () => {
                     {/* Image */}
                     <div className="relative overflow-hidden flex-shrink-0 aspect-[16/9]">
                       <img
-                        src={item.image_url || getFallbackImage(item.category, item.title)}
+                        src={item.image_url ? getFileUrl(item.image_url) : getFallbackImage(item.category, item.title)}
                         alt={item.title}
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"

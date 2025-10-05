@@ -20,7 +20,8 @@ export const useActiveSurvey = () => {
         status: 'active',
         limit: 1, // Get the first active survey
         sortBy: 'created_at',
-        sortOrder: 'desc'
+        sortOrder: 'desc',
+        includeStats: true // Include statistics for participant count
       }, '/active'); // Use the public /active endpoint
 
       if (result.success && result.data.data && result.data.data.length > 0) {

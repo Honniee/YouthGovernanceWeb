@@ -1,10 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBarangays } from '../../../hooks/useBarangays';
-import { User, MapPin, Phone, Calendar, ArrowRight, ArrowLeft, Check, AlertCircle, Save, Clock, FlaskConical, Info, ChevronDown, ChevronUp, Loader2, Shield, Cloud, Mail } from 'lucide-react';
+import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
+import { User, MapPin, Phone, Check, AlertCircle, CheckCircle, FlaskConical, Loader2, Shield, ArrowRight } from 'lucide-react';
+import SurveyLayout from '../../../components/layouts/SurveyLayout';
 import { 
-  SurveyLayout, 
-  SurveyHeader, 
   Card, 
   Button, 
   Input, 
@@ -16,6 +16,9 @@ import {
 const SurveyStep1 = () => {
   const navigate = useNavigate();
   const { barangays, isLoading: loadingBarangays, error: barangaysError } = useBarangays({ per_page: 100 });
+  
+  // Survey status
+  const { activeSurvey, hasActiveSurvey, isLoading: surveyLoading, error: surveyError } = useActiveSurvey();
 
   // Templates
   const emptyData = {
@@ -32,7 +35,7 @@ const SurveyStep1 = () => {
     city: 'San Jose',
     barangay: '',
     purok: '',
-    email: 'participant@example.com',
+    email: '',
   };
 
   const demoData = {
@@ -47,7 +50,7 @@ const SurveyStep1 = () => {
     region: 'Region IV‑A (CALABARZON)',
     province: 'Batangas',
     city: 'San Jose',
-    barangay: '',
+    barangay: 'BAR-001', // Use barangay ID instead of name
     purok: 'Zone 2',
     email: 'maria.delacruz@gmail.com',
   };
@@ -56,14 +59,20 @@ const SurveyStep1 = () => {
   const [formData, setFormData] = useState(emptyData);
   const [touchedFields, setTouchedFields] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
-  const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Helper to get barangay name from ID
+  const getBarangayName = (barangayId) => {
+    if (!barangayId) return '';
+    const barangay = (barangays || []).find(b => (b.barangay_id || b.id) === barangayId);
+    return barangay ? (barangay.name || barangay.barangay_name) : barangayId;
+  };
   const [expandedSections, setExpandedSections] = useState({
     personal: true,
     location: true,
     demographics: true,
   });
-  const [showMobileDetails, setShowMobileDetails] = useState(false);
 
   // Age compute
   const age = useMemo(() => {
@@ -84,6 +93,58 @@ const SurveyStep1 = () => {
       setFormData((prev) => ({ ...prev, age: age.toString() }));
     }
   }, [age, formData.birthday]);
+
+  // ✅ FIXED: Add reCAPTCHA verification guard
+  useEffect(() => {
+    // Check if user has completed reCAPTCHA verification
+    const recaptchaVerified = sessionStorage.getItem('recaptcha_verified');
+    
+    if (!recaptchaVerified) {
+      console.log('🚫 No reCAPTCHA verification found, redirecting to survey landing');
+      navigate('/kk-survey', { replace: true });
+          return;
+        }
+
+    // Check if verification is still valid (expires after 30 minutes)
+    const verificationTime = parseInt(recaptchaVerified);
+    const currentTime = Date.now();
+    const thirtyMinutes = 30 * 60 * 1000;
+    
+    if (currentTime - verificationTime > thirtyMinutes) {
+      console.log('⏰ reCAPTCHA verification expired, redirecting to survey landing');
+      sessionStorage.removeItem('recaptcha_verified');
+      navigate('/kk-survey', { replace: true });
+          return;
+        }
+
+    console.log('✅ reCAPTCHA verification valid, allowing access to personal info page');
+  }, [navigate]);
+
+  // ============================================
+  // SIMPLIFIED INITIALIZATION
+  // ============================================
+  // Load saved data from localStorage on mount
+  useEffect(() => {
+    // Check if terms were accepted
+    const savedTerms = localStorage.getItem('kk_survey_terms_temp');
+    if (!savedTerms) {
+      console.warn('⚠️ No terms data found, redirecting to terms page');
+      navigate('/kk-survey/step-1', { replace: true });
+      return;
+    }
+
+    // Load any previously saved personal info
+    const savedDraft = localStorage.getItem('kk_survey_draft_personal');
+    if (savedDraft) {
+      try {
+        const parsedData = JSON.parse(savedDraft);
+        setFormData(parsedData);
+        console.log('📝 Loaded saved personal info from localStorage');
+      } catch (error) {
+        console.error('Error loading saved data:', error);
+      }
+    }
+  }, [navigate]);
 
   // Validation
   const validateField = (field, value) => {
@@ -165,7 +226,8 @@ const SurveyStep1 = () => {
 
   const toggleSection = (section) => setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
 
-  const toggleDemoMode = () => {
+  // ✅ FIXED: Immediately save demo data to prevent loss on navigation
+  const toggleDemoMode = async () => {
     const payload = !isDemoMode ? { ...demoData } : { ...emptyData };
     // If demo, try to pick first barangay from API
     if (!isDemoMode) {
@@ -175,22 +237,205 @@ const SurveyStep1 = () => {
     setIsDemoMode((v) => !v);
     setFormData(payload);
     if (!isDemoMode) setExpandedSections({ personal: true, location: true, demographics: true });
+    
+    // ✅ IMMEDIATE SAVE: Save demo data immediately to prevent loss
+    try {
+      if (!isDemoMode) { // Only save when loading demo data
+        console.log('💾 Immediately saving demo data...');
+        
+        // Save to localStorage as fallback
+        const draft = { personal: payload };
+        localStorage.setItem('kk_survey_draft_v1', JSON.stringify(draft));
+        
+        // If we have youthId, also save to session
+        if (youthId) {
+          const surveyData = {
+            personal: payload,
+            ...sessionFormData
+          };
+          await updateFormData(surveyData);
+        }
+        
+        setLastSavedAt(new Date());
+        console.log('✅ Demo data saved immediately');
+      }
+    } catch (error) {
+      console.error('❌ Failed to save demo data:', error);
+    }
   };
 
-  // Auto-save with localStorage
+  // ============================================
+  // SIMPLIFIED AUTO-SAVE
+  // ============================================
+  // Auto-save to localStorage every 1 second
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsSaving(true);
       try {
-        const draft = { personal: formData };
-        localStorage.setItem('kk_survey_draft_v1', JSON.stringify(draft));
+        localStorage.setItem('kk_survey_draft_personal', JSON.stringify(formData));
         setLastSavedAt(new Date());
+        console.log('💾 Personal info auto-saved to localStorage');
+      } catch (error) {
+        console.error('❌ Auto-save failed:', error);
       } finally {
-        setIsSaving(false);
+        setTimeout(() => setIsSaving(false), 300);
       }
     }, 1000);
+
     return () => clearTimeout(timer);
   }, [formData]);
+
+  // ============================================
+  // REMOVED: Complex youth detection
+  // ============================================
+  // This function is no longer needed - we'll detect on final submit
+  const detectYouthStatus_REMOVED = async (data) => {
+    // Check if user has entered enough data for name detection
+    const hasCompleteName = data.firstName?.trim() && data.lastName?.trim();
+    const hasGender = data.sexAtBirth?.trim();
+    const hasBirthDate = data.birthday?.trim();
+    const hasEmail = data.email?.trim();
+    
+    // Check if user has entered enough data for email detection
+    const canDetectByName = hasCompleteName && hasGender && hasBirthDate;
+    const canDetectByEmail = hasEmail;
+    
+    if (!canDetectByName && !canDetectByEmail) {
+      return; // Not enough data to detect yet
+    }
+
+    setIsDetectingYouth(true);
+    try {
+      console.log('🔍 Detecting youth status with data:', { 
+        firstName: data.firstName,
+        middleName: data.middleName,
+        lastName: data.lastName,
+        suffix: data.suffix,
+        gender: data.sexAtBirth,
+        birthDate: data.birthday,
+        email: data.email
+      });
+      
+      let profileCheck = null;
+      
+      // Method 1: Try name-based detection first (most reliable)
+      if (canDetectByName) {
+        console.log('🔍 Trying name-based detection...');
+        profileCheck = await checkProfile({
+          first_name: data.firstName?.trim(),
+          middle_name: data.middleName?.trim() || null,
+          last_name: data.lastName?.trim(),
+          suffix: data.suffix?.trim() || null,
+          gender: data.sexAtBirth?.trim(),
+          birth_date: data.birthday?.trim()
+        });
+      }
+      
+      // Method 2: If name detection failed and we have email, try email detection
+      if ((!profileCheck || !profileCheck.exists) && canDetectByEmail) {
+        console.log('🔍 Trying email-based detection...');
+        profileCheck = await checkProfile({
+          email: data.email?.trim()
+        });
+      }
+
+      if (profileCheck.exists) {
+        console.log('👤 Found existing youth profile:', profileCheck.youthId);
+        
+        // For now, assume returning user can continue (status check will be handled by session management)
+        console.log('✅ Returning user, can continue survey');
+        setYouthStatus('returning');
+        return { status: 'returning', youthId: profileCheck.youthId };
+      } else {
+        console.log('🆕 New user detected');
+        setYouthStatus('new');
+        return { status: 'new' };
+      }
+    } catch (error) {
+      console.error('❌ Error detecting youth status:', error);
+      // Don't block user if detection fails
+      return { status: 'unknown' };
+    } finally {
+      setIsDetectingYouth(false);
+    }
+  };
+
+  // ✅ FIXED: Create youth profile and return the result
+  const createYouthProfileIfNeeded = async (data) => {
+    if (youthId || isCreatingProfile) {
+      console.log('⏭️ Skipping profile creation - already have youthId or creating');
+      return { success: false, reason: 'already_exists', youthId };
+    }
+
+    // Check if user has entered meaningful data for profile creation
+    const hasRequiredData = data.firstName?.trim() && 
+                           data.lastName?.trim() && 
+                           data.age && parseInt(data.age) > 0 && 
+                           data.sexAtBirth && 
+                           data.contactNumber?.trim() && 
+                           data.email?.trim() && 
+                           data.barangay;
+
+    if (!hasRequiredData) {
+      console.log('⏭️ Skipping profile creation - missing required data:', {
+        firstName: !!data.firstName?.trim(),
+        lastName: !!data.lastName?.trim(),
+        age: !!data.age && parseInt(data.age) > 0,
+        sexAtBirth: !!data.sexAtBirth,
+        contactNumber: !!data.contactNumber?.trim(),
+        email: !!data.email?.trim(),
+        barangay: !!data.barangay
+      });
+      return { success: false, reason: 'incomplete_data' };
+    }
+
+    setIsCreatingProfile(true);
+    try {
+      console.log('👤 Creating youth profile with data:', data);
+      
+      // Get terms data from localStorage
+      const savedTerms = localStorage.getItem('kk_survey_terms_temp');
+      const termsData = savedTerms ? JSON.parse(savedTerms) : {};
+
+      // Prepare youth profile data (only profile fields, not terms)
+      const youthProfileData = {
+        first_name: data.firstName?.trim(),
+        last_name: data.lastName?.trim(),
+        middle_name: data.middleName?.trim(),
+        suffix: data.suffix?.trim(),
+        age: parseInt(data.age) || 0, // Ensure age is a number, default to 0 if invalid
+        gender: data.sexAtBirth,
+        contact_number: data.contactNumber?.trim(),
+        email: data.email?.trim(),
+        barangay_id: data.barangay || null,
+        purok_zone: data.purok?.trim() || null
+      };
+
+      // Check if we have an active survey before trying to initialize session
+      if (!activeSurvey) {
+        console.log('❌ No active survey available for profile creation');
+        return { success: false, reason: 'no_survey', error: 'No active survey available' };
+      }
+
+      const result = await initializeSession(youthProfileData);
+      if (result.success) {
+        console.log('✅ Youth profile created successfully:', result.youthId);
+        // Clear terms from localStorage since it's now saved in the profile
+        localStorage.removeItem('kk_survey_terms_temp');
+        return { success: true, youthId: result.youthId, userId: result.userId };
+      } else {
+        console.error('❌ Failed to create youth profile:', result);
+        return { success: false, reason: 'creation_failed', error: result };
+      }
+    } catch (error) {
+      console.error('❌ Error creating youth profile:', error);
+      return { success: false, reason: 'exception', error: error.message };
+    } finally {
+      setIsCreatingProfile(false);
+    }
+  };
+
+  // Old complex auto-save removed - using simplified version above
 
   // UI Subcomponents
   const ProgressIndicator = ({ currentStep, totalSteps, stepTitle }) => (
@@ -361,178 +606,104 @@ const SurveyStep1 = () => {
      </button>
    );
 
-  const handleNext = () => {
-    if (!isFormValid) return;
-    navigate('/kk-survey/step-3');
+  // ============================================
+  // SIMPLIFIED NAVIGATION
+  // ============================================
+  const handleBack = () => {
+    // Save to localStorage before going back
+    localStorage.setItem('kk_survey_draft_personal', JSON.stringify(formData));
+    console.log('💾 Personal info saved, navigating back to terms');
+    navigate('/kk-survey/step-1'); // Back to terms page
   };
 
-  return (
-    <SurveyLayout>
-        {/* Top utility bar */}
-        <div className="bg-[#24345A] fixed top-0 left-0 right-0 z-40">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 h-10 flex items-center justify-between">
-            <button 
-              onClick={() => navigate('/')} 
-              title="Return to main website"
-              className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white hover:bg-white/10 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+  const handleNext = () => {
+    if (!isFormValid) return;
+    
+    // Save to localStorage and navigate
+    localStorage.setItem('kk_survey_draft_personal', JSON.stringify(formData));
+    console.log('💾 Personal info saved, navigating to demographics');
+    navigate('/kk-survey/step-3'); // Demographics (Step 3)
+  };
+
+  // Handle error state with early return (prevents flash)
+  if (!surveyLoading && !hasActiveSurvey) {
+    return (
+      <SurveyLayout
+        currentStep={2}
+        totalSteps={5}
+        stepTitle="Survey Not Available"
+        isSaving={false}
+        backToPath="/kk-survey"
+        showProgress={true}
+        showSaveStatus={false}
+        canContinue={false}
+        onBackClick={() => navigate('/kk-survey')}
+        onContinueClick={() => {}}
+        continueButtonText="Continue"
+        statusMessage="No active survey"
+        statusType="error"
+        showStatus={true}
+        disabled={true}
+        isLoading={false}
+      >
+        <div className="min-h-screen bg-gray-50">
+          <div className="max-w-7xl mx-auto px-6 py-8">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
+              <AlertCircle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Survey Not Available</h2>
+              <p className="text-gray-600 mb-8">
+                There is currently no active survey available.
+              </p>
+            <button
+              onClick={() => navigate('/kk-survey')}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              <ArrowLeft className="w-3.5 h-3.5 opacity-90" />
-              <span className="tracking-wide">Back to Website</span>
+              Back to Survey
             </button>
-            <a
-              href="mailto:lydo@sanjosebatangas.gov.ph"
-              title="Contact LYDO via email"
-              className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-            >
-              <Mail className="w-3.5 h-3.5 opacity-90" />
-              <span className="tracking-wide">lydo@sanjosebatangas.gov.ph</span>
-            </a>
+            </div>
           </div>
         </div>
-        {/* Enhanced Survey Header */}
-        <div className="bg-white border-b border-gray-200 fixed top-[40px] left-0 right-0 z-30">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
-            {/* Main Header Row */}
-            <div className="py-3 sm:py-4">
-              {/* Mobile: Stacked Layout */}
-              <div className="block sm:hidden">
-                {/* Municipality Info - Mobile (Always Visible) */}
-                <div className="flex items-center gap-2">
-                  <img src={new URL('../../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} alt="Municipality Seal" className="w-7 h-7 rounded-full border flex-shrink-0" />
-                  <div className="text-left flex-1 min-h-[28px] flex flex-col justify-center">
-                    <div className="text-xs text-gray-600 leading-tight">Municipality of San Jose, Batangas</div>
-                    <div className="text-xs text-gray-500 leading-tight">Local Youth Development Office</div>
-              </div>
-                <button
-                    onClick={() => setShowMobileDetails(!showMobileDetails)}
-                    className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
-                    aria-label={showMobileDetails ? "Hide survey details" : "Show survey details"}
-                  >
-                    <div className={`transition-transform duration-300 ease-in-out ${
-                      showMobileDetails ? 'rotate-180' : 'rotate-0'
-                    }`}>
-                      <ChevronDown className="w-4 h-4 text-gray-500" />
-                    </div>
-                </button>
-              </div>
+      </SurveyLayout>
+    );
+  }
 
-                {/* Collapsible Survey Details - Mobile */}
-                <div className={`transition-all duration-300 ease-in-out ${
-                  showMobileDetails 
-                    ? 'max-h-96 opacity-100 transform translate-y-0' 
-                    : 'max-h-0 opacity-0 transform -translate-y-2'
-                } overflow-hidden`}>
-                  <div className="space-y-3 border-t border-gray-100 pt-4 mt-3">
-                    {/* Survey Title - Mobile */}
-                    <div className="text-center">
-                      <h1 className="text-lg font-bold text-gray-900">KK Survey 2025</h1>
-                    </div>
+  return (
+    <SurveyLayout
+      // Header props
+      currentStep={2}
+      totalSteps={5}
+      stepTitle="Personal Information"
+      isSaving={isSaving}
+           backToPath="/kk-survey"
+           showProgress={true}
+      showSaveStatus={true}
+      // Footer props
+      canContinue={isFormValid && hasActiveSurvey}
+      onBackClick={handleBack}
+      onContinueClick={handleNext}
+      continueButtonText="Continue to Demographics"
+      statusMessage={isFormValid ? 'Section Complete' : 'Section Incomplete'}
+      statusType={isFormValid ? 'success' : 'warning'}
+      showStatus={true}
+      disabled={!isFormValid}
+      isLoading={false}
+      // Centralized loading state only (error handled with early return above)
+      showLoadingState={surveyLoading}
+      loadingMessage="Loading survey..."
+    >
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          
+          {/* Removed complex youth status displays - simplified flow */}
 
-                    {/* Progress & Status - Mobile */}
-                    <div className="space-y-3">
-                      {/* Progress Info */}
-                      <div className="flex items-center justify-between">
-                        <div className="text-left">
-                          <div className="text-sm font-semibold text-gray-900">Step 2 of 5</div>
-                          <div className="text-xs text-gray-600">Personal Information</div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-600 transition-all duration-300 rounded-full" style={{ width: `${(2 / 5) * 100}%` }} />
-                          </div>
-                          <span className="text-sm font-semibold text-blue-600">{Math.round((2 / 5) * 100)}%</span>
-                        </div>
-                      </div>
-
-                      {/* Save Status */}
-                      <div className="flex items-center justify-center">
-                        {isSaving ? (
-                          <div className="flex items-center gap-1.5 px-2 py-1 bg-orange-50 border border-orange-200 rounded-full">
-                            <Loader2 className="w-3 h-3 animate-spin text-orange-500" />
-                            <span className="text-orange-700 text-xs font-medium">Saving...</span>
-            </div>
-                        ) : lastSavedAt ? (
-                          <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
-                            <Check className="w-3 h-3 text-green-600" />
-                            <span className="text-green-700 text-xs font-medium">Last saved: {lastSavedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-              </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 border border-gray-200 rounded-full">
-                            <Cloud className="w-3 h-3 text-gray-500" />
-                            <span className="text-gray-600 text-xs font-medium">Auto-save</span>
-                </div>
-                        )}
-                </div>
-                </div>
-              </div>
-            </div>
-              </div>
-
-              {/* Desktop: Horizontal Layout */}
-              <div className="hidden sm:grid grid-cols-3 items-center">
-                {/* Left: Municipality Info */}
-                <div className="flex items-center gap-3">
-                  <img src={new URL('../../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} alt="Municipality Seal" className="w-9 h-9 rounded-full border" />
-                <div>
-                    <div className="text-sm text-gray-600">Municipality of San Jose, Batangas</div>
-                    <div className="text-xs text-gray-500">Local Youth Development Office</div>
-              </div>
-                </div>
-
-                {/* Center: Survey Title */}
-                <div className="flex justify-center">
-                  <h1 className="text-xl font-bold text-gray-900">KK Survey 2025</h1>
-                </div>
-
-                {/* Right: Progress & Status */}
-                <div className="flex items-center gap-6 justify-end">
-                  {/* Progress Info */}
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-gray-900">Step 2 of 5</div>
-                    <div className="text-sm text-gray-600">Personal Information</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-600 transition-all duration-300 rounded-full" style={{ width: `${(2 / 5) * 100}%` }} />
-                </div>
-                      <span className="text-sm font-semibold text-blue-600">{Math.round((2 / 5) * 100)}%</span>
-                </div>
-              </div>
-
-                  {/* Save Status */}
-                  <div className="flex items-center">
-                    {isSaving ? (
-                      <div className="flex items-center gap-1.5 px-2 py-1 bg-orange-50 border border-orange-200 rounded-full">
-                        <Loader2 className="w-3 h-3 animate-spin text-orange-500" />
-                        <span className="text-orange-700 text-xs font-medium">Saving...</span>
-                      </div>
-                    ) : lastSavedAt ? (
-                      <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
-                        <Check className="w-3 h-3 text-green-600" />
-                        <span className="text-green-700 text-xs font-medium">Last saved: {lastSavedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 border border-gray-200 rounded-full">
-                        <Cloud className="w-3 h-3 text-gray-500" />
-                        <span className="text-gray-600 text-xs font-medium">Auto-save</span>
-                      </div>
-                    )}
-              </div>
-                </div>
-                </div>
-                </div>
-
-                </div>
-              </div>
-
-        <div className="min-h-screen bg-white">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10 mt-20 sm:mt-30">
-          <div className="text-center mb-8">
+          {/* Header Section */}
+          <div className="bg-gray-50 text-center py-8 mb-8 rounded-xl">
             <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold mb-4">KK Demographic Survey 2025</div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Personal Information</h1>
             <p className="text-sm sm:text-base text-gray-700 max-w-2xl mx-auto mb-6">Please provide your personal and location information. All fields marked with * are required.</p>
             
             {/* Enhanced Info Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-6xl mx-auto mb-6">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
@@ -597,8 +768,17 @@ const SurveyStep1 = () => {
                       required 
                       options={
                         barangaysError 
-                          ? ['Barangay 1', 'Barangay 2', 'Barangay 3', 'Barangay 4', 'Barangay 5'] // Fallback data
-                          : (barangays || []).map((b) => b.name || b.barangay_name).filter(Boolean)
+                          ? [
+                              { value: 'BAR-001', label: 'Barangay 1' },
+                              { value: 'BAR-002', label: 'Barangay 2' },
+                              { value: 'BAR-003', label: 'Barangay 3' },
+                              { value: 'BAR-004', label: 'Barangay 4' },
+                              { value: 'BAR-005', label: 'Barangay 5' }
+                            ] // Fallback data with IDs
+                          : (barangays || []).map((b) => ({
+                              value: b.barangay_id || b.id,
+                              label: b.name || b.barangay_name
+                            })).filter(item => item.value && item.label)
                       } 
                       placeholder={
                         barangaysError 
@@ -678,7 +858,7 @@ const SurveyStep1 = () => {
                       <span className="text-gray-600">Address:</span>
                       <span className={`ml-2 font-medium ${formData.barangay ? 'text-gray-900' : 'text-gray-500'}`}>
                         {formData.barangay 
-                          ? `${formData.purok ? formData.purok + ', ' : ''}${formData.barangay}, ${formData.city}, ${formData.province}, ${formData.region}`
+                          ? `${formData.purok ? formData.purok + ', ' : ''}${getBarangayName(formData.barangay)}, ${formData.city}, ${formData.province}, ${formData.region}`
                           : '-'
                         }
                       </span>
@@ -729,96 +909,6 @@ const SurveyStep1 = () => {
                       </span>
                     </div>
                   </div>
-                </div>
-              </div>
-                </div>
-              </div>
-            </div>
-
-        <div className="sticky bottom-0 border-t border-gray-200 backdrop-blur supports-[backdrop-filter]:bg-white/85 bg-white/95 shadow-lg">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            {/* Desktop layout */}
-            <div className="hidden sm:grid grid-cols-3 items-center gap-3">
-              <div className="flex">
-                <button
-                  onClick={() => navigate('/kk-survey/step-1')}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full font-semibold transition-colors"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to Step 1
-                </button>
-                </div>
-
-              <div className="flex justify-center">
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${isFormValid ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                  {isFormValid ? 'Section Complete' : 'Section Incomplete'}
-                </span>
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  onClick={handleNext}
-                  disabled={!isFormValid}
-                  className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-semibold transition-all ${isFormValid ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-                >
-                  Continue to Step 3
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Mobile Tab Bar Style */}
-            <div className="sm:hidden">
-              <div className="bg-white/90 backdrop-blur-sm">
-                <div className="flex items-center justify-between px-4 py-2">
-                  {/* Back Button */}
-                  <button
-                    onClick={() => navigate('/kk-survey/step-1')}
-                    className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-                    title="Back to Step 1"
-                  >
-                    <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center">
-                      <ArrowLeft className="w-3.5 h-3.5 text-gray-600" />
-                    </div>
-                    <span className="text-xs text-gray-600 font-medium">Back</span>
-                  </button>
-
-                  {/* Status Indicator */}
-                  <div className="flex flex-col items-center gap-0.5">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isFormValid ? 'bg-green-100' : 'bg-amber-100'}`}>
-                      {isFormValid ? (
-                        <Check className="w-3.5 h-3.5 text-green-600" />
-                      ) : (
-                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                      )}
-                    </div>
-                    <span className={`text-xs font-medium ${isFormValid ? 'text-green-600' : 'text-amber-600'}`}>
-                      {isFormValid ? 'Complete' : 'Incomplete'}
-                </span>
-              </div>
-
-                  {/* Continue Button */}
-                  <button
-                    onClick={handleNext}
-                    disabled={!isFormValid}
-                    className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-colors ${
-                      isFormValid 
-                        ? 'hover:bg-blue-50' 
-                        : 'opacity-50 cursor-not-allowed'
-                    }`}
-                    title="Continue to Step 3"
-                  >
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                      isFormValid 
-                        ? 'bg-blue-600 shadow-md' 
-                        : 'bg-gray-300'
-                    }`}>
-                      <ArrowRight className={`w-3.5 h-3.5 ${isFormValid ? 'text-white' : 'text-gray-500'}`} />
-                    </div>
-                    <span className={`text-xs font-medium ${isFormValid ? 'text-blue-600' : 'text-gray-500'}`}>
-                      Step 3
-                    </span>
-                  </button>
                 </div>
               </div>
               </div>

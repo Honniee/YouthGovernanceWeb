@@ -3,6 +3,7 @@ import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 
 // Import components
 import LoadingScreen from '../components/LoadingScreen';
+import ScrollToTop from '../components/ScrollToTop';
 import useLoading from '../hooks/useLoading';
 import { useAuth } from '../context/AuthContext';
 import { getDashboardRoute, shouldAutoRedirect, isPublicRoute } from '../utils/routeHelpers';
@@ -128,8 +129,10 @@ const RootNavigator = () => {
   }
 
   return (
-    <Routes>
-      {/* Public Pages - PROTECTED by PublicRouteGuard */}
+    <>
+      <ScrollToTop />
+      <Routes>
+        {/* Public Pages - PROTECTED by PublicRouteGuard */}
       <Route path="/" element={
         <PublicRouteGuard>
           <Home />
@@ -226,6 +229,7 @@ const RootNavigator = () => {
       <Route path="/500" element={<ServerError />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </>
   );
 };
 

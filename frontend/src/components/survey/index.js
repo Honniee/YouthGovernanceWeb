@@ -7,4 +7,6 @@ export { default as RadioGroup } from './RadioGroup';
 export { default as StatusIndicator } from './StatusIndicator';
 export { default as SurveyLayout } from './SurveyLayout';
 export { default as SurveyHeader } from './SurveyHeader';
+export { default as SurveyPageHeader } from './SurveyPageHeader';
+export { default as SurveyPageFooter } from './SurveyPageFooter';
 export { default as SurveySummary } from './SurveySummary';

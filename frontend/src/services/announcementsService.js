@@ -83,7 +83,31 @@ export const getAnnouncementCategories = async () => {
 // Create announcement (admin only)
 export const createAnnouncement = async (announcementData) => {
   try {
-    return await apiHelpers.post('/announcements', announcementData);
+    // Check if we have an image file to upload
+    if (announcementData.imageFile) {
+      // Create FormData for multipart upload
+      const formData = new FormData();
+      
+      // Add all text fields
+      Object.keys(announcementData).forEach(key => {
+        if (key !== 'imageFile' && announcementData[key] !== null && announcementData[key] !== undefined) {
+          formData.append(key, announcementData[key]);
+        }
+      });
+      
+      // Add the image file
+      formData.append('image', announcementData.imageFile);
+      
+      // Use FormData for the request
+      return await apiHelpers.post('/announcements', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+    } else {
+      // Regular JSON request for text-only announcements
+      return await apiHelpers.post('/announcements', announcementData);
+    }
   } catch (error) {
     console.error('Error creating announcement:', error);
     throw error;
@@ -93,9 +117,52 @@ export const createAnnouncement = async (announcementData) => {
 // Update announcement (admin only)
 export const updateAnnouncement = async (id, announcementData) => {
   try {
-    return await apiHelpers.put(`/announcements/${id}`, announcementData);
+    // Check if we have an image file to upload
+    if (announcementData.imageFile) {
+      // Create FormData for multipart upload
+      const formData = new FormData();
+      
+      // Add all text fields
+      Object.keys(announcementData).forEach(key => {
+        if (key !== 'imageFile' && announcementData[key] !== null && announcementData[key] !== undefined) {
+          formData.append(key, announcementData[key]);
+        }
+      });
+      
+      // Add the image file
+      formData.append('image', announcementData.imageFile);
+      
+      // Use FormData for the request
+      return await apiHelpers.put(`/announcements/${id}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+    } else {
+      // Regular JSON request for text-only announcements
+      return await apiHelpers.put(`/announcements/${id}`, announcementData);
+    }
   } catch (error) {
     console.error('Error updating announcement:', error);
+    throw error;
+  }
+};
+
+// Upload announcement image
+export const uploadAnnouncementImage = async (id, imageFile) => {
+  try {
+    console.log('🖼️ Uploading image for announcement:', id);
+    
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    
+    return await apiHelpers.put(`/announcements/${id}/image`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  } catch (error) {
+    console.error('Error uploading announcement image:', error);
     throw error;
   }
 };

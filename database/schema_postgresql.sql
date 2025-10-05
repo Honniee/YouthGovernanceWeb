@@ -249,6 +249,7 @@ CREATE TABLE "KK_Survey_Batches" (
     FOREIGN KEY (resumed_by) REFERENCES "LYDO"(lydo_id) ON DELETE SET NULL
 );
 
+
 -- 11. KK_SURVEY_RESPONSES TABLE
 CREATE TABLE "KK_Survey_Responses" (
     response_id VARCHAR(20) PRIMARY KEY, -- e.g., 'RES001', 'RES002'
@@ -291,6 +292,8 @@ CREATE INDEX idx_kk_responses_barangay_id ON "KK_Survey_Responses" (barangay_id)
 CREATE INDEX idx_kk_responses_validation_status ON "KK_Survey_Responses" (validation_status);
 CREATE INDEX idx_kk_responses_validation_tier ON "KK_Survey_Responses" (validation_tier);
 CREATE INDEX idx_kk_responses_created_at ON "KK_Survey_Responses" (created_at);
+
+
 
 -- 12. VALIDATION_LOGS TABLE
 CREATE TABLE "Validation_Logs" (

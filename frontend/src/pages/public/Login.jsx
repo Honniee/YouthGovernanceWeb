@@ -301,7 +301,7 @@ const Login = () => {
                       </div>
                       {errors.email && (
                         <div className="mt-1 sm:mt-2 flex items-center text-xs sm:text-sm text-red-600 animate-shake">
-                          <span className="mr-1">⚠️</span>
+                          <span className="mr-1">  </span>
                           {errors.email}
                         </div>
                       )}
@@ -340,7 +340,7 @@ const Login = () => {
                       </div>
                       {errors.password && (
                         <div className="mt-1 sm:mt-2 flex items-center text-xs sm:text-sm text-red-600 animate-shake">
-                          <span className="mr-1">⚠️</span>
+                          <span className="mr-1"> </span>
                           {errors.password}
                         </div>
                       )}
@@ -370,17 +370,23 @@ const Login = () => {
                     </div>
 
                     {/* reCAPTCHA */}
-                    <div className="animate-fade-in-up delay-700 flex justify-center">
-                      <ReCaptchaComponent
-                        ref={recaptcha.ref}
-                        onVerify={recaptcha.onVerify}
-                        onError={recaptcha.onError}
-                        onExpire={recaptcha.onExpire}
-                        className="mb-2 scale-90 sm:scale-100"
-                      />
+                    <div className="animate-fade-in-up delay-700">
+                      <div className="w-full max-w-full overflow-visible sm:overflow-hidden">
+                        <div className="flex justify-center w-full">
+                          <div className="recaptcha-container-mobile sm:recaptcha-container-desktop">
+                            <ReCaptchaComponent
+                              ref={recaptcha.ref}
+                              onVerify={recaptcha.onVerify}
+                              onError={recaptcha.onError}
+                              onExpire={recaptcha.onExpire}
+                              className="w-full"
+                            />
+                          </div>
+                        </div>
+                      </div>
                       {errors.recaptcha && (
                         <div className="mt-1 sm:mt-2 flex items-center text-xs sm:text-sm text-red-600 animate-shake">
-                          <span className="mr-1">⚠️</span>
+                          <span className="mr-1"> </span>
                           {errors.recaptcha}
                         </div>
                       )}
@@ -522,6 +528,154 @@ const Login = () => {
         /* Touch-friendly interactions */
         @media (hover: none) and (pointer: coarse) {
           /* Removed scale hover effects for touch devices */
+        }
+        
+        /* Mobile reCAPTCHA specific styles */
+        @media (max-width: 640px) {
+          .recaptcha-container {
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: flex !important;
+            justify-content: center !important;
+          }
+          
+          /* Ensure the reCAPTCHA grid is fully visible on mobile */
+          .recaptcha-widget-container {
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            min-width: 304px !important;
+            transform: scale(0.9) !important;
+            transform-origin: center !important;
+          }
+          
+          /* Make sure the reCAPTCHA iframe doesn't get cut off */
+          .recaptcha-widget iframe {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 304px !important;
+            height: 78px !important;
+            overflow: hidden !important;
+          }
+          
+          /* Fix for reCAPTCHA challenge container */
+          .g-recaptcha {
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+            transform: scale(0.9) !important;
+            transform-origin: center !important;
+          }
+          
+          /* Ensure the challenge grid is fully accessible */
+          .g-recaptcha iframe {
+            width: 304px !important;
+            height: 78px !important;
+            overflow: visible !important;
+          }
+          
+          /* Fix for the challenge popup on mobile */
+          .recaptcha-checkbox-border {
+            width: 304px !important;
+            height: 78px !important;
+          }
+          
+          /* Mobile container specific styles */
+          .recaptcha-container-mobile {
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: visible !important;
+            padding: 0 !important;
+            margin: 0 auto !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+          }
+          
+          /* Ensure challenge popup is fully visible */
+          .recaptcha-challenge-popup {
+            width: 100% !important;
+            max-width: 100% !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            position: fixed !important;
+            z-index: 9999 !important;
+          }
+          
+          /* Fix for the 3x3 grid challenge */
+          .recaptcha-challenge-grid {
+            width: 100% !important;
+            max-width: 304px !important;
+            overflow: visible !important;
+          }
+          
+          /* Ensure challenge images are properly sized */
+          .recaptcha-challenge-image {
+            width: 100% !important;
+            height: auto !important;
+            max-width: 304px !important;
+          }
+        }
+        
+        /* Desktop reCAPTCHA container */
+        .recaptcha-container-desktop {
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+        
+        /* Global reCAPTCHA mobile fixes */
+        @media (max-width: 640px) {
+          /* Ensure the reCAPTCHA challenge popup is centered and fully visible */
+          .g-recaptcha-bubble-arrow {
+            display: none !important;
+          }
+          
+          /* Fix for the challenge container positioning */
+          .recaptcha-checkbox {
+            margin: 0 auto !important;
+            display: block !important;
+          }
+          
+          /* Ensure the challenge popup doesn't get cut off */
+          body.recaptcha-challenge-open {
+            overflow-x: auto !important;
+            overflow-y: auto !important;
+          }
+          
+          /* Fix for the challenge popup positioning */
+          .recaptcha-checkbox-popup {
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            z-index: 9999 !important;
+            width: 90% !important;
+            max-width: 304px !important;
+            max-height: 90vh !important;
+            overflow: auto !important;
+          }
+          
+          /* Ensure the challenge grid is properly sized */
+          .recaptcha-challenge {
+            width: 100% !important;
+            max-width: 304px !important;
+            margin: 0 auto !important;
+          }
+        }
+        
+        /* Tablet reCAPTCHA styles */
+        @media (min-width: 641px) and (max-width: 1024px) {
+          .recaptcha-container {
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow-x: auto !important;
+            overflow-y: visible !important;
+          }
         }
       `}</style>
       

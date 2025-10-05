@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   CheckCircle, 
   ArrowLeft, 
@@ -23,7 +23,8 @@ import {
   BarChart3,
   ArrowRight
 } from 'lucide-react';
-import { SurveyLayout } from '../../../components/survey';
+import SurveyLayout from '../../../components/layouts/SurveyLayout';
+import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
 
 // Animated counter component
 const AnimatedCounter = ({ end, duration = 2000 }) => {
@@ -59,18 +60,154 @@ const AnimatedCounter = ({ end, duration = 2000 }) => {
 
 const SurveyThankYou = () => {
   const navigate = useNavigate();
-
-  // Mock route params - in real app these would come from navigation
-  const routeParams = {
-    batchName: 'San Jose Youth Survey 2024',
-    participant_email: 'participant@example.com',
-    submissionId: 'KK-2024-SJ-00123',
-    status: 'Verified'
+  const location = useLocation();
+  
+  // Get real survey data
+  const { activeSurvey, isLoading: surveyLoading } = useActiveSurvey();
+  
+  // Check if user has valid access to thank you page
+  const checkAccessPermission = () => {
+    // For thank you page, we should allow access if:
+    // 1. User has navigation state (just submitted)
+    // 2. User has valid backup submission data
+    // 3. User has recent reCAPTCHA verification
+    
+    // First check if we have navigation state (most reliable for recent submissions)
+    if (location.state) {
+      console.log('✅ Access granted via navigation state');
+      return true;
+    }
+    
+    // Check for backup submission data
+    const backupData = localStorage.getItem('kk_survey_submitted');
+    if (backupData) {
+      try {
+        const parsed = JSON.parse(backupData);
+        const backupTime = new Date(parsed.submitted_at).getTime();
+        const currentTime = Date.now();
+        const twentyFourHours = 24 * 60 * 60 * 1000;
+        
+        if (currentTime - backupTime <= twentyFourHours) {
+          console.log('✅ Access granted via valid backup data');
+          return true;
+        }
+      } catch (error) {
+        console.error('Error parsing backup data:', error);
+      }
+    }
+    
+    // Finally check reCAPTCHA verification as fallback
+    const recaptchaVerified = sessionStorage.getItem('recaptcha_verified');
+    if (recaptchaVerified) {
+      const verificationTime = parseInt(recaptchaVerified);
+      const currentTime = Date.now();
+      const thirtyMinutes = 30 * 60 * 1000;
+      
+      if (currentTime - verificationTime <= thirtyMinutes) {
+        console.log('✅ Access granted via reCAPTCHA verification');
+        return true;
+      }
+    }
+    
+    // If no valid access method found, redirect
+    console.log('🚫 No valid access found, redirecting to survey landing');
+    navigate('/kk-survey', { replace: true });
+    return false;
   };
 
-  const { batchName, participant_email, submissionId, status } = routeParams;
+  // Get submission data from navigation state, localStorage backup, or redirect if missing
+  const getSubmissionData = () => {
+    // First, try navigation state (most recent and most reliable)
+    if (location.state) {
+      return location.state;
+    }
+    
+    // Second, try localStorage backup (but only if user has valid access)
+    const backupData = localStorage.getItem('kk_survey_submitted');
+    if (backupData) {
+      try {
+        const parsed = JSON.parse(backupData);
+        
+        // Check if backup data is recent (within last 24 hours)
+        const backupTime = new Date(parsed.submitted_at).getTime();
+        const currentTime = Date.now();
+        const twentyFourHours = 24 * 60 * 60 * 1000;
+        
+        if (currentTime - backupTime > twentyFourHours) {
+          console.log('⏰ Backup submission data is too old, redirecting to survey landing');
+          localStorage.removeItem('kk_survey_submitted');
+          navigate('/kk-survey', { replace: true });
+          return null;
+        }
+        
+        return {
+          batchName: activeSurvey?.batch_name || activeSurvey?.batchName || 'KK Survey 2025',
+          submissionId: parsed.submission_id,
+          youthId: parsed.youth_id,
+          status: parsed.status,
+          submittedAt: parsed.submitted_at,
+          isNewYouth: parsed.isNewYouth || false,
+          validationStatus: parsed.validation_status || 'pending',
+          validationTier: parsed.validation_tier || 'manual'
+        };
+      } catch (error) {
+        console.error('Error parsing backup submission data:', error);
+      }
+    }
+    
+    // If no data found, redirect to survey landing
+    console.warn('No submission data found, redirecting to survey landing');
+    navigate('/kk-survey', { replace: true });
+    return null;
+  };
+
+  // Check access permission first
+  if (!checkAccessPermission()) {
+    return null;
+  }
+
+  const submissionData = getSubmissionData();
+  
+  // Debug: Log the submission data to see what's available
+  console.log('🔍 SurveyThankYou - submissionData:', submissionData);
+  console.log('🔍 SurveyThankYou - location.state:', location.state);
+  
+  // If no submission data, component will redirect
+  if (!submissionData) {
+    return null;
+  }
+
+  const { 
+    batchName, 
+    submissionId, 
+    youthId, 
+    status, 
+    submittedAt, 
+    isNewYouth, 
+    validationStatus, 
+    validationTier 
+  } = submissionData;
+
+  // Handle page refresh and browser navigation
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Clear session data when user leaves the page
+      sessionStorage.removeItem('recaptcha_verified');
+      localStorage.removeItem('kk_survey_terms_temp'); // Clear terms data for new survey
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
 
   const handleReturnHome = () => {
+    // Clear survey session data when leaving thank you page
+    sessionStorage.removeItem('recaptcha_verified');
+    localStorage.removeItem('kk_survey_submitted');
+    localStorage.removeItem('kk_survey_terms_temp'); // Clear terms data for new survey
     navigate('/');
   };
 
@@ -83,7 +220,7 @@ const SurveyThankYou = () => {
       try {
         await navigator.share({
           title: 'KK Survey Completed',
-          text: `I just completed the KK Survey for ${batchName}! Submission ID: ${submissionId}`,
+          text: `I just completed the KK Survey for ${batchName}! Response ID: ${submissionId}`,
           url: window.location.origin
         });
       } catch (error) {
@@ -96,7 +233,7 @@ const SurveyThankYou = () => {
   };
 
   const handleFallbackShare = () => {
-    const shareText = `I just completed the KK Survey for ${batchName}! Submission ID: ${submissionId}`;
+    const shareText = `I just completed the KK Survey for ${batchName}! Response ID: ${submissionId}`;
     navigator.clipboard.writeText(shareText).then(() => {
       alert('Achievement copied to clipboard!');
     }).catch(() => {
@@ -105,89 +242,30 @@ const SurveyThankYou = () => {
   };
 
   return (
-    <>
-    <SurveyLayout>
-      {/* Top utility bar */}
-      <div className="bg-[#24345A] fixed top-0 left-0 right-0 z-40">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 h-10 flex items-center justify-between">
-          <button 
-            onClick={() => navigate('/')} 
-            title="Return to main website" 
-            className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white hover:bg-white/10 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 opacity-90" />
-            <span className="tracking-wide">Back to Website</span>
-          </button>
-          <a 
-            href="mailto:lydo@sanjosebatangas.gov.ph" 
-            title="Contact LYDO via email" 
-            className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            <Mail className="w-3.5 h-3.5 opacity-90" />
-            <span className="tracking-wide">lydo@sanjosebatangas.gov.ph</span>
-          </a>
-        </div>
-      </div>
-
-      {/* Enhanced Survey Header */}
-      <div className="bg-white border-b border-gray-200 fixed top-[40px] left-0 right-0 z-30">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-3 sm:py-4">
-            {/* Mobile: Stacked Layout */}
-            <div className="block sm:hidden">
-              <div className="flex items-center gap-2">
-                <img 
-                  src={new URL('../../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} 
-                  alt="Municipality Seal" 
-                  className="w-7 h-7 rounded-full border flex-shrink-0" 
-                />
-                <div className="text-left flex-1 min-h-[28px] flex flex-col justify-center">
-                  <div className="text-xs text-gray-600 leading-tight">Municipality of San Jose, Batangas</div>
-                  <div className="text-xs text-gray-500 leading-tight">Local Youth Development Office</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Desktop: Horizontal Layout */}
-            <div className="hidden sm:grid grid-cols-3 items-center">
-              {/* Left: Municipality Info */}
-              <div className="flex items-center gap-3">
-                <img 
-                  src={new URL('../../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} 
-                  alt="Municipality Seal" 
-                  className="w-9 h-9 rounded-full border" 
-                />
-                <div>
-                  <div className="text-sm text-gray-600">Municipality of San Jose, Batangas</div>
-                  <div className="text-xs text-gray-500">Local Youth Development Office</div>
-                </div>
-              </div>
-
-              {/* Center: Survey Title */}
-              <div className="flex justify-center">
-                <h1 className="text-xl font-bold text-gray-900">KK Survey 2025</h1>
-              </div>
-
-              {/* Right: Completion Status */}
-              <div className="flex items-center gap-6 justify-end">
-                <div className="text-right">
-                  <div className="text-sm font-semibold text-gray-900">Survey Complete</div>
-                  <div className="text-sm text-gray-600">Thank you for participating</div>
-                </div>
-                <div className="flex items-center">
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
-                    <CheckCircle className="w-3 h-3 text-green-600" />
-                    <span className="text-green-700 text-xs font-medium">Completed</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
+    <SurveyLayout
+      // Header props
+      currentStep={5}
+      totalSteps={5}
+      stepTitle="Survey Complete"
+      isSaving={false}
+      backToPath="/"
+      showProgress={false}
+      showSaveStatus={false}
+      isThankYouPage={true}
+      // Footer props  
+      canContinue={false}
+      onBackClick={() => navigate('/')}
+      onContinueClick={() => {}}
+      continueButtonText="Survey Complete"
+      statusMessage=""
+      statusType="success"
+      showStatus={false}
+      showFooter={false}
+      disabled={true}
+      isLoading={false}
+    >
       <div className="min-h-screen bg-white">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10 mt-20 sm:mt-30">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
           
           {/* Success Message */}
           <div className="text-center mb-12">
@@ -221,8 +299,16 @@ const SurveyThankYou = () => {
                <div className="px-4 py-4">
                  <div className="space-y-3 text-sm">
                    <div className="flex justify-between items-center py-1">
-                     <span className="text-gray-600 font-medium">Participant</span>
-                     <span className="text-gray-900 font-semibold text-right max-w-48 truncate">{participant_email}</span>
+                     <span className="text-gray-600 font-medium">Name</span>
+                     <span className="text-gray-900 font-semibold text-right max-w-48 truncate">
+                       {(submissionData.personal?.firstName || location.state?.personal?.firstName) && (submissionData.personal?.lastName || location.state?.personal?.lastName)
+                         ? (() => {
+                             const personal = submissionData.personal || location.state?.personal || {};
+                             return `${personal.firstName || ''} ${personal.middleName ? personal.middleName + ' ' : ''}${personal.lastName || ''}${personal.suffix ? ' ' + personal.suffix : ''}`.trim();
+                           })()
+                         : '-'
+                       }
+                     </span>
                    </div>
                    
                    <div className="flex justify-between items-center py-1">
@@ -231,14 +317,25 @@ const SurveyThankYou = () => {
                    </div>
                    
                    <div className="flex justify-between items-center py-1">
-                     <span className="text-gray-600 font-medium">Submission ID</span>
+                     <span className="text-gray-600 font-medium">Response ID</span>
                      <span className="text-gray-900 font-semibold font-mono text-xs">{submissionId}</span>
                    </div>
+                   
+                   {youthId && (
+                     <div className="flex justify-between items-center py-1">
+                       <span className="text-gray-600 font-medium">Youth ID</span>
+                       <span className="text-gray-900 font-semibold font-mono text-xs">{youthId}</span>
+                     </div>
+                   )}
+                   
                    
                    <div className="flex justify-between items-center py-1">
                      <span className="text-gray-600 font-medium">Submitted</span>
                      <span className="text-gray-900 font-semibold text-xs">
-                       {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                       {submittedAt 
+                         ? new Date(submittedAt).toLocaleDateString() + ' at ' + new Date(submittedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                         : new Date().toLocaleDateString() + ' at ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                       }
                      </span>
                    </div>
                  </div>
@@ -247,7 +344,12 @@ const SurveyThankYou = () => {
                  <div className="mt-4 pt-3 border-t border-gray-100">
                    <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
                      <CheckCircle className="w-3 h-3 text-green-600" />
-                     <span>Successfully processed</span>
+                     <span>
+                       {isNewYouth 
+                         ? 'New profile created' 
+                         : 'Profile updated'
+                       }
+                     </span>
                    </div>
                  </div>
                </div>
@@ -491,23 +593,6 @@ const SurveyThankYou = () => {
         </div>
       </div>
     </SurveyLayout>
-
-    {/* Footer */}
-    <div className="bg-[#24345A] text-white py-6">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center">
-          <div className="pt-4">
-            <p className="text-white/70 text-xs">
-              © 2025 Municipality of San Jose, Batangas • All rights reserved
-            </p>
-            <p className="text-white/60 text-xs mt-1">
-              Powered by Local Youth Development Office
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-    </>
   );
 };
 

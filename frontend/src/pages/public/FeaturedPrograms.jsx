@@ -65,6 +65,20 @@ const FeaturedPrograms = () => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
 
+  // Helper function to convert relative URLs to full URLs
+  const getFileUrl = (path) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+    if (!base) {
+      // sensible dev fallback if env not set
+      if (window.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+        base = 'http://localhost:3001';
+      }
+    }
+    return `${base}${path}`;
+  };
+
   const getFallbackImage = (category, title) => {
     const label = (title || '').trim() || 'Featured';
     return buildSvgPlaceholder(label, '#3b82f6', '#1e40af');
@@ -146,7 +160,7 @@ const FeaturedPrograms = () => {
 
   return (
     <PublicLayout>
-      <section className="relative overflow-hidden bg-gradient-to-br from-[#24345A] via-[#1a2a47] to-[#0f1a2e] text-white -mt-16 sm:-mt-20 md:mt-0">
+      <section className="relative overflow-hidden bg-gradient-to-br from-[#24345A] via-[#1a2a47] to-[#0f1a2e] text-white">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-10 w-32 h-32 bg-gradient-to-br from-white to-transparent rounded-full blur-xl" />
           <div className="absolute bottom-20 right-10 w-40 h-40 bg-gradient-to-tl from-white to-transparent rounded-full blur-xl" />
@@ -254,7 +268,7 @@ const FeaturedPrograms = () => {
                   >
                     <div className="relative overflow-hidden aspect-[16/9]">
                       <img
-                        src={announcement.image_url || getFallbackImage(announcement.category, announcement.title)}
+                        src={announcement.image_url ? getFileUrl(announcement.image_url) : getFallbackImage(announcement.category, announcement.title)}
                         alt={announcement.title || 'Program image'}
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"

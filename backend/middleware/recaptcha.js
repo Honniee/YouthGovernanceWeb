@@ -4,7 +4,7 @@ import { STATUS_CODES, MESSAGES } from '../utils/constants.js';
 
 /**
  * reCAPTCHA Verification Middleware
- * Verifies reCAPTCHA token with Google's API
+ * Verifies reCAPTCHA token with Google's API (Standard reCAPTCHA v2)
  */
 export const verifyRecaptcha = async (req, res, next) => {
   try {
@@ -23,46 +23,40 @@ export const verifyRecaptcha = async (req, res, next) => {
       });
     }
 
-    // Get API key from environment (for reCAPTCHA Enterprise)
-    const apiKey = process.env.RECAPTCHA_API_KEY;
-    const projectId = process.env.RECAPTCHA_PROJECT_ID || 'ee-21-03787'; // Your Google Cloud Project ID
+    // Get secret key from environment (for standard reCAPTCHA)
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
     
-    if (!apiKey) {
-      console.error('reCAPTCHA API key not configured');
+    if (!secretKey) {
+      console.error('❌ reCAPTCHA secret key not configured');
       return res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({
         message: MESSAGES.SERVER_ERROR
       });
     }
 
-    // Verify with Google reCAPTCHA Enterprise API
-    const verificationUrl = `https://recaptchaenterprise.googleapis.com/v1/projects/${projectId}/assessments?key=${apiKey}`;
-    const verificationData = {
-      event: {
-        token: recaptchaToken,
-        expectedAction: "LOGIN",
-        siteKey: "6LcW7KErAAAAAL1YkHfgboexcJAJf99tgjU6xCWu"
-      }
-    };
+    // Verify with Google reCAPTCHA API (Standard v2/v3)
+    const verificationUrl = 'https://www.google.com/recaptcha/api/siteverify';
+    const params = new URLSearchParams({
+      secret: secretKey,
+      response: recaptchaToken,
+      remoteip: req.ip
+    });
 
-    const response = await axios.post(verificationUrl, verificationData, {
+    const response = await axios.post(verificationUrl, params.toString(), {
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
       timeout: 5000 // 5 second timeout
     });
 
-    // reCAPTCHA Enterprise response format
-    const { tokenProperties, riskAnalysis, event } = response.data;
-    const success = tokenProperties?.valid || false;
-    const score = riskAnalysis?.score;
-    const action = tokenProperties?.action;
+    // reCAPTCHA Standard response format
+    const { success, score, action, 'error-codes': errorCodes } = response.data;
 
     // Log the verification attempt
     logSecurity('recaptcha_verification', {
       success,
       score,
       action,
-      valid: tokenProperties?.valid,
+      errorCodes,
       ip: req.ip,
       endpoint: req.originalUrl
     });
@@ -70,7 +64,7 @@ export const verifyRecaptcha = async (req, res, next) => {
     // Check if verification failed
     if (!success) {
       logSecurity('recaptcha_failed', {
-        reason: tokenProperties?.invalidReason,
+        errorCodes,
         ip: req.ip,
         endpoint: req.originalUrl
       });
@@ -81,7 +75,8 @@ export const verifyRecaptcha = async (req, res, next) => {
       });
     }
 
-    // Check the risk score (0.0 = bot, 1.0 = human)
+    // Check the risk score for v3 (0.0 = bot, 1.0 = human)
+    // v2 doesn't return score, so this is optional
     if (typeof score !== 'undefined') {
       const minScore = parseFloat(process.env.RECAPTCHA_MIN_SCORE) || 0.5;
       
@@ -101,14 +96,16 @@ export const verifyRecaptcha = async (req, res, next) => {
     }
 
     // reCAPTCHA verification successful
+    console.log('✅ reCAPTCHA verification successful');
     req.recaptchaVerified = true;
     next();
 
   } catch (error) {
-    console.error('reCAPTCHA verification error:', error);
+    console.error('❌ reCAPTCHA verification error:', error.message);
     
     logSecurity('recaptcha_error', {
       error: error.message,
+      stack: error.stack,
       ip: req.ip,
       endpoint: req.originalUrl
     });
@@ -164,12 +161,14 @@ export const recaptchaRateLimit = (req, res, next) => {
  * Only use in development environment
  */
 export const bypassRecaptchaInDev = (req, res, next) => {
-  if (process.env.NODE_ENV === 'development' && process.env.BYPASS_RECAPTCHA === 'true') {
+  // In development, bypass reCAPTCHA if no environment is set or if explicitly bypassed
+  if (process.env.NODE_ENV !== 'production' && 
+      (process.env.BYPASS_RECAPTCHA === 'true' || !process.env.RECAPTCHA_SECRET_KEY)) {
     console.log('⚠️  reCAPTCHA bypassed in development mode');
     req.recaptchaVerified = true;
     return next();
   }
   
-  // In production, use real reCAPTCHA verification
+  // In production or when reCAPTCHA is configured, use real verification
   return verifyRecaptcha(req, res, next);
 }; 

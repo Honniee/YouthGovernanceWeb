@@ -1,5 +1,5 @@
 /**
- * Validation schemas and functions for Staff Management
+ * Validation schemas and functions for Staff Management and Youth Profiles
  */
 
 /**
@@ -406,5 +406,99 @@ export const validateSearchParams = (params) => {
     errors,
     searchQuery: params.q || '',
     status: params.status || 'all'
+  };
+};
+
+/**
+ * Validate youth profile data
+ * @param {object} data - Youth profile data to validate
+ * @returns {object} Validation result with isValid flag and errors array
+ */
+export const validateYouthProfile = (data) => {
+  const errors = [];
+  
+  // Required fields
+  if (!data.first_name || typeof data.first_name !== 'string' || data.first_name.trim().length === 0) {
+    errors.push('First name is required');
+  } else if (data.first_name.trim().length < 2) {
+    errors.push('First name must be at least 2 characters long');
+  } else if (data.first_name.trim().length > 50) {
+    errors.push('First name must not exceed 50 characters');
+  }
+  
+  if (!data.last_name || typeof data.last_name !== 'string' || data.last_name.trim().length === 0) {
+    errors.push('Last name is required');
+  } else if (data.last_name.trim().length < 2) {
+    errors.push('Last name must be at least 2 characters long');
+  } else if (data.last_name.trim().length > 50) {
+    errors.push('Last name must not exceed 50 characters');
+  }
+  
+  if (!data.age || typeof data.age !== 'number' || data.age < 15 || data.age > 30) {
+    errors.push('Age must be between 15 and 30');
+  }
+  
+  if (!data.birth_date || typeof data.birth_date !== 'string' || data.birth_date.trim().length === 0) {
+    errors.push('Birth date is required');
+  } else {
+    // Validate date format (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(data.birth_date)) {
+      errors.push('Birth date must be in YYYY-MM-DD format');
+    } else {
+      const birthDate = new Date(data.birth_date);
+      const today = new Date();
+      const age = today.getFullYear() - birthDate.getFullYear();
+      if (age < 15 || age > 30) {
+        errors.push('Age calculated from birth date must be between 15 and 30');
+      }
+    }
+  }
+  
+  if (!data.gender || typeof data.gender !== 'string' || !['Male', 'Female'].includes(data.gender)) {
+    errors.push('Gender must be Male or Female');
+  }
+  
+  if (!data.contact_number || typeof data.contact_number !== 'string' || data.contact_number.trim().length === 0) {
+    errors.push('Contact number is required');
+  } else {
+    // Basic phone number validation (Philippines format)
+    const phoneRegex = /^(\+63|0)?[9]\d{9}$/;
+    if (!phoneRegex.test(data.contact_number.replace(/\s/g, ''))) {
+      errors.push('Please enter a valid Philippine mobile number');
+    }
+  }
+  
+  if (!data.email || typeof data.email !== 'string' || data.email.trim().length === 0) {
+    errors.push('Email is required');
+  } else {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(data.email.trim())) {
+      errors.push('Please enter a valid email address');
+    } else if (data.email.trim().length > 100) {
+      errors.push('Email must not exceed 100 characters');
+    }
+  }
+  
+  if (!data.barangay_id || typeof data.barangay_id !== 'string' || data.barangay_id.trim().length === 0) {
+    errors.push('Barangay is required');
+  }
+  
+  // Optional fields validation
+  if (data.middle_name && (typeof data.middle_name !== 'string' || data.middle_name.trim().length > 50)) {
+    errors.push('Middle name must not exceed 50 characters');
+  }
+  
+  if (data.suffix && (typeof data.suffix !== 'string' || data.suffix.trim().length > 10)) {
+    errors.push('Suffix must not exceed 10 characters');
+  }
+  
+  if (data.purok_zone && (typeof data.purok_zone !== 'string' || data.purok_zone.trim().length > 100)) {
+    errors.push('Purok/Zone must not exceed 100 characters');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
   };
 }; 

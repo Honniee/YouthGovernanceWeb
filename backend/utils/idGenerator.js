@@ -244,6 +244,38 @@ export const generateTermId = async () => {
 };
 
 /**
+ * Generates a unique youth ID for Youth_Profiling table
+ * Format: YTH001, YTH002, YTH003, etc.
+ * @returns {Promise<string>} The generated youth ID
+ */
+let youthIdGenerationLock = Promise.resolve(); // Mutex to prevent race conditions
+
+export const generateYouthId = async () => {
+  return youthIdGenerationLock = youthIdGenerationLock.then(async () => {
+    try {
+      const result = await query(
+        'SELECT youth_id FROM "Youth_Profiling" ORDER BY youth_id DESC LIMIT 1'
+      );
+      
+      let nextNumber = 1;
+      
+      if (result.rows.length > 0) {
+        const lastId = result.rows[0].youth_id;
+        const match = lastId.match(/YTH(\d+)/);
+        if (match) {
+          nextNumber = parseInt(match[1]) + 1;
+        }
+      }
+      
+      return `YTH${nextNumber.toString().padStart(3, '0')}`;
+    } catch (error) {
+      console.error('Error generating youth ID:', error);
+      throw new Error('Failed to generate youth ID');
+    }
+  });
+};
+
+/**
  * Generates a unique user ID for Users table
  * Format: USR001, USR002, USR003, etc.
  * @returns {Promise<string>} The generated user ID
@@ -452,6 +484,8 @@ export const generateId = async (prefix) => {
       return generateRoleId();
     case 'TRM':
       return generateTermId();
+    case 'YTH':
+      return generateYouthId();
     case 'USR':
       return generateUserId();
     case 'ACT':

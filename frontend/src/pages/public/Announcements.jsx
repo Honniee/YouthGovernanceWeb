@@ -143,6 +143,20 @@ const Announcements = () => {
     }
   };
 
+  // Helper function to convert relative URLs to full URLs
+  const getFileUrl = (path) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+    if (!base) {
+      // sensible dev fallback if env not set
+      if (window.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+        base = 'http://localhost:3001';
+      }
+    }
+    return `${base}${path}`;
+  };
+
   // Fallback image for main content (with title)
   const getFallbackImage = (category, title) => {
     const key = (category || '').toString().toLowerCase();
@@ -601,7 +615,7 @@ const Announcements = () => {
                           <div className={`relative rounded-2xl overflow-hidden transition-[height] duration-500 ease-in-out ${isActive ? 'h-[22rem] sm:h-[24rem] md:h-[28rem]' : 'h-64 sm:h-72 md:h-80 lg:h-[22rem]'}`}>
                             {/* Background Image (Announcements-style with object-cover) */}
                             <img
-                              src={card.image || getRecentFallbackImage(card.category)}
+                              src={card.image ? getFileUrl(card.image) : getRecentFallbackImage(card.category)}
                               alt={card.title}
                               className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                               loading="lazy"
@@ -952,7 +966,7 @@ const Announcements = () => {
                         {(
                           <div className="relative overflow-hidden flex-shrink-0 aspect-[16/9]">
                             <img
-                              src={announcement.image_url || getFallbackImage(announcement.category, announcement.title)}
+                              src={announcement.image_url ? getFileUrl(announcement.image_url) : getFallbackImage(announcement.category, announcement.title)}
                               alt={announcement.title || 'Announcement image'}
                               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                               loading="lazy"
