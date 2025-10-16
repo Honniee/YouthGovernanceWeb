@@ -244,10 +244,10 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
               className="h-8 w-8 md:h-10 md:w-10 object-contain"
             />
             <div className="hidden md:block">
-              <h1 className="text-base md:text-lg font-bold text-blue-900 dark:text-white">
+              <h1 className="text-base md:text-lg font-bold text-blue-900">
                 Local Youth Development Office
               </h1>
-              <p className="text-xs text-gray-600 dark:text-gray-300">
+              <p className="text-xs text-gray-700">
                 Municipality of San Jose, Batangas
               </p>
             </div>
@@ -520,7 +520,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                 
                 {/* User Info - Hidden on small screens */}
                 <div className="hidden md:block text-left">
-                  <div className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">
+                  <div className="text-sm font-semibold text-gray-900 leading-tight">
                     {getUserName()}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 leading-tight">
@@ -543,7 +543,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                       <Avatar name={getUserName()} src={user?.profilePicture} version={user?.updatedAt} size={44} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">
+                      <div className="font-semibold text-gray-900 text-sm truncate">
                         {getUserName()}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
