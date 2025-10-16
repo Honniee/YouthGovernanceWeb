@@ -260,7 +260,7 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
         } bg-white/95 backdrop-blur-sm border-r border-gray-200/60 shadow-xl md:translate-x-0`}
         aria-label="Sidenav"
       >
-        <div className="overflow-y-auto py-4 px-3 h-full bg-gradient-to-b from-white to-gray-50/30 dark:from-gray-800 dark:to-gray-900/30 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-800">
+        <div className="overflow-y-auto py-4 px-3 h-full bg-gradient-to-b from-white to-gray-50/30 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
           
           {/* Search Functionality */}
           <div className="px-0 mb-4 mt-2">
@@ -289,8 +289,8 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
                   <button
                     type="button"
                     onClick={() => toggleCategory(category)}
-                    className={`flex items-center p-2.5 w-full text-sm font-semibold text-gray-700 rounded-lg transition-all duration-200 group hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700/50 ${
-                      hasActiveItem ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300' : ''
+                    className={`flex items-center p-2.5 w-full text-sm font-semibold text-gray-700 rounded-lg transition-all duration-200 group hover:bg-gray-50 ${
+                      hasActiveItem ? 'bg-blue-50 text-blue-700' : ''
                     }`}
                   >
                     <div className={`p-2 rounded-lg transition-all duration-200 ${
@@ -300,8 +300,8 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
                     }`}>
                       <CategoryIcon className={`w-5 h-5 transition-all duration-200 ${
                         hasActiveItem 
-                          ? 'text-blue-600 dark:text-blue-300' 
-                          : 'text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200'
+                          ? 'text-blue-600' 
+                          : 'text-gray-600 group-hover:text-gray-800'
                       }`} />
                     </div>
                     <span className="flex-1 ml-3 text-left whitespace-nowrap">
@@ -326,15 +326,15 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
                             to={item.href}
                             className={`flex items-center p-2.5 pl-10 w-full text-sm font-medium rounded-lg transition-all duration-200 group relative ${
                               active 
-                                ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-500 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-400' 
-                                : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600 dark:text-gray-300 dark:hover:bg-gray-700/50'
+                                ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-500' 
+                                : 'text-gray-700 hover:bg-gray-50 hover:text-blue-600'
                             }`}
                             title={item.description}
                           >
                             <Icon className={`w-4 h-4 transition-all duration-200 ${
                               active 
-                                ? 'text-blue-600 dark:text-blue-400' 
-                                : 'text-gray-500 group-hover:text-blue-600 dark:text-gray-400'
+                                ? 'text-blue-600' 
+                                : 'text-gray-500 group-hover:text-blue-600'
                             }`} />
                             
                             <span className="ml-3">{item.name}</span>
