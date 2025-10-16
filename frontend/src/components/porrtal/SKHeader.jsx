@@ -125,6 +125,41 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
     return user?.email ? user.email.charAt(0).toUpperCase() : 'A';
   };
 
+  // Reusable Avatar component (same as AdminHeader and StaffHeader)
+  const Avatar = ({ name, src, version, size = 40 }) => {
+    const getFileUrl = (p) => {
+      if (!p) return '';
+      if (/^https?:\/\//i.test(p)) return p;
+      let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+      if (!base && window?.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+        base = 'http://localhost:3001';
+      }
+      let url = `${base}${p}`;
+      if (version && !/\?/.test(url)) url += `?v=${encodeURIComponent(version)}`;
+      return url;
+    };
+    const [errored, setErrored] = useState(false);
+    useEffect(() => { setErrored(false); }, [src, version]);
+    const initials = (name || 'A').split(' ').slice(0,2).map(s=>s.charAt(0)).join('').toUpperCase();
+    const url = src ? getFileUrl(src) : '';
+    if (url && !errored) {
+      return (
+        <img
+          src={url}
+          alt="Avatar"
+          className="rounded-full object-cover shadow-sm"
+          style={{ width: size, height: size }}
+          onError={() => setErrored(true)}
+        />
+      );
+    }
+    return (
+      <div className="rounded-full bg-gradient-to-br from-green-600 to-emerald-500 text-white flex items-center justify-center font-semibold shadow-sm" style={{ width: size, height: size }}>
+        {initials}
+      </div>
+    );
+  };
+
   const getUserName = () => {
     if (user?.firstName && user?.lastName) {
       return `${user.firstName} ${user.lastName}`;
@@ -427,12 +462,8 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
             >
               <div className="flex items-center space-x-2 md:space-x-3.5">
                 {/* Avatar */}
-                <div className={`relative rounded-full ${showUserMenu ? 'ring-2 ring-blue-200 dark:ring-blue-700' : ''}`}>
-                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center shadow-sm bg-gradient-to-br from-blue-500 to-indigo-600">
-                    <span className="text-white font-semibold text-sm">
-                      {getUserInitials()}
-                    </span>
-                  </div>
+                <div className={`relative rounded-full ${showUserMenu ? 'ring-2 ring-green-200 dark:ring-green-700' : ''}`}>
+                  <Avatar name={getUserName()} src={user?.profilePicture} version={user?.updatedAt} size={32} />
                 </div>
                 
                 {/* User Info - Hidden on small screens */}
@@ -456,10 +487,8 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
               <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-80 bg-white rounded-xl shadow-lg border border-gray-200 dark:bg-gray-700 dark:border-gray-600 z-50">
                 <div className="p-4 border-b border-gray-100 dark:border-gray-600">
                   <div className="flex items-center space-x-3">
-                    <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
-                      <span className="text-white font-semibold text-sm">
-                        {getUserInitials()}
-                      </span>
+                    <div className="w-11 h-11 rounded-full overflow-hidden">
+                      <Avatar name={getUserName()} src={user?.profilePicture} version={user?.updatedAt} size={44} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">

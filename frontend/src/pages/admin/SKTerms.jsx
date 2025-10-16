@@ -10,7 +10,6 @@ import {
   MoreHorizontal,
   Trash2,
   Archive,
-  Eye,
   X,
   Plus,
   User,
@@ -108,6 +107,7 @@ const SKTerms = () => {
   const [sortOrder, setSortOrder] = useState('desc');
   const [isLoading, setIsLoading] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   // Terms data state
   const [termsData, setTermsData] = useState([]);
@@ -557,6 +557,13 @@ ${bodyRows}
     initializeData();
   }, []);
 
+  // Set initial loading to false after data loads
+  useEffect(() => {
+    if (termsData.length > 0 || !isInitialLoading) {
+      setIsInitialLoading(false);
+    }
+  }, [termsData, isInitialLoading]);
+
   // Reload terms data without refreshing active term (for completion operations)
   const reloadTermsDataWithoutActiveTerm = async (statusFilter = 'all') => {
     try {
@@ -651,18 +658,6 @@ ${bodyRows}
   const getActionMenuItems = (item) => {
     const items = [
       {
-        id: 'view',
-        label: 'View Details',
-        icon: <Eye className="w-4 h-4" />,
-        action: 'view'
-      },
-      {
-        id: 'history',
-        label: 'View History',
-        icon: <Clock className="w-4 h-4" />,
-        action: 'history'
-      },
-      {
         id: 'report',
         label: 'Open Term Report',
         icon: <FileText className="w-4 h-4" />,
@@ -713,9 +708,6 @@ ${bodyRows}
     setSelectedTerm(item);
     
     switch (action) {
-      case 'view':
-        setShowViewModal(true);
-        break;
       case 'edit':
         {
           // Populate edit form with current term data
@@ -742,9 +734,6 @@ ${bodyRows}
           });
         setShowEditModal(true);
         }
-        break;
-      case 'history':
-        navigate(`/admin/sk-governance/term-history?termId=${item.termId}`);
         break;
       case 'report':
         navigate(`/admin/sk-governance/term-report?termId=${item.termId}`);
@@ -895,15 +884,13 @@ ${bodyRows}
           label: "View Term",
           onClick: () => {
               // Find the created term and show details
-              const createdTerm = { 
+              const createdTerm = {
                 termId: data.termId,
                 termName: data.termName,
                 startDate: data.startDate,
                 endDate: data.endDate,
                 status: data.status
               };
-              setSelectedTerm(createdTerm);
-              setShowViewModal(true);
             },
             variant: 'primary'
         },
@@ -1319,7 +1306,7 @@ ${bodyRows}
             />
 
             {/* Content Area */}
-            {tabLoading ? (
+            {(tabLoading || isInitialLoading) ? (
               <LoadingSpinner 
                 variant="spinner"
                 message="Loading terms data..." 

@@ -318,9 +318,17 @@ ${bodyRows}
           setIsLoadingReportTerm(true);
           console.log('🔍 Loading term data for termIdParam:', termIdParam);
           const resp = await skTermsService.getSKTermById(termIdParam);
-          const term = resp?.data?.data || resp?.data || resp;
           console.log('🔍 Term response:', resp);
+          
+          if (!resp.success) {
+            console.error('❌ Failed to load term:', resp.message);
+            showErrorToast('Failed to load term data', resp.message || 'Unknown error');
+            return;
+          }
+          
+          const term = resp?.data?.data || resp?.data || resp;
           console.log('🔍 Processed term:', term);
+          
           if (term) {
             const reportTermData = {
               termId: term.termId || term.term_id || term.id,
@@ -332,7 +340,13 @@ ${bodyRows}
             };
             console.log('🔍 Setting reportTerm:', reportTermData);
             setReportTerm(reportTermData);
+          } else {
+            console.error('❌ No term data found in response');
+            showErrorToast('No term data found', 'The term data could not be loaded');
           }
+        } catch (error) {
+          console.error('❌ Error loading term:', error);
+          showErrorToast('Error loading term', error.message || 'Unknown error');
         } finally {
           setIsLoadingReportTerm(false);
         }

@@ -10,7 +10,6 @@ import {
   MoreHorizontal,
   Trash2,
   Archive,
-  Eye,
   X,
   Plus,
   User,
@@ -448,12 +447,6 @@ const SurveyBatch = () => {
   const getActionMenuItems = (item) => {
     const items = [
       {
-        id: 'view',
-        label: 'View Details',
-        icon: <Eye className="w-4 h-4" />,
-        action: 'view'
-      },
-      {
         id: 'report',
         label: 'View Batch Report',
         icon: <BarChart3 className="w-4 h-4" />,
@@ -503,9 +496,6 @@ const SurveyBatch = () => {
     setSelectedBatch(item);
     
     switch (action) {
-      case 'view':
-        setShowViewModal(true);
-        break;
       case 'report':
         // Navigate to batch report page (following SKTerms pattern)
         navigate(`/admin/survey/batches/batch-report?batchId=${item.batchId}`);

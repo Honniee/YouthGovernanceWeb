@@ -89,10 +89,11 @@ router.post('/login', [
       userQuery = `
         SELECT s.sk_id as id, s.email, s.password_hash, s.first_name, s.last_name, 
                s.is_active, r.role_name, r.permissions, 'sk_official' as user_type,
-               s.position, b.barangay_name, s.account_access
+               s.position, b.barangay_name, s.account_access, t.term_name
         FROM "SK_Officials" s 
         JOIN "Roles" r ON s.role_id = r.role_id 
         JOIN "Barangay" b ON s.barangay_id = b.barangay_id
+        JOIN "SK_Terms" t ON s.term_id = t.term_id
         WHERE s.email = $1 AND s.is_active = true AND s.account_access = true
       `;
       
@@ -203,7 +204,9 @@ router.post('/login', [
         role: user.role_name,
         permissions: user.permissions,
         position: user.position || null,
-        barangay: user.barangay_name || null
+        barangay: user.barangay_name || null,
+        barangayName: user.barangay_name || null,
+        termName: user.term_name || null
     };
 
     console.log('📤 Backend response user:', responseUser);
@@ -341,12 +344,18 @@ router.get('/me', async (req, res) => {
       `;
     } else if (decoded.userType === 'sk_official') {
       userQuery = `
-        SELECT s.sk_id as id, s.email, s.first_name, s.last_name, 
+        SELECT s.sk_id as id, s.email, s.first_name, s.last_name, s.middle_name, s.suffix,
+               s.personal_email, s.profile_picture, s.is_active, s.email_verified,
+               s.created_at, s.updated_at, s.role_id,
                r.role_name, r.permissions, 'sk_official' as user_type,
-               s.position, b.barangay_name, s.account_access
+               s.position, b.barangay_name, s.account_access,
+               t.term_name, t.start_date as term_start_date, t.end_date as term_end_date, t.status as term_status,
+               p.contact_number, p.school_or_company
         FROM "SK_Officials" s 
         JOIN "Roles" r ON s.role_id = r.role_id 
         JOIN "Barangay" b ON s.barangay_id = b.barangay_id
+        JOIN "SK_Terms" t ON s.term_id = t.term_id
+        LEFT JOIN "SK_Officials_Profiling" p ON s.sk_id = p.sk_id
         WHERE s.sk_id = $1 AND s.is_active = true AND s.account_access = true
       `;
     } else if (decoded.userType === 'youth') {
@@ -389,7 +398,15 @@ router.get('/me', async (req, res) => {
         role: user.role_name || 'Youth',
         permissions: user.permissions || {},
         position: user.position || null,
-        barangay: user.barangay_name || null
+        barangay: user.barangay_name || null,
+        barangayName: user.barangay_name || null,
+        termName: user.term_name || null,
+        termStartDate: user.term_start_date || null,
+        termEndDate: user.term_end_date || null,
+        termStatus: user.term_status || null,
+        // Include SK profiling fields if available
+        contactNumber: user.contact_number || null,
+        schoolOrCompany: user.school_or_company || null
       }
     });
 
@@ -433,9 +450,17 @@ router.post('/me/profile-picture', auth, upload.single('file'), async (req, res)
     }
     await image.resize(800, 800, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(target);
 
-    // Save URL in DB
+    // Save URL in DB - handle different user types
     const relUrl = `/uploads/profile_pictures/${req.user.id}.jpg`;
-    await query('UPDATE "LYDO" SET profile_picture=$1, updated_at=NOW() WHERE lydo_id=$2', [relUrl, req.user.id]);
+    
+    if (req.user.userType === 'lydo_staff' || req.user.userType === 'admin') {
+      await query('UPDATE "LYDO" SET profile_picture=$1, updated_at=NOW() WHERE lydo_id=$2', [relUrl, req.user.id]);
+    } else if (req.user.userType === 'sk_official') {
+      await query('UPDATE "SK_Officials" SET profile_picture=$1, updated_at=NOW() WHERE sk_id=$2', [relUrl, req.user.id]);
+    } else {
+      return res.status(403).json({ success: false, message: 'Profile picture upload not supported for this user type' });
+    }
+    
     // Log success
     try {
       await activityLogService.logUserActivity(req.user.id, req.user.userType, activityLogService.logActions.PROFILE_PHOTO_UPLOAD, {
@@ -465,7 +490,16 @@ router.delete('/me/profile-picture', auth, async (req, res) => {
   try {
     const target = path.join(profileDir, `${req.user.id}.jpg`);
     try { fs.unlinkSync(target); } catch {}
-    await query('UPDATE "LYDO" SET profile_picture=NULL, updated_at=NOW() WHERE lydo_id=$1', [req.user.id]);
+    
+    // Update DB based on user type
+    if (req.user.userType === 'lydo_staff' || req.user.userType === 'admin') {
+      await query('UPDATE "LYDO" SET profile_picture=NULL, updated_at=NOW() WHERE lydo_id=$1', [req.user.id]);
+    } else if (req.user.userType === 'sk_official') {
+      await query('UPDATE "SK_Officials" SET profile_picture=NULL, updated_at=NOW() WHERE sk_id=$1', [req.user.id]);
+    } else {
+      return res.status(403).json({ success: false, message: 'Profile picture removal not supported for this user type' });
+    }
+    
     try {
       await activityLogService.logUserActivity(req.user.id, req.user.userType, activityLogService.logActions.PROFILE_PHOTO_REMOVE, {
         targetUserId: req.user.id,
@@ -499,12 +533,13 @@ router.put('/me', async (req, res) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
 
-    // Only LYDO/admin accounts are supported for profile updates for now
-    if (!(decoded.userType === 'lydo_staff' || decoded.userType === 'admin')) {
-      return res.status(403).json({ success: false, message: 'Only LYDO users can update their profile.' });
+    // Support LYDO/admin and SK officials for profile updates
+    if (!(decoded.userType === 'lydo_staff' || decoded.userType === 'admin' || decoded.userType === 'sk_official')) {
+      return res.status(403).json({ success: false, message: 'Profile updates not supported for this user type.' });
     }
 
     const allowedFields = ['first_name', 'last_name', 'middle_name', 'suffix', 'personal_email', 'profile_picture'];
+    const skProfilingFields = ['contact_number', 'school_or_company'];
     const updates = [];
     const values = [];
 
@@ -515,32 +550,91 @@ router.put('/me', async (req, res) => {
       }
     });
 
-    if (updates.length === 0) {
+    // Handle SK profiling fields separately
+    let skProfilingUpdates = [];
+    let skProfilingValues = [];
+    if (decoded.userType === 'sk_official') {
+      skProfilingFields.forEach((field) => {
+        if (req.body[field] !== undefined) {
+          skProfilingUpdates.push(`${field} = $${skProfilingUpdates.length + 1}`);
+          // Handle NOT NULL constraints for required fields
+          if (field === 'school_or_company' && (req.body[field] === '' || req.body[field] === null)) {
+            skProfilingValues.push('Not specified'); // Default value for NOT NULL field
+          } else if (field === 'contact_number' && (req.body[field] === '' || req.body[field] === null)) {
+            skProfilingValues.push('Not specified'); // Default value for NOT NULL field
+          } else {
+            skProfilingValues.push(req.body[field]);
+          }
+        }
+      });
+    }
+
+    if (updates.length === 0 && skProfilingUpdates.length === 0) {
       return res.status(400).json({ success: false, message: 'No valid fields provided to update.' });
     }
 
-    // Push lydo_id as the last parameter
+    // Push user ID as the last parameter
     values.push(decoded.userId || decoded.user_id);
 
-    const updateQuery = `
-      UPDATE "LYDO"
-      SET ${updates.join(', ')}, updated_at = NOW()
-      WHERE lydo_id = $${values.length}
-      RETURNING lydo_id as id, email, first_name, last_name, middle_name, suffix, personal_email, profile_picture,
-                is_active, email_verified, created_at, updated_at, role_id;
-    `;
+    let updateQuery, roleQuery;
+    let result;
+    
+    if (decoded.userType === 'sk_official') {
+      // Update SK_Officials table
+      if (updates.length > 0) {
+        updateQuery = `
+          UPDATE "SK_Officials"
+          SET ${updates.join(', ')}, updated_at = NOW()
+          WHERE sk_id = $${values.length}
+          RETURNING sk_id as id, email, first_name, last_name, middle_name, suffix, personal_email, profile_picture,
+                    is_active, email_verified, created_at, updated_at, role_id;
+        `;
+        result = await query(updateQuery, values);
+      }
+      
+      // Update SK_Officials_Profiling table if needed
+      if (skProfilingUpdates.length > 0) {
+        skProfilingValues.push(decoded.userId || decoded.user_id);
+        const profilingQuery = `
+          UPDATE "SK_Officials_Profiling"
+          SET ${skProfilingUpdates.join(', ')}, updated_at = NOW()
+          WHERE sk_id = $${skProfilingValues.length}
+          RETURNING sk_id, contact_number, school_or_company;
+        `;
+        const profilingResult = await query(profilingQuery, skProfilingValues);
+        
+        // Merge profiling data with main user data
+        if (result && result.rows.length > 0 && profilingResult.rows.length > 0) {
+          const profilingData = profilingResult.rows[0];
+          result.rows[0].contact_number = profilingData.contact_number;
+          result.rows[0].school_or_company = profilingData.school_or_company;
+        }
+      }
+      
+      roleQuery = `
+        SELECT r.role_name, r.permissions FROM "SK_Officials" s JOIN "Roles" r ON s.role_id = r.role_id WHERE s.sk_id = $1
+      `;
+    } else {
+      updateQuery = `
+        UPDATE "LYDO"
+        SET ${updates.join(', ')}, updated_at = NOW()
+        WHERE lydo_id = $${values.length}
+        RETURNING lydo_id as id, email, first_name, last_name, middle_name, suffix, personal_email, profile_picture,
+                  is_active, email_verified, created_at, updated_at, role_id;
+      `;
+      result = await query(updateQuery, values);
+      roleQuery = `
+        SELECT r.role_name, r.permissions FROM "LYDO" l JOIN "Roles" r ON l.role_id = r.role_id WHERE l.lydo_id = $1
+      `;
+    }
 
-    const result = await query(updateQuery, values);
     const user = result.rows[0];
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
     // Fetch role info for response
-    const roleResult = await query(
-      `SELECT r.role_name, r.permissions FROM "LYDO" l JOIN "Roles" r ON l.role_id = r.role_id WHERE l.lydo_id = $1`,
-      [user.id]
-    );
+    const roleResult = await query(roleQuery, [user.id]);
     const roleInfo = roleResult.rows[0] || {};
 
     const response = {
@@ -561,7 +655,10 @@ router.put('/me', async (req, res) => {
         roleId: user.role_id,
         userType: decoded.userType,
         role: roleInfo.role_name,
-        permissions: roleInfo.permissions
+        permissions: roleInfo.permissions,
+        // Include SK profiling fields if available
+        contactNumber: user.contact_number,
+        schoolOrCompany: user.school_or_company
       }
     };
 

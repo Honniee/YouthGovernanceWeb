@@ -120,12 +120,12 @@ import {
 
   const getCategoryLabel = (category) => {
     switch (category) {
-      case 'main': return 'Overvieww';
+      case 'main': return 'Overview';
       case 'validation': return 'Validation';
-      case 'survey': return 'Surveyy';
+      case 'survey': return 'Survey';
       case 'communication': return 'Communication';
-      case 'governance': return 'Sk Goverance';
-      case 'reports': return 'Report';
+      case 'governance': return 'SK Governance';
+      case 'reports': return 'Reports';
       default: return category;
     }
   };

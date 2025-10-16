@@ -55,7 +55,7 @@ const AdminLayout = ({ children }) => {
   };
 
   return (
-    <div className="antialiased bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div className="antialiased bg-gray-50 min-h-screen">
       {/* Top Navigation Header */}
       <AdminHeader 
         sidebarOpen={sidebarOpen}
@@ -72,7 +72,7 @@ const AdminLayout = ({ children }) => {
       />
 
       {/* Main Content Area */}
-      <main className="p-4 md:ml-80 h-auto pt-20 bg-gray-50 dark:bg-gray-900">
+      <main className="p-4 md:ml-80 h-auto pt-20 bg-gray-50">
         {children}
       </main>
     </div>

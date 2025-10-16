@@ -121,17 +121,45 @@ const getAllTerms = async (req, res) => {
     const validSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'start_date';
     const validSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase()) ? sortOrder.toUpperCase() : 'DESC';
 
-    // Main query
+    // Main query - Fixed GROUP BY clause for PostgreSQL compatibility
     const sqlQuery = `
       SELECT 
-        t.*,
+        t.term_id,
+        t.term_name,
+        t.start_date,
+        t.end_date,
+        t.status,
+        t.is_active,
+        t.is_current,
+        t.created_by,
+        t.created_at,
+        t.updated_at,
+        t.statistics_total_officials,
+        t.statistics_active_officials,
+        t.statistics_inactive_officials,
+        t.statistics_total_sk_chairperson,
+        t.statistics_total_sk_secretary,
+        t.statistics_total_sk_treasurer,
+        t.statistics_total_sk_councilor,
+        t.completion_type,
+        t.completed_by,
+        t.completed_at,
+        t.last_status_change_at,
+        t.last_status_change_by,
+        t.status_change_reason,
         COUNT(sk.sk_id) as officials_count,
         COUNT(CASE WHEN sk.is_active = true THEN 1 END) as active_officials_count,
         COUNT(*) OVER() as total_count
       FROM "SK_Terms" t
       LEFT JOIN "SK_Officials" sk ON t.term_id = sk.term_id
       ${whereClause}
-      GROUP BY t.term_id
+      GROUP BY t.term_id, t.term_name, t.start_date, t.end_date, t.status, t.is_active, t.is_current, 
+               t.created_by, t.created_at, t.updated_at, t.statistics_total_officials, 
+               t.statistics_active_officials, t.statistics_inactive_officials, 
+               t.statistics_total_sk_chairperson, t.statistics_total_sk_secretary, 
+               t.statistics_total_sk_treasurer, t.statistics_total_sk_councilor, 
+               t.completion_type, t.completed_by, t.completed_at, t.last_status_change_at, 
+               t.last_status_change_by, t.status_change_reason
       ORDER BY t.${validSortBy} ${validSortOrder}
       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
     `;
@@ -434,13 +462,41 @@ const getTermById = async (req, res) => {
 
     const sqlQuery = `
       SELECT 
-        t.*,
+        t.term_id,
+        t.term_name,
+        t.start_date,
+        t.end_date,
+        t.status,
+        t.is_active,
+        t.is_current,
+        t.created_by,
+        t.created_at,
+        t.updated_at,
+        t.statistics_total_officials,
+        t.statistics_active_officials,
+        t.statistics_inactive_officials,
+        t.statistics_total_sk_chairperson,
+        t.statistics_total_sk_secretary,
+        t.statistics_total_sk_treasurer,
+        t.statistics_total_sk_councilor,
+        t.completion_type,
+        t.completed_by,
+        t.completed_at,
+        t.last_status_change_at,
+        t.last_status_change_by,
+        t.status_change_reason,
         COUNT(sk.sk_id) as officials_count,
         COUNT(CASE WHEN sk.is_active = true THEN 1 END) as active_officials_count
       FROM "SK_Terms" t
       LEFT JOIN "SK_Officials" sk ON t.term_id = sk.term_id
       WHERE t.term_id = $1
-      GROUP BY t.term_id
+      GROUP BY t.term_id, t.term_name, t.start_date, t.end_date, t.status, t.is_active, t.is_current, 
+               t.created_by, t.created_at, t.updated_at, t.statistics_total_officials, 
+               t.statistics_active_officials, t.statistics_inactive_officials, 
+               t.statistics_total_sk_chairperson, t.statistics_total_sk_secretary, 
+               t.statistics_total_sk_treasurer, t.statistics_total_sk_councilor, 
+               t.completion_type, t.completed_by, t.completed_at, t.last_status_change_at, 
+               t.last_status_change_by, t.status_change_reason
     `;
 
     const result = await query(sqlQuery, [id]);

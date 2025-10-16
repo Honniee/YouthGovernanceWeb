@@ -8,6 +8,9 @@ dotenv.config();
 const connectionString = process.env.DATABASE_URL || 
   `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`;
 
+// Debug connection string (without password) - commented out for production
+// console.log('🔍 Database connection string:', connectionString.replace(/:([^:@]+)@/, ':***@'));
+
 const dbConfig = {
   connectionString: connectionString,
   ssl: { rejectUnauthorized: false }, // Required for Render PostgreSQL
