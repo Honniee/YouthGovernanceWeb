@@ -38,6 +38,13 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Apply CORS and security headers BEFORE any other middleware (including rate limiting)
+// This ensures all responses (even errors/429) include proper CORS headers
+app.use(corsMiddleware);
+app.use(securityHeaders);
+// Handle preflight requests for all routes early
+app.use(handlePreflight);
+
 // Enhanced security middleware
 app.use(helmet({
   // Allow loading images from a different origin (frontend dev server)
@@ -87,23 +94,12 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true
 });
 
-// Handle preflight requests before rate limiting
-app.options('/api/auth/login', corsMiddleware);
 // Only apply auth rate limiting in production
 if (process.env.NODE_ENV === 'production') {
   app.use('/api/auth/login', authLimiter);
 } else {
   console.log('🚀 Development mode: Auth rate limiting disabled');
 }
-
-// Apply custom CORS middleware
-app.use(corsMiddleware);
-
-// Apply security headers
-app.use(securityHeaders);
-
-// Handle preflight requests for all routes
-app.use(handlePreflight);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
