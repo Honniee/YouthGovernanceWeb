@@ -197,7 +197,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   };
 
   return (
-    <nav className="bg-white border-b border-gray-200 px-3 md:px-5 py-2 md:py-3 dark:bg-gray-800 dark:border-gray-700 fixed left-0 right-0 top-0 z-50">
+    <nav className="bg-white border-b border-gray-200 px-3 md:px-5 py-2 md:py-3 fixed left-0 right-0 top-0 z-50">
       <div className="flex flex-wrap justify-between items-center">
         <div className="flex justify-start items-center">
           {/* Mobile sidebar toggle */}
@@ -238,8 +238,8 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
               onClick={() => setShowNotifications(!showNotifications)}
               className={`relative w-8 h-8 md:w-10 md:h-10 mr-1.5 md:mr-2 transition-all duration-300 group flex items-center justify-center rounded-full ${
                 showNotifications 
-                  ? 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/20 ring-2 ring-blue-200 dark:ring-blue-700' 
-                  : 'text-gray-500 bg-gray-100 dark:text-gray-400 dark:bg-gray-700 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 hover:shadow-md'
+                  ? 'text-blue-600 bg-blue-50 ring-2 ring-blue-200' 
+                  : 'text-gray-500 bg-gray-100 hover:text-blue-600 hover:bg-blue-50 hover:shadow-md'
               }`}
             >
               <span className="sr-only">View notifications</span>
@@ -261,9 +261,9 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
             
             {/* Enhanced Notifications Dropdown */}
             {showNotifications && (
-              <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-[420px] bg-white rounded-2xl shadow-2xl border border-gray-100 dark:bg-gray-800 dark:border-gray-700 z-50 max-h-[85vh] overflow-hidden backdrop-blur-sm">
+              <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-[420px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 max-h-[85vh] overflow-hidden backdrop-blur-sm">
                 {/* Header with Gradient */}
-                <div className="relative p-3 md:p-5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-700 border-b border-gray-100 dark:border-gray-600">
+                <div className="relative p-3 md:p-5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2 md:space-x-3">
                       <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg md:rounded-xl flex items-center justify-center shadow-lg">
@@ -311,7 +311,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                     </div>
                   ) : notifications.length === 0 ? (
                     <div className="p-4 md:p-8 text-center">
-                      <div className="w-12 h-12 md:w-16 md:h-16 bg-gray-100 dark:bg-gray-700 rounded-xl md:rounded-2xl flex items-center justify-center mx-auto mb-3 md:mb-4">
+                      <div className="w-12 h-12 md:w-16 md:h-16 bg-gray-100 rounded-xl md:rounded-2xl flex items-center justify-center mx-auto mb-3 md:mb-4">
                         <Bell className="w-6 h-6 md:w-8 md:h-8 text-gray-400" />
                       </div>
                       <h4 className="text-sm md:text-base font-semibold text-gray-900 dark:text-white mb-2">No notifications</h4>
@@ -351,8 +351,8 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                               {/* Enhanced Icon */}
                               <div className={`flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl flex items-center justify-center shadow-sm ${
                                 !notification.isRead 
-                                  ? 'bg-blue-100 dark:bg-blue-900/30' 
-                                  : 'bg-gray-100 dark:bg-gray-700'
+                                  ? 'bg-blue-100' 
+                                  : 'bg-gray-100'
                               }`}>
                                 {getNotificationIcon(notification.type)}
                               </div>
@@ -484,8 +484,8 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
             
             {/* User Dropdown - Fixed Mobile Responsiveness */}
             {showUserMenu && (
-              <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-80 bg-white rounded-xl shadow-lg border border-gray-200 dark:bg-gray-700 dark:border-gray-600 z-50">
-                <div className="p-4 border-b border-gray-100 dark:border-gray-600">
+              <div className="fixed inset-x-4 mt-2.5 md:absolute md:inset-x-auto md:right-0 md:w-80 bg-white rounded-xl shadow-lg border border-gray-200 z-50">
+                <div className="p-4 border-b border-gray-100">
                   <div className="flex items-center space-x-3">
                     <div className="w-11 h-11 rounded-full overflow-hidden">
                       <Avatar name={getUserName()} src={user?.profilePicture} version={user?.updatedAt} size={44} />
