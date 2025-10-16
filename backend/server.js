@@ -63,10 +63,10 @@ app.use('/api/auth', (req, res, next) => {
   next();
 });
 
-// Enhanced rate limiting - More lenient in development
+// Enhanced rate limiting - More lenient for production use
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 50 : 1000, // Much more lenient in development
+  max: process.env.NODE_ENV === 'production' ? 1000 : 1000, // Much more lenient in production too
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -89,7 +89,7 @@ if (process.env.NODE_ENV === 'development') {
 // Stricter rate limiting for auth endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 5 : 100, // More lenient in development
+  max: process.env.NODE_ENV === 'production' ? 20 : 100, // More reasonable for production
   message: 'Too many authentication attempts, please try again later.',
   skipSuccessfulRequests: true
 });
