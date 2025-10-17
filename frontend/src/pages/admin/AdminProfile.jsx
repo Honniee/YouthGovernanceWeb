@@ -432,7 +432,7 @@ const AdminProfile = () => {
         id: 'additional_info',
         label: 'Complete details',
         weight: 20,
-        completed: !!(profile.middle_name || profile.suffix),
+        completed: true, // Middle name and suffix are optional
         icon: User,
         color: 'purple',
         action: () => setActiveTab('settings')

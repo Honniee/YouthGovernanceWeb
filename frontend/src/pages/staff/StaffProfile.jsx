@@ -95,10 +95,10 @@ const ProgressRing = ({ percent = 0 }) => {
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-4xl font-bold text-gray-900 leading-none tracking-tight">
+          <div className="text-4xl font-bold text-gray-900 leading-none tracking-tight" style={{ textShadow: '0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(255,255,255,0.6)' }}>
             {percent}%
           </div>
-          <div className="text-xs font-medium text-gray-500 mt-2 opacity-80">
+          <div className="text-xs font-medium text-gray-700 mt-2" style={{ textShadow: '0 0 8px rgba(255,255,255,0.8), 0 0 16px rgba(255,255,255,0.6)' }}>
             Complete
           </div>
         </div>
@@ -432,7 +432,7 @@ const StaffProfile = () => {
         id: 'additional_info',
         label: 'Complete details',
         weight: 20,
-        completed: !!(profile.middle_name || profile.suffix),
+        completed: true, // Middle name and suffix are optional
         icon: User,
         color: 'purple',
         action: () => setActiveTab('settings')

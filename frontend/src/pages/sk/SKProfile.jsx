@@ -476,7 +476,7 @@ const SKProfile = () => {
         id: 'additional_info',
         label: 'Complete details',
         weight: 15,
-        completed: !!(profile.middle_name || profile.suffix),
+        completed: true, // Middle name and suffix are optional
         icon: User,
         color: 'indigo',
         action: () => setActiveTab('settings')
