@@ -20,14 +20,9 @@ export const getUserNotifications = async (req, res) => {
       [lydoId]
     );
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found in Users table'
-      });
-    }
-
-    const userId = userResult.rows[0].user_id;
+    // Allow users without a Users mapping (e.g., SK officials)
+    // We'll still return general notifications via user_type
+    const userId = userResult.rows.length > 0 ? userResult.rows[0].user_id : null;
 
     // Get query parameters
     const rawQuery = req.query || {};
@@ -39,9 +34,17 @@ export const getUserNotifications = async (req, res) => {
     // Validate and get pagination parameters - allow higher limit for notifications
     const { page, limit, offset } = validatePagination(cleanQuery, 10000);
     
-    // Build query
-    let whereClause = 'WHERE (user_id = $1 OR (user_id IS NULL AND user_type = $2))';
-    let queryParams = [userId, req.user?.userType || 'admin'];
+    // Normalize/alias user types for broader compatibility with existing data
+    const tokenUserType = req.user?.userType || 'admin';
+    const userTypeAliases = tokenUserType === 'sk_official'
+      ? ['sk_official', 'sk']
+      : tokenUserType === 'lydo_staff'
+        ? ['lydo_staff', 'staff']
+        : [tokenUserType];
+
+    // Build query - allow general notifications targeted by any alias
+    let whereClause = 'WHERE ((user_id = $1) OR (user_id IS NULL AND user_type = ANY($2)))';
+    let queryParams = [userId, userTypeAliases];
     let paramCount = 2;
 
     // Add filters
@@ -149,24 +152,26 @@ export const getUnreadCount = async (req, res) => {
       [lydoId]
     );
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found in Users table'
-      });
-    }
+    // Allow no Users mapping; unread count will still include general notifications
+    const userId = userResult.rows.length > 0 ? userResult.rows[0].user_id : null;
 
-    const userId = userResult.rows[0].user_id;
+    // Normalize/alias user types for unread count as well
+    const tokenUserType2 = req.user?.userType || 'admin';
+    const userTypeAliases2 = tokenUserType2 === 'sk_official'
+      ? ['sk_official', 'sk']
+      : tokenUserType2 === 'lydo_staff'
+        ? ['lydo_staff', 'staff']
+        : [tokenUserType2];
 
     const countQuery = `
       SELECT COUNT(*) as count 
       FROM "Notifications" 
-      WHERE (user_id = $1 OR (user_id IS NULL AND user_type = $2))
+      WHERE (user_id = $1 OR (user_id IS NULL AND user_type = ANY($2)))
         AND is_read = false
         AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
     `;
 
-    const result = await query(countQuery, [userId, req.user?.userType || 'admin']);
+    const result = await query(countQuery, [userId, userTypeAliases2]);
     const unreadCount = parseInt(result.rows[0].count);
 
     res.json({
@@ -207,14 +212,8 @@ export const markAsRead = async (req, res) => {
       [lydoId]
     );
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found in Users table'
-      });
-    }
-
-    const userId = userResult.rows[0].user_id;
+    // Allow no Users mapping; can still mark general notifications as read
+    const userId = userResult.rows.length > 0 ? userResult.rows[0].user_id : null;
 
     if (!notificationId) {
       return res.status(400).json({
@@ -228,11 +227,18 @@ export const markAsRead = async (req, res) => {
       UPDATE "Notifications" 
       SET is_read = true, read_at = CURRENT_TIMESTAMP 
       WHERE notification_id = $1 
-        AND (user_id = $2 OR (user_id IS NULL AND user_type = $3))
+        AND (user_id = $2 OR (user_id IS NULL AND user_type = ANY($3)))
       RETURNING notification_id
     `;
 
-    const result = await query(updateQuery, [notificationId, userId, req.user?.userType || 'admin']);
+    const tokenUserType3 = req.user?.userType || 'admin';
+    const userTypeAliases3 = tokenUserType3 === 'sk_official'
+      ? ['sk_official', 'sk']
+      : tokenUserType3 === 'lydo_staff'
+        ? ['lydo_staff', 'staff']
+        : [tokenUserType3];
+
+    const result = await query(updateQuery, [notificationId, userId, userTypeAliases3]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -275,24 +281,25 @@ export const markAllAsRead = async (req, res) => {
       [lydoId]
     );
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found in Users table'
-      });
-    }
-
-    const userId = userResult.rows[0].user_id;
+    // Allow no Users mapping; can still mark general notifications as read
+    const userId = userResult.rows.length > 0 ? userResult.rows[0].user_id : null;
 
     // Update all unread notifications
     const updateQuery = `
       UPDATE "Notifications" 
       SET is_read = true, read_at = CURRENT_TIMESTAMP 
-      WHERE (user_id = $1 OR (user_id IS NULL AND user_type = $2))
+      WHERE (user_id = $1 OR (user_id IS NULL AND user_type = ANY($2)))
         AND is_read = false
     `;
 
-    const result = await query(updateQuery, [userId, req.user?.userType || 'admin']);
+    const tokenUserType4 = req.user?.userType || 'admin';
+    const userTypeAliases4 = tokenUserType4 === 'sk_official'
+      ? ['sk_official', 'sk']
+      : tokenUserType4 === 'lydo_staff'
+        ? ['lydo_staff', 'staff']
+        : [tokenUserType4];
+
+    const result = await query(updateQuery, [userId, userTypeAliases4]);
     
     // Get count of affected rows for logging
     console.log(`✅ Marked ${result.rowCount || 0} notifications as read`);
@@ -333,14 +340,8 @@ export const deleteNotification = async (req, res) => {
       [lydoId]
     );
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found in Users table'
-      });
-    }
-
-    const userId = userResult.rows[0].user_id;
+    // Allow no Users mapping; can still delete general notifications
+    const userId = userResult.rows.length > 0 ? userResult.rows[0].user_id : null;
 
     if (!notificationId) {
       return res.status(400).json({
@@ -353,11 +354,18 @@ export const deleteNotification = async (req, res) => {
     const deleteQuery = `
       DELETE FROM "Notifications" 
       WHERE notification_id = $1 
-        AND (user_id = $2 OR (user_id IS NULL AND user_type = $3))
+        AND (user_id = $2 OR (user_id IS NULL AND user_type = ANY($3)))
       RETURNING notification_id
     `;
 
-    const result = await query(deleteQuery, [notificationId, userId, req.user?.userType || 'admin']);
+    const tokenUserType5 = req.user?.userType || 'admin';
+    const userTypeAliases5 = tokenUserType5 === 'sk_official'
+      ? ['sk_official', 'sk']
+      : tokenUserType5 === 'lydo_staff'
+        ? ['lydo_staff', 'staff']
+        : [tokenUserType5];
+
+    const result = await query(deleteQuery, [notificationId, userId, userTypeAliases5]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
