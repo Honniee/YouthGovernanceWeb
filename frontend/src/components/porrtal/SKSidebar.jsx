@@ -76,7 +76,7 @@ import {
     
     // 🗳️ KK Survey Management (actions limited for SK)
     { 
-      name: 'Active Batches', 
+      name: 'Active Batch', 
       href: '/sk/survey/batches', 
       icon: Calendar,
       description: 'See active survey batches',
