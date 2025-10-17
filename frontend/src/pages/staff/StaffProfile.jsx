@@ -857,10 +857,6 @@ const StaffProfile = () => {
                       </li>
                       <li className="flex items-center gap-2">
                         <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full"></div>
-                        Better personalized experience
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full"></div>
                         Access to premium features
                       </li>
                     </ul>
