@@ -1238,7 +1238,7 @@ ${bodyRows}
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                               notification.isRead 
-                                ? 'bg-green-100 text-green-800' 
+                                ? 'bg-gray-100 text-gray-700' 
                                 : 'bg-green-100 text-green-800'
                             }`}>
                               {notification.isRead ? 'Read' : 'Unread'}
@@ -1537,7 +1537,7 @@ ${bodyRows}
                        </span>
                        <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold ${
                          selectedNotification.isRead 
-                           ? 'bg-green-100 text-green-700 border border-green-200' 
+                           ? 'bg-gray-100 text-gray-700 border border-gray-200' 
                            : 'bg-green-100 text-green-700 border border-green-200'
                        }`}>
                          {selectedNotification.isRead ? 'Read' : 'Unread'}
