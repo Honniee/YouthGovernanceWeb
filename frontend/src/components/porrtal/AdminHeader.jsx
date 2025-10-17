@@ -227,7 +227,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
           {/* Mobile sidebar toggle */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 md:p-2.5 mr-1.5 md:mr-2.5 text-gray-600 rounded-lg cursor-pointer md:hidden hover:text-gray-900 hover:bg-gray-100 focus:bg-gray-100 dark:focus:bg-gray-700 focus:ring-2 focus:ring-gray-100 dark:focus:ring-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+            className="p-1.5 md:p-2.5 mr-1.5 md:mr-2.5 text-gray-600 rounded-lg cursor-pointer md:hidden hover:text-gray-900 hover:bg-gray-100 focus:bg-gray-100 focus:ring-2 focus:ring-gray-100"
           >
             {sidebarOpen ? (
               <X className="w-5 h-5" />
@@ -300,8 +300,8 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                         <Bell className="w-4 h-4 md:w-5 md:h-5 text-white" />
                       </div>
                       <div>
-                        <h3 className="text-sm md:text-lg font-bold text-gray-900 dark:text-white">Notifications</h3>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
+                        <h3 className="text-sm md:text-lg font-bold text-gray-900">Notifications</h3>
+                        <p className="text-xs text-gray-600">
                           {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up!'}
                         </p>
                       </div>
@@ -314,8 +314,8 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                           markingAllAsRead
                             ? 'text-gray-500 bg-gray-100 cursor-not-allowed'
                             : markAllSuccess
-                            ? 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/30'
-                            : 'text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50'
+                            ? 'text-green-600 bg-green-100'
+                            : 'text-blue-600 hover:text-blue-700 bg-blue-100 hover:bg-blue-200'
                         }`}
                       >
                         {markingAllAsRead ? (
@@ -342,7 +342,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                   <div className="mt-3 md:mt-4 flex flex-col sm:flex-row sm:space-x-4 space-y-1 sm:space-y-0">
                     <div className="flex items-center space-x-2 text-xs">
                       <Clock className="w-3 h-3 text-gray-400" />
-                      <span className="text-gray-600 dark:text-gray-400">Updated just now</span>
+                      <span className="text-gray-600">Updated just now</span>
                     </div>
                   </div>
                 </div>
@@ -357,16 +357,16 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                           <Bell className="w-4 h-4 md:w-5 md:h-5 text-blue-600 animate-pulse" />
                         </div>
                       </div>
-                      <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400 mt-2 md:mt-3 font-medium">Loading notifications...</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Fetching latest updates</p>
+                      <p className="text-xs md:text-sm text-gray-600 mt-2 md:mt-3 font-medium">Loading notifications...</p>
+                      <p className="text-xs text-gray-500 mt-1">Fetching latest updates</p>
                     </div>
                   ) : notifications.length === 0 ? (
                     <div className="p-4 md:p-8 text-center">
                       <div className="w-12 h-12 md:w-16 md:h-16 bg-gray-100 rounded-xl md:rounded-2xl flex items-center justify-center mx-auto mb-3 md:mb-4">
                         <Bell className="w-6 h-6 md:w-8 md:h-8 text-gray-400" />
                       </div>
-                      <h4 className="text-sm md:text-base font-semibold text-gray-900 dark:text-white mb-2">No notifications</h4>
-                      <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400 mb-3 md:mb-4">You're all caught up! Check back later for updates.</p>
+                      <h4 className="text-sm md:text-base font-semibold text-gray-900 mb-2">No notifications</h4>
+                      <p className="text-xs md:text-sm text-gray-600 mb-3 md:mb-4">You're all caught up! Check back later for updates.</p>
                       <button
                         onClick={loadNotifications}
                         className="inline-flex items-center space-x-2 px-3 md:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs md:text-sm font-medium"
@@ -376,7 +376,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                       </button>
                     </div>
                   ) : (
-                    <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                    <div className="divide-y divide-gray-100">
                       {notifications.map((notification, index) => {
                         const style = notificationService.getNotificationStyle(notification.type);
                         const getNotificationIcon = (type) => {
@@ -393,8 +393,8 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                         return (
                           <div
                             key={notification.id}
-                            className={`group relative p-3 md:p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200 cursor-pointer ${
-                              !notification.isRead ? 'bg-blue-50/50 dark:bg-blue-900/10 border-l-4 border-l-blue-500' : ''
+                            className={`group relative p-3 md:p-4 hover:bg-gray-50 transition-all duration-200 cursor-pointer ${
+                              !notification.isRead ? 'bg-blue-50/50 border-l-4 border-l-blue-500' : ''
                             }`}
                             onClick={() => !notification.isRead && handleMarkAsRead(notification.id)}
                             style={{ animationDelay: `${index * 50}ms` }}
@@ -413,12 +413,12 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between mb-1 md:mb-2">
                                   <div className="flex-1">
-                                    <h4 className={`text-xs md:text-sm font-semibold text-gray-900 dark:text-white leading-tight ${
+                                    <h4 className={`text-xs md:text-sm font-semibold text-gray-900 leading-tight ${
                                       !notification.isRead ? 'font-bold' : ''
                                     }`}>
                                       {notification.title}
                                     </h4>
-                                    <p className="text-xs md:text-sm text-gray-600 dark:text-gray-300 mt-1 leading-relaxed line-clamp-2">
+                                    <p className="text-xs md:text-sm text-gray-600 mt-1 leading-relaxed line-clamp-2">
                                       {notification.message}
                                     </p>
                                   </div>
@@ -435,7 +435,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                                 <div className="flex items-center justify-between mt-2 md:mt-3">
                                   <div className="flex items-center space-x-1 md:space-x-2">
                                     <Clock className="w-3 h-3 text-gray-400" />
-                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    <span className="text-xs text-gray-500">
                                       {notification.timeAgo || 'Just now'}
                                     </span>
                                   </div>
@@ -443,8 +443,8 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                                   {notification.priority !== 'normal' && (
                                     <span className={`inline-flex items-center space-x-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-full text-xs font-medium ${
                                       notification.priority === 'high' 
-                                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                        : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                        ? 'bg-red-100 text-red-700'
+                                        : 'bg-yellow-100 text-yellow-700'
                                     }`}>
                                       <Zap className="w-2.5 h-2.5 md:w-3 md:h-3" />
                                       <span className="hidden sm:inline">{notification.priority}</span>
@@ -464,7 +464,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                 </div>
 
                 {/* Enhanced Footer */}
-                <div className="p-3 md:p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 border-t border-gray-100 dark:border-gray-600">
+                <div className="p-3 md:p-4 bg-gradient-to-r from-gray-50 to-gray-100 border-t border-gray-100">
                   <div className="flex items-center justify-between">
                     <button 
                       onClick={() => {
@@ -481,7 +481,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                     <div className="flex items-center space-x-1 md:space-x-2">
                       <button 
                         onClick={loadNotifications}
-                        className="p-1.5 md:p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-all duration-200"
+                        className="p-1.5 md:p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-all duration-200"
                         title="Refresh notifications"
                       >
                         <RefreshCw className="w-3 h-3 md:w-4 md:h-4" />
@@ -489,7 +489,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                       
                       <button 
                         onClick={() => setShowNotifications(false)}
-                        className="p-1.5 md:p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-all duration-200"
+                        className="p-1.5 md:p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-all duration-200"
                         title="Close notifications"
                       >
                         <X className="w-3 h-3 md:w-4 md:h-4" />
@@ -509,12 +509,12 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
               className={`flex items-center space-x-0 md:space-x-3.5 p-2 md:p-2.5 rounded-full transition-all duration-200 ${
                 showUserMenu 
                   ? 'text-blue-600' 
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  : 'text-gray-700 hover:bg-gray-100'
               }`}
             >
               <div className="flex items-center space-x-2 md:space-x-3.5">
                 {/* Avatar */}
-                <div className={`relative rounded-full ${showUserMenu ? 'ring-2 ring-blue-200 dark:ring-blue-700' : ''}`}>
+                <div className={`relative rounded-full ${showUserMenu ? 'ring-2 ring-blue-200' : ''}`}>
                   <Avatar name={getUserName()} src={user?.profilePicture} version={user?.updatedAt} size={32} />
                 </div>
                 
@@ -523,7 +523,7 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                   <div className="text-sm font-semibold text-gray-900 leading-tight">
                     {getUserName()}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 leading-tight">
+                  <div className="text-xs text-gray-500 leading-tight">
                     {getUserRole()}
                   </div>
                 </div>
@@ -546,11 +546,11 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                       <div className="font-semibold text-gray-900 text-sm truncate">
                         {getUserName()}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      <div className="text-xs text-gray-500 truncate">
                         {getUserRole()}
                       </div>
                       {user?.email && (
-                        <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate">
+                        <div className="text-xs text-gray-400 mt-1 truncate">
                           {user.email}
                         </div>
                       )}
@@ -559,20 +559,20 @@ const AdminHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
                 </div>
                 
                 <div className="p-2">
-                  <button onClick={handleGoProfile} className="w-full flex items-center space-x-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors duration-150">
+                  <button onClick={handleGoProfile} className="w-full flex items-center space-x-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-150">
                     <User className="w-4.5 h-4.5 flex-shrink-0" />
                     <span className="truncate">Profile</span>
                   </button>
-                  <button onClick={handleGoChangePassword} className="w-full flex items-center space-x-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors duration-150">
+                  <button onClick={handleGoChangePassword} className="w-full flex items-center space-x-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-150">
                     <Settings className="w-4.5 h-4.5 flex-shrink-0" />
                     <span className="truncate">Change Password</span>
                   </button>
                 </div>
                 
-                <div className="p-2 border-t border-gray-100 dark:border-gray-600">
+                <div className="p-2 border-t border-gray-100">
                   <button
                     onClick={() => onLogout('header')}
-                    className="w-full flex items-center space-x-3 px-3 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors duration-150"
+                    className="w-full flex items-center space-x-3 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-150"
                   >
                     <LogOut className="w-4.5 h-4.5 flex-shrink-0" />
                     <span className="truncate">Sign Out</span>
