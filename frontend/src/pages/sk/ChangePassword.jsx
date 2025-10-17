@@ -7,10 +7,10 @@ import { HeaderMainContent } from '../../components/portal_main_content';
 
 const Field = ({ label, children, description }) => (
   <div className="flex flex-col gap-1.5">
-    <label className="text-sm font-medium text-gray-800 dark:text-gray-200">{label}</label>
+    <label className="text-sm font-medium text-gray-900">{label}</label>
     {children}
     {description ? (
-      <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+      <p className="text-xs text-gray-600">{description}</p>
     ) : null}
   </div>
 );
