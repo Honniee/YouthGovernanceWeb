@@ -656,7 +656,7 @@ const StaffProfile = () => {
                 
                 {/* Action Buttons - Moved to bottom */}
                 <div className="flex flex-col sm:flex-row gap-3 sm:justify-end pt-4 border-t border-gray-100">
-                  <button type="button" onClick={handleCancelSettings} className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200">Cancel</button>
+                  <button type="button" onClick={handleCancelSettings} className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700">Cancel</button>
                   <button type="button" disabled={!dirtySettings || !validSettings || isSavingSettings} onClick={handleSaveSettings} className={`inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm rounded-lg ${dirtySettings && validSettings && !isSavingSettings ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}>{isSavingSettings ? 'Saving…' : 'Save'}</button>
                 </div>
               </div>
@@ -687,7 +687,7 @@ const StaffProfile = () => {
           <div className={`relative overflow-hidden rounded-2xl border shadow-lg backdrop-blur-sm transition-all duration-500 ${
             profileCompletion.percentage === 100 
               ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/30 shadow-emerald-100' 
-              : 'border-gray-200/60 bg-white/95 dark:bg-gray-800/95 dark:border-gray-700/60'
+              : 'border-gray-200/60 bg-white/95'
           }`}>
             {/* Header Section */}
             <div className="relative px-6 pt-6 pb-4">
@@ -701,10 +701,10 @@ const StaffProfile = () => {
                     <User className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                    <h3 className="text-lg font-semibold text-gray-900">
                       Profile Completion
                     </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-gray-500">
                       {profileCompletion.percentage === 100 
                         ? 'All set! Your profile is complete' 
                         : `${profileCompletion.percentage}% complete`}
