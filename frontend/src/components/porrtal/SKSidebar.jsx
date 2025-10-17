@@ -85,7 +85,7 @@ import {
     
     // ✅ Validation
     { 
-      name: 'Pending Validation', 
+      name: 'Validation Queue', 
       href: '/sk/survey/validation', 
       icon: Filter,
       description: 'Validate submissions for the active batch',
