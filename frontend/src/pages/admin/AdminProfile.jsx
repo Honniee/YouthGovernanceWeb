@@ -109,9 +109,9 @@ const ProgressRing = ({ percent = 0 }) => {
 
 const InfoRow = ({ label, value }) => (
   <div className="grid grid-cols-12 gap-3 items-center py-1.5">
-    <div className="col-span-12 md:col-span-2 text-sm text-gray-600 dark:text-gray-300 md:text-right">{label}:</div>
+    <div className="col-span-12 md:col-span-2 text-sm text-gray-600 md:text-right">{label}:</div>
     <div className="col-span-12 md:col-span-10">
-      <div className="w-full px-3 py-2 rounded-md border border-gray-200 bg-gray-50 text-gray-900 dark:bg-gray-800/60 dark:border-gray-700 dark:text-gray-100">
+      <div className="w-full px-3 py-2 rounded-md border border-gray-200 bg-gray-50 text-gray-900">
         {value || '—'}
       </div>
     </div>
@@ -120,7 +120,7 @@ const InfoRow = ({ label, value }) => (
 
 const EditableRow = ({ label, children }) => (
   <div className="grid grid-cols-12 gap-3 items-center py-1.5">
-    <div className="col-span-12 md:col-span-2 text-sm text-gray-600 dark:text-gray-300 md:text-right">{label}:</div>
+    <div className="col-span-12 md:col-span-2 text-sm text-gray-600 md:text-right">{label}:</div>
     <div className="col-span-12 md:col-span-10">
       {children}
     </div>
