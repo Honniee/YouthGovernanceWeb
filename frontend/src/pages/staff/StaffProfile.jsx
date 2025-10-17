@@ -95,10 +95,10 @@ const ProgressRing = ({ percent = 0 }) => {
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-4xl font-bold text-gray-900 dark:text-gray-100 leading-none tracking-tight">
+          <div className="text-4xl font-bold text-gray-900 leading-none tracking-tight">
             {percent}%
           </div>
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mt-2 opacity-80">
+          <div className="text-xs font-medium text-gray-500 mt-2 opacity-80">
             Complete
           </div>
         </div>
