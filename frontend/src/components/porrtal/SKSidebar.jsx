@@ -129,7 +129,7 @@ import {
     switch (category) {
       case 'main': return 'Overview';
       case 'survey_review': return 'Survey Review';
-      case 'survey': return 'Survey';
+      case 'survey': return 'Survey Batches';
       case 'communication': return 'Communication';
       case 'governance': return 'SK Governance';
       case 'reports': return 'Reports';
