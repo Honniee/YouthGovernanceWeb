@@ -83,20 +83,20 @@ import {
       category: 'survey'
     },
     
-    // ✅ Validation
+    // ✅ Survey Review
     { 
       name: 'Validation Queue', 
       href: '/sk/survey/validation', 
       icon: Filter,
       description: 'Validate submissions for the active batch',
-      category: 'validation'
+      category: 'survey_review'
     },
     { 
       name: 'Survey Response Tracking', 
       href: '/sk/survey/response-tracking', 
       icon: Users,
       description: 'Track who answered vs did not answer the survey',
-      category: 'validation'
+      category: 'survey_review'
     },
     
     // 📈 Reports
@@ -128,7 +128,7 @@ import {
   const getCategoryLabel = (category) => {
     switch (category) {
       case 'main': return 'Overview';
-      case 'validation': return 'Validation';
+      case 'survey_review': return 'Survey Review';
       case 'survey': return 'Survey';
       case 'communication': return 'Communication';
       case 'governance': return 'SK Governance';
@@ -174,7 +174,7 @@ import {
   }, {});
 
   // Category display order
-  const categoryOrder = ['main', 'validation', 'survey', 'communication', 'governance', 'reports'];
+  const categoryOrder = ['main', 'survey_review', 'survey', 'communication', 'governance', 'reports'];
   const orderedCategories = Object.entries(groupedNavigation).sort(([a], [b]) => {
     const ai = categoryOrder.indexOf(a);
     const bi = categoryOrder.indexOf(b);
