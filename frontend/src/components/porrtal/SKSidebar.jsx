@@ -91,6 +91,13 @@ import {
       description: 'Validate submissions for the active batch',
       category: 'validation'
     },
+    { 
+      name: 'Survey Response Tracking', 
+      href: '/sk/survey/response-tracking', 
+      icon: Users,
+      description: 'Track who answered vs did not answer the survey',
+      category: 'validation'
+    },
     
     // 📈 Reports
     { 
