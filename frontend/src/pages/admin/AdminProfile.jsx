@@ -8,31 +8,31 @@ import { HeaderMainContent, TabContainer, Tab } from '../../components/portal_ma
 
 const Field = ({ label, children, description }) => (
   <div className="flex flex-col gap-1.5">
-    <label className="text-sm font-medium text-gray-800 dark:text-gray-200">{label}</label>
+    <label className="text-sm font-medium text-gray-800">{label}</label>
     {children}
     {description ? (
-      <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+      <p className="text-xs text-gray-500">{description}</p>
     ) : null}
   </div>
 );
 
 const ReadOnlyInput = ({ value }) => (
-  <div className="w-full px-3 py-2 rounded-md border border-gray-100 bg-gray-50 text-gray-800 dark:bg-gray-800/60 dark:border-gray-700 dark:text-gray-200">
+  <div className="w-full px-3 py-2 rounded-md border border-gray-100 bg-gray-50 text-gray-800">
     {value || '-'}
   </div>
 );
 
 const Card = ({ title, children, right, footer }) => (
-  <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl border border-gray-200/70 dark:border-gray-700/70 shadow-sm">
-    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+  <div className="bg-white/90 backdrop-blur-sm rounded-xl border border-gray-200/70 shadow-sm">
+    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
       {right}
     </div>
     <div className="p-5">
       {children}
     </div>
     {footer && (
-      <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/30">
+      <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50">
         {footer}
       </div>
     )}
@@ -40,13 +40,13 @@ const Card = ({ title, children, right, footer }) => (
 );
 
 const StatItem = ({ icon, label, value }) => (
-  <div className="flex items-start gap-3 p-4 rounded-lg border border-gray-100 bg-white dark:bg-gray-800/60 dark:border-gray-700">
-    <div className="shrink-0 w-9 h-9 grid place-items-center rounded-md bg-gray-100 text-gray-700 dark:bg-gray-700/60 dark:text-gray-200">
+  <div className="flex items-start gap-3 p-4 rounded-lg border border-gray-100 bg-white">
+    <div className="shrink-0 w-9 h-9 grid place-items-center rounded-md bg-gray-100 text-gray-700">
       {icon}
     </div>
     <div className="min-w-0">
-      <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</div>
-      <div className="mt-0.5 text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{value || '—'}</div>
+      <div className="text-xs font-medium text-gray-500">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold text-gray-900 truncate">{value || '—'}</div>
     </div>
   </div>
 );
