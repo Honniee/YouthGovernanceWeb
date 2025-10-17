@@ -577,7 +577,7 @@ const StaffProfile = () => {
                   <button
                     type="button"
                     onClick={() => setActiveTab('settings')}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-300"
                   >
                     <Edit2 className="w-4 h-4" />
                     Edit
@@ -656,8 +656,8 @@ const StaffProfile = () => {
                 
                 {/* Action Buttons - Moved to bottom */}
                 <div className="flex flex-col sm:flex-row gap-3 sm:justify-end pt-4 border-t border-gray-100">
-                  <button type="button" onClick={handleCancelSettings} className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors">Cancel</button>
-                  <button type="button" disabled={!dirtySettings || !validSettings || isSavingSettings} onClick={handleSaveSettings} className={`inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg focus:outline-none focus:ring-2 transition-colors ${dirtySettings && validSettings && !isSavingSettings ? 'bg-emerald-500 text-white hover:bg-emerald-600 focus:ring-emerald-500' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>{isSavingSettings ? 'Saving…' : 'Save'}</button>
+                  <button type="button" onClick={handleCancelSettings} className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors">Cancel</button>
+                  <button type="button" disabled={!dirtySettings || !validSettings || isSavingSettings} onClick={handleSaveSettings} className={`inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg focus:outline-none focus:ring-2 transition-colors ${dirtySettings && validSettings && !isSavingSettings ? 'bg-green-500 text-white hover:bg-green-600 focus:ring-green-500' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>{isSavingSettings ? 'Saving…' : 'Save'}</button>
                 </div>
               </div>
             )}
