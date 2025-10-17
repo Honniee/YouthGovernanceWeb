@@ -95,10 +95,10 @@ const ProgressRing = ({ percent = 0 }) => {
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-4xl font-bold text-gray-900 dark:text-gray-100 leading-none tracking-tight">
+          <div className="text-4xl font-bold text-gray-900 leading-none tracking-tight" style={{ textShadow: '0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(255,255,255,0.6)' }}>
             {percent}%
           </div>
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mt-2 opacity-80">
+          <div className="text-xs font-medium text-gray-700 mt-2" style={{ textShadow: '0 0 8px rgba(255,255,255,0.8), 0 0 16px rgba(255,255,255,0.6)' }}>
             Complete
           </div>
         </div>
@@ -754,7 +754,7 @@ const SKProfile = () => {
           <div className={`relative overflow-hidden rounded-2xl border shadow-lg backdrop-blur-sm transition-all duration-500 ${
             profileCompletion.percentage === 100 
               ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/30 shadow-emerald-100' 
-              : 'border-gray-200/60 bg-white/95 dark:bg-gray-800/95 dark:border-gray-700/60'
+              : 'border-gray-200/60 bg-white/95'
           }`}>
             {/* Header Section */}
             <div className="relative px-6 pt-6 pb-4">
@@ -768,10 +768,10 @@ const SKProfile = () => {
                     <User className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                    <h3 className="text-lg font-semibold text-gray-900">
                       SK Profile Completion
                     </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-gray-500">
                       {profileCompletion.percentage === 100 
                         ? 'All set! Your SK profile is complete' 
                         : `${profileCompletion.percentage}% complete`}
