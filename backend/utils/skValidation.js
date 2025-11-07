@@ -212,9 +212,10 @@ export const validateSKProfiling = (data) => {
  * @param {Object} data - Term data to validate
  * @param {boolean} isUpdate - Whether this is an update operation
  * @param {Object} client - Database client for integrity checks
+ * @param {boolean} datesChanged - Whether dates have changed (for updates, skip overlap check if false)
  * @returns {Promise<Object>} Validation result
  */
-export const validateTermCreation = async (data, isUpdate = false, client = null) => {
+export const validateTermCreation = async (data, isUpdate = false, client = null, datesChanged = true) => {
   const errors = [];
   const sanitizedData = sanitizeInput(data);
 
@@ -272,8 +273,9 @@ export const validateTermCreation = async (data, isUpdate = false, client = null
     }
 
     // DATA INTEGRITY CHECKS (only if client is provided)
+    // For updates, only validate date integrity if dates have changed
     if (client && sanitizedData.startDate && sanitizedData.endDate) {
-      const integrityErrors = await validateDataIntegrity(sanitizedData, isUpdate, client);
+      const integrityErrors = await validateDataIntegrity(sanitizedData, isUpdate, client, datesChanged);
       errors.push(...integrityErrors);
     }
 
@@ -298,9 +300,10 @@ export const validateTermCreation = async (data, isUpdate = false, client = null
  * @param {Object} data - Term data to validate
  * @param {boolean} isUpdate - Whether this is an update operation
  * @param {Object} client - Database client
+ * @param {boolean} datesChanged - Whether dates have changed (for updates, skip overlap check if false)
  * @returns {Promise<Array>} Array of integrity error messages
  */
-const validateDataIntegrity = async (data, isUpdate, client) => {
+const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true) => {
   const errors = [];
   
   try {
@@ -309,51 +312,64 @@ const validateDataIntegrity = async (data, isUpdate, client) => {
     const currentDate = new Date();
     
     // 1. TERM OVERLAP VALIDATION - Critical for data integrity
-    console.log('🔍 Validating term overlap...');
-    let overlapQuery;
-    let overlapParams;
+    console.log('🔍 Validating term overlap...', { 
+      isUpdate, 
+      datesChanged,
+      willCheckOverlap: !isUpdate || datesChanged 
+    });
     
-    if (isUpdate && data.termId) {
-      // For updates, exclude the current term from overlap check
-      overlapQuery = `
-        SELECT term_id, term_name, start_date, end_date, status 
-        FROM "SK_Terms" 
-        WHERE (
-          (start_date <= $1 AND end_date >= $1) OR    -- New term starts during existing term
-          (start_date <= $2 AND end_date >= $2) OR    -- New term ends during existing term
-          (start_date >= $1 AND end_date <= $2) OR    -- New term completely contains existing term
-          (start_date <= $1 AND end_date >= $2)       -- New term completely within existing term
-        )
-        AND status != 'completed'
-        AND term_id != $3
-      `;
-      overlapParams = [startDate, endDate, data.termId];
+    // Only perform overlap validation if:
+    // - It's a new term, OR
+    // - It's an update AND dates have actually changed
+    if (!isUpdate || datesChanged) {
+      console.log('✅ Performing overlap validation (new term or dates changed)');
+      let overlapQuery;
+      let overlapParams;
+      
+      if (isUpdate && data.termId) {
+        // For updates with changed dates, exclude the current term from overlap check
+        overlapQuery = `
+          SELECT term_id, term_name, start_date, end_date, status 
+          FROM "SK_Terms" 
+          WHERE (
+            (start_date <= $1 AND end_date >= $1) OR    -- New term starts during existing term
+            (start_date <= $2 AND end_date >= $2) OR    -- New term ends during existing term
+            (start_date >= $1 AND end_date <= $2) OR    -- New term completely contains existing term
+            (start_date <= $1 AND end_date >= $2)       -- New term completely within existing term
+          )
+          AND status != 'completed'
+          AND term_id != $3
+        `;
+        overlapParams = [startDate, endDate, data.termId];
+      } else {
+        // For new terms, check against all terms
+        overlapQuery = `
+          SELECT term_id, term_name, start_date, end_date, status 
+          FROM "SK_Terms" 
+          WHERE (
+            (start_date <= $1 AND end_date >= $1) OR    -- New term starts during existing term
+            (start_date <= $2 AND end_date >= $2) OR    -- New term ends during existing term
+            (start_date >= $1 AND end_date <= $2) OR    -- New term completely contains existing term
+            (start_date <= $1 AND end_date >= $2)       -- New term completely within existing term
+          )
+          AND status != 'completed'
+        `;
+        overlapParams = [startDate, endDate];
+      }
+      
+      const overlapResult = await client.query(overlapQuery, overlapParams);
+      
+      if (overlapResult.rows.length > 0) {
+        const overlappingTerms = overlapResult.rows.map(term => 
+          `${term.term_name} (${new Date(term.start_date).toLocaleDateString()} - ${new Date(term.end_date).toLocaleDateString()})`
+        );
+        errors.push(`Term date range conflicts with existing terms: ${overlappingTerms.join(', ')}`);
+        console.log('❌ Term overlap detected:', overlappingTerms);
+      } else {
+        console.log('✅ No term overlap detected');
+      }
     } else {
-      // For new terms, check against all terms
-      overlapQuery = `
-        SELECT term_id, term_name, start_date, end_date, status 
-        FROM "SK_Terms" 
-        WHERE (
-          (start_date <= $1 AND end_date >= $1) OR    -- New term starts during existing term
-          (start_date <= $2 AND end_date >= $2) OR    -- New term ends during existing term
-          (start_date >= $1 AND end_date <= $2) OR    -- New term completely contains existing term
-          (start_date <= $1 AND end_date >= $2)       -- New term completely within existing term
-        )
-        AND status != 'completed'
-      `;
-      overlapParams = [startDate, endDate];
-    }
-    
-    const overlapResult = await client.query(overlapQuery, overlapParams);
-    
-    if (overlapResult.rows.length > 0) {
-      const overlappingTerms = overlapResult.rows.map(term => 
-        `${term.term_name} (${new Date(term.start_date).toLocaleDateString()} - ${new Date(term.end_date).toLocaleDateString()})`
-      );
-      errors.push(`Term date range conflicts with existing terms: ${overlappingTerms.join(', ')}`);
-      console.log('❌ Term overlap detected:', overlappingTerms);
-    } else {
-      console.log('✅ No term overlap detected');
+      console.log('⏭️ Skipping overlap validation (update without date changes)');
     }
     
     // 2. ACTIVE TERM UNIQUENESS - Ensures only one active term at a time

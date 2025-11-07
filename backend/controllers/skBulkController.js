@@ -8,7 +8,6 @@ import csv from 'csv-parser';
 import { Readable } from 'stream';
 import xlsx from 'xlsx';
 import notificationService from '../services/notificationService.js';
-import universalAuditService from '../services/universalAuditService.js';
 import universalNotificationService from '../services/universalNotificationService.js';
 import { createUserForSK } from '../utils/usersTableHelper.js';
 import { 
@@ -46,6 +45,7 @@ const sanitizeString = (str) => {
  * POST /api/sk-officials/bulk/import
  */
 const bulkImportSKOfficials = async (req, res) => {
+  const requestUser = req.user; // Capture user context for use in async operations
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -92,7 +92,7 @@ const bulkImportSKOfficials = async (req, res) => {
     console.log(`📊 Parsed ${records.length} records from file`);
 
     // Process records with INDIVIDUAL TRANSACTIONS (Staff Management pattern)
-    const results = await processSKBulkImport(records, activeTerm, req.user);
+    const results = await processSKBulkImport(records, activeTerm, requestUser, req);
 
     // Send bulk import completion notification
     const currentUser = req.user;
@@ -104,8 +104,37 @@ const bulkImportSKOfficials = async (req, res) => {
       }
     }, 100);
 
-    // Create audit log using Universal Audit Service
-    universalAuditService.logBulkImport('sk-officials', file.originalname, results.summary, universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+    // Create audit log for bulk import
+    const importedCount = results.summary.importedRecords;
+    const errorCount = results.summary.errors;
+    const fileName = file.originalname;
+    
+    let resourceName;
+    if (errorCount > 0) {
+      resourceName = `SK Officials Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'}, ${errorCount} ${errorCount === 1 ? 'error' : 'errors'})`;
+    } else {
+      resourceName = `SK Officials Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'})`;
+    }
+    
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: 'Bulk Import',
+      resource: '/api/sk-officials/bulk/import',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'sk-officials',
+        totalItems: results.summary.totalRows,
+        successCount: results.summary.importedRecords,
+        errorCount: results.summary.errors,
+        fileName: fileName,
+        action: 'import'
+      },
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.get('User-Agent') || 'Bulk Import',
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
     // Send admin notifications using Universal Notification Service
     universalNotificationService.sendNotificationAsync('sk-officials', 'import', {}, req.user, { importSummary: results.summary });
@@ -120,16 +149,24 @@ const bulkImportSKOfficials = async (req, res) => {
     console.error('❌ SK Bulk import error:', error);
     
     // Create audit log for failed import
+    const resourceName = `SK Officials Import - Failed`;
     createAuditLog({
       userId: req.user?.id || 'SYSTEM',
       userType: req.user?.userType || 'admin',
-      action: 'BULK_IMPORT',
-      resource: 'sk-officials',
-      resourceId: `bulk-${Date.now()}`,
-      details: `Failed to bulk import SK Officials: ${error.message}`,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent'),
-      status: 'error'
+      action: 'Bulk Import',
+      resource: '/api/sk-officials/bulk/import',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'sk-officials',
+        error: error.message,
+        fileName: req.file?.originalname || 'unknown',
+        importFailed: true
+      },
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.get('User-Agent') || 'Bulk Import',
+      status: 'error',
+      errorMessage: error.message
     }).catch(err => console.error('Audit log failed:', err));
 
     res.status(500).json({
@@ -144,7 +181,7 @@ const bulkImportSKOfficials = async (req, res) => {
  * Process SK Officials bulk import with INDIVIDUAL TRANSACTIONS
  * Following Staff Management pattern for better error handling
  */
-const processSKBulkImport = async (records, activeTerm, currentUser) => {
+const processSKBulkImport = async (records, activeTerm, currentUser, req) => {
   const results = {
     summary: {
       totalRows: records.length,
@@ -194,15 +231,30 @@ const processSKBulkImport = async (records, activeTerm, currentUser) => {
           }).catch(err => console.error(`SK welcome notification failed for ${processed.data.sk_id}:`, err));
         }, i * 100); // Stagger emails to avoid overwhelming the email service
 
-        // Create individual audit log using Universal Audit Service
-        universalAuditService.logBulkImportIndividual('sk-officials', {
-          skId: processed.data.sk_id,
-          firstName: processed.data.first_name,
-          lastName: processed.data.last_name,
-          position: processed.data.position,
-          barangayName: processed.barangayName,
-          personalEmail: processed.data.personal_email
-        }, currentUser, i).catch(err => console.error('Individual audit log failed:', err));
+        // Create individual audit log for each SK Official
+        const skOfficialName = `${processed.data.first_name} ${processed.data.last_name}`;
+        setTimeout(() => {
+          createAuditLog({
+            userId: currentUser?.id || 'SYSTEM',
+            userType: currentUser?.userType || 'admin',
+            action: 'Create',
+            resource: '/api/sk-officials',
+            resourceId: processed.data.sk_id,
+            resourceName: skOfficialName,
+            details: {
+              skName: skOfficialName,
+              resourceType: 'sk-officials',
+              roleId: 'ROL003',
+              position: processed.data.position,
+              barangayName: processed.barangayName,
+              personalEmail: processed.data.personal_email,
+              importedViaBulk: true
+            },
+            ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
+            userAgent: (req?.get ? req.get('User-Agent') : null) || 'Bulk Import',
+            status: 'success'
+          }).catch(err => console.error('Individual audit log failed:', err));
+        }, i * 50);
 
         await client.query('COMMIT');
 
@@ -485,13 +537,27 @@ const bulkUpdateStatus = async (req, res) => {
       }
     }, 100);
 
-    // Create audit log using Universal Audit Service
-    universalAuditService.logBulkOperation('sk-officials', action, ids, results.map(official => ({
-      skId: official.sk_id,
-      firstName: official.first_name,
-      lastName: official.last_name,
-      position: official.position
-    })), universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+    // Create audit log for bulk status update
+    const bulkAction = action.charAt(0).toUpperCase() + action.slice(1); // Capitalize first letter
+    const resourceName = `SK Officials Bulk ${bulkAction} - ${results.length} ${results.length === 1 ? 'member' : 'members'}`;
+    
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: `Bulk ${bulkAction}`,
+      resource: '/api/sk-officials/bulk/status',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'sk-officials',
+        totalItems: ids.length,
+        successCount: results.length,
+        action: action
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
     // Send admin notifications using Universal Notification Service  
     universalNotificationService.sendNotificationAsync('sk-officials', 'bulk', {}, req.user, { operation: action, entityIds: ids });

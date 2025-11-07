@@ -1,0 +1,9 @@
+{
+  "text": "AUTO TEST: Dismissible banner - should NOT auto-enable admin override",
+  "type": "info",
+  "dismissible": false,
+  "enabled": true,
+  "expiresAt": null,
+  "adminOverride": true,
+  "updatedAt": "2025-11-03T06:05:42.815Z"
+}

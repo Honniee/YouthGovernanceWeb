@@ -22,7 +22,8 @@ import {
   getBatchesNeedingUpdate,
   checkBusinessRules,
   bulkUpdateStatus,
-  getBatchResponses
+  getBatchResponses,
+  exportSurveyBatches
 } from '../controllers/surveyBatchesController.js';
 
 const router = express.Router();
@@ -51,10 +52,10 @@ router.use(authenticateToken);
 /**
  * @route   GET /api/survey-batches
  * @desc    Get all survey batches with filtering and pagination
- * @access  Admin only
+ * @access  Admin, Staff, and SK Officials
  * @query   page, pageSize, status, search, sortBy, sortOrder, includeStats
  */
-router.get('/', requireRole(['admin', 'lydo_staff']), validateQuery, getAllBatches);
+router.get('/', requireRole(['admin', 'lydo_staff', 'sk_official']), validateQuery, getAllBatches);
 
 /**
  * @route   POST /api/survey-batches
@@ -64,21 +65,37 @@ router.get('/', requireRole(['admin', 'lydo_staff']), validateQuery, getAllBatch
  */
 router.post('/', requireRole(['admin', 'lydo_staff']), validateCreateBatch, createBatch);
 
+// =============================================================================
+// EXPORT OPERATIONS (must come before parameterized routes)
+// =============================================================================
+
+/**
+ * @route   GET /api/survey-batches/export
+ * @desc    Export survey batch data (logging endpoint for activity logs)
+ * @access  Admin and LYDO Staff
+ * @query   format, selectedIds, logFormat, count, status
+ */
+router.get('/export', requireRole(['admin', 'lydo_staff']), exportSurveyBatches);
+
+// =============================================================================
+// BATCH CRUD OPERATIONS (continued)
+// =============================================================================
+
 /**
  * @route   GET /api/survey-batches/:id
  * @desc    Get a single survey batch by ID
- * @access  Admin and LYDO Staff
+ * @access  Admin, LYDO Staff, and SK Officials
  * @query   includeStats
  */
-router.get('/:id', requireRole(['admin', 'lydo_staff']), getBatchById);
+router.get('/:id', requireRole(['admin', 'lydo_staff', 'sk_official']), getBatchById);
 
 /**
  * @route   PUT /api/survey-batches/:id
  * @desc    Update a survey batch
- * @access  Admin only
+ * @access  Admin and LYDO Staff
  * @body    batchName, description, startDate, endDate, targetAgeMin, targetAgeMax
  */
-router.put('/:id', requireRole('admin'), validateUpdateBatch, updateBatch);
+router.put('/:id', requireRole(['admin', 'lydo_staff']), validateUpdateBatch, updateBatch);
 
 /**
  * @route   DELETE /api/survey-batches/:id
@@ -94,10 +111,10 @@ router.delete('/:id', requireRole('admin'), deleteBatch);
 /**
  * @route   PATCH /api/survey-batches/:id/status
  * @desc    Update batch status (activate, pause, resume, close, force actions)
- * @access  Admin only
+ * @access  Admin and LYDO Staff
  * @body    status, reason, action
  */
-router.patch('/:id/status', requireRole('admin'), validateUpdateStatus, updateBatchStatus);
+router.patch('/:id/status', requireRole(['admin', 'lydo_staff']), validateUpdateStatus, updateBatchStatus);
 
 // =============================================================================
 // STATISTICS AND UTILITIES
@@ -106,9 +123,9 @@ router.patch('/:id/status', requireRole('admin'), validateUpdateStatus, updateBa
 /**
  * @route   GET /api/survey-batches/statistics/dashboard
  * @desc    Get dashboard statistics for all batches
- * @access  Admin only
+ * @access  Admin, Staff, and SK Officials
  */
-router.get('/statistics/dashboard', requireRole('admin'), getDashboardStats);
+router.get('/statistics/dashboard', requireRole(['admin', 'lydo_staff', 'sk_official']), getDashboardStats);
 
 /**
  * @route   GET /api/survey-batches/:id/statistics
@@ -120,10 +137,10 @@ router.get('/:id/statistics', requireRole('admin'), getBatchStatistics);
 /**
  * @route   GET /api/survey-batches/:id/responses
  * @desc    Get responses for a specific survey batch
- * @access  Admin and LYDO Staff
- * @query   page, limit, search, status
+ * @access  Admin, LYDO Staff, and SK Officials
+ * @query   page, limit, search, status, barangay
  */
-router.get('/:id/responses', requireRole(['admin', 'lydo_staff']), getBatchResponses);
+router.get('/:id/responses', requireRole(['admin', 'lydo_staff', 'sk_official']), getBatchResponses);
 
 /**
  * @route   GET /api/survey-batches/utilities/auto-update

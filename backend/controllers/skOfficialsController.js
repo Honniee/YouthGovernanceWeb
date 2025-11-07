@@ -5,7 +5,6 @@ import { generateSecurePassword } from '../utils/passwordGenerator.js';
 import { sanitizeInput } from '../utils/validation.js';
 import bcrypt from 'bcryptjs';
 import notificationService from '../services/notificationService.js';
-import universalAuditService from '../services/universalAuditService.js';
 import universalNotificationService from '../services/universalNotificationService.js';
 import { createUserForSK } from '../utils/usersTableHelper.js';
 import { 
@@ -159,10 +158,15 @@ const getAllSKOfficials = async (req, res) => {
         sk.updated_at,
         b.barangay_name,
         t.term_name,
+        prof.age,
+        prof.gender,
+        prof.contact_number,
+        prof.school_or_company,
         CONCAT(sk.first_name, ' ', COALESCE(sk.middle_name, ''), ' ', sk.last_name, ' ', COALESCE(sk.suffix, '')) as full_name
       FROM "SK_Officials" sk
       JOIN "Barangay" b ON sk.barangay_id = b.barangay_id
       JOIN "SK_Terms" t ON sk.term_id = t.term_id
+      LEFT JOIN "SK_Officials_Profiling" prof ON prof.sk_id = sk.sk_id
       ${whereClause}
       ORDER BY ${validSortBy === 'full_name' ? 'sk.last_name, sk.first_name' : `sk.${validSortBy}`} ${validSortOrder}
       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
@@ -210,6 +214,10 @@ const getAllSKOfficials = async (req, res) => {
       updatedAt: row.updated_at,
       barangayName: row.barangay_name,
       termName: row.term_name,
+      age: row.age,
+      gender: row.gender,
+      contactNumber: row.contact_number,
+      schoolOrCompany: row.school_or_company,
       fullName: row.full_name
     }));
 
@@ -336,10 +344,15 @@ const getSKOfficialById = async (req, res) => {
         t.term_name,
         t.start_date as term_start_date,
         t.end_date as term_end_date,
-        t.status as term_status
+        t.status as term_status,
+        prof.age,
+        prof.gender,
+        prof.contact_number,
+        prof.school_or_company
       FROM "SK_Officials" sk
       LEFT JOIN "Barangay" b ON sk.barangay_id = b.barangay_id
       LEFT JOIN "SK_Terms" t ON sk.term_id = t.term_id
+      LEFT JOIN "SK_Officials_Profiling" prof ON prof.sk_id = sk.sk_id
       WHERE sk.sk_id = $1
     `;
 
@@ -378,7 +391,11 @@ const getSKOfficialById = async (req, res) => {
         termName: official.term_name,
         termStartDate: official.term_start_date,
         termEndDate: official.term_end_date,
-        termStatus: official.term_status
+        termStatus: official.term_status,
+        age: official.age,
+        gender: official.gender,
+        contactNumber: official.contact_number,
+        schoolOrCompany: official.school_or_company
       }
     });
 
@@ -553,16 +570,26 @@ const createSKOfficial = async (req, res) => {
       barangay_name: barangayCheck.barangayName
     }).catch(err => console.error('SK welcome notification failed:', err));
 
-    // Create audit log using Universal Audit Service
-    console.log('📝 SK Official creation - Starting audit log creation');
-    universalAuditService.logCreation('sk-officials', {
-      skId: newOfficial.sk_id,
-      firstName: newOfficial.first_name,
-      lastName: newOfficial.last_name,
-      position: newOfficial.position,
-      barangayName: barangayCheck.barangayName,
-      personalEmail: newOfficial.personal_email
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('❌ Audit log failed:', err));
+    // Create audit log for SK Official creation
+    const skOfficialName = `${newOfficial.first_name} ${newOfficial.last_name}`;
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: 'Create',
+      resource: '/api/sk-officials',
+      resourceId: newOfficial.sk_id,
+      resourceName: skOfficialName,
+      details: {
+        skName: skOfficialName,
+        resourceType: 'sk-officials',
+        position: newOfficial.position,
+        barangayName: barangayCheck.barangayName,
+        personalEmail: newOfficial.personal_email
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('❌ Audit log failed:', err));
 
     // Send admin notifications using Universal Notification Service (defensive programming)
     console.log('🔔 SK Official creation - Starting admin notifications');
@@ -609,16 +636,23 @@ const createSKOfficial = async (req, res) => {
     console.error('❌ Error creating SK official:', error);
     
     // Create audit log for failed creation
+    const resourceName = `SK Official Creation - Failed`;
     createAuditLog({
       userId: req.user?.id || 'SYSTEM',
       userType: req.user?.userType || 'admin',
-      action: 'CREATE',
-      resource: 'sk-officials',
-      resourceId: 'unknown',
-      details: `Failed to create SK Official: ${error.message}`,
-      ipAddress: req.ip,
+      action: 'Create',
+      resource: '/api/sk-officials',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'sk-officials',
+        error: error.message,
+        createFailed: true
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
-      status: 'error'
+      status: 'error',
+      errorMessage: error.message
     }).catch(err => console.error('Audit log failed:', err));
 
     res.status(500).json({
@@ -720,14 +754,25 @@ const updateSKOfficial = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Create audit log using Universal Audit Service
-    universalAuditService.logUpdate('sk-officials', id, {
-      skId: updatedOfficial.sk_id,
-      firstName: updatedOfficial.first_name,
-      lastName: updatedOfficial.last_name,
-      position: existingOfficial.position, // Keep existing position
-      personalEmail: updatedOfficial.personal_email
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+    // Create audit log for SK Official update
+    const updatedSKName = `${updatedOfficial.first_name} ${updatedOfficial.last_name}`;
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: 'Update',
+      resource: '/api/sk-officials',
+      resourceId: id,
+      resourceName: updatedSKName,
+      details: {
+        skName: updatedSKName,
+        resourceType: 'sk-officials',
+        position: existingOfficial.position,
+        personalEmail: updatedOfficial.personal_email
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
     // Send admin notifications using Universal Notification Service
     universalNotificationService.sendNotificationAsync('sk-officials', 'update', {
@@ -813,14 +858,25 @@ const deleteSKOfficial = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Create audit log using Universal Audit Service
-    universalAuditService.logDeletion('sk-officials', id, {
-      skId: deletedOfficial.sk_id,
-      firstName: deletedOfficial.first_name,
-      lastName: deletedOfficial.last_name,
-      position: deletedOfficial.position,
-      personalEmail: deletedOfficial.personal_email
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+    // Create audit log for SK Official deletion
+    const deletedSKName = `${deletedOfficial.first_name} ${deletedOfficial.last_name}`;
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: 'Delete',
+      resource: '/api/sk-officials',
+      resourceId: id,
+      resourceName: deletedSKName,
+      details: {
+        skName: deletedSKName,
+        resourceType: 'sk-officials',
+        position: deletedOfficial.position,
+        personalEmail: deletedOfficial.personal_email
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
     // Send admin notifications using Universal Notification Service
     universalNotificationService.sendNotificationAsync('sk-officials', 'status', {
@@ -939,14 +995,27 @@ const updateSKStatus = async (req, res) => {
       }
     }, 100);
 
-    // Create audit log using Universal Audit Service
-    universalAuditService.logStatusChange('sk-officials', id, status, {
-      skId: official.sk_id,
-      firstName: official.first_name,
-      lastName: official.last_name,
-      position: official.position,
-      personalEmail: official.personal_email
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+    // Create audit log for SK Official status update
+    const statusSKName = `${official.first_name} ${official.last_name}`;
+    const actionName = status === 'active' ? 'Activate' : 'Deactivate';
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: actionName,
+      resource: '/api/sk-officials',
+      resourceId: id,
+      resourceName: statusSKName,
+      details: {
+        skName: statusSKName,
+        resourceType: 'sk-officials',
+        newStatus: status,
+        position: official.position,
+        personalEmail: official.personal_email
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
     // Enhanced admin notifications using Universal Notification Service
     universalNotificationService.sendNotificationAsync('sk-officials', 'status', {

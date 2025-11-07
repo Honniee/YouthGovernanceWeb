@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: youth-governance-api
+    env: node
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    rootDir: backend
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: true
+    healthCheckPath: /api/health
+

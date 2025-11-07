@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { HeaderMainContent, TabContainer, Tab, useTabState, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, Status, ExportButton, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable } from '../../components/portal_main_content';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, showWarningToast, ConfirmationModal, useConfirmation } from '../../components/universal';
-import { Search, Calendar, Users, FileText, ChevronDown, ArrowUpDown, Upload, CheckCircle, AlertCircle, X, User, Filter, Grid, List, UserPlus, Mail, Save, Edit } from 'lucide-react';
+import { Search, Calendar, Users, FileText, ChevronDown, ArrowUpDown, Upload, CheckCircle, AlertCircle, X, User, Filter, Grid, List, UserPlus, Mail, Save, Edit, CheckCircle2, XCircle, Activity, BarChart3, UserCheck } from 'lucide-react';
 import voterService from '../../services/voterService.js';
 
 const VoterListUpload = () => {
@@ -34,14 +34,21 @@ const VoterListUpload = () => {
   const [filterValues, setFilterValues] = useState({ 
     gender: '', 
     dateCreated: '', 
-    ageRange: ''
+    ageRange: '',
+    hasParticipated: '' // New filter: 'true', 'false', or '' for all
   });
   const filterTriggerRef = useRef(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
   // Data
   const [voters, setVoters] = useState([]);
-  const [stats, setStats] = useState({ total: 0, active: 0, archived: 0 });
+  const [stats, setStats] = useState({ 
+    total: 0, 
+    active: 0, 
+    archived: 0,
+    has_participated_count: 0,
+    not_participated_count: 0
+  });
 
   // Total items should reflect the active tab
   const totalItemsForTab = activeTab === 'all'
@@ -153,6 +160,17 @@ const VoterListUpload = () => {
       description: 'Filter by youth age categories'
     },
     {
+      id: 'hasParticipated',
+      label: 'Survey Participation',
+      type: 'select',
+      placeholder: 'All Voters',
+      options: [
+        { value: 'true', label: 'Has Participated' },
+        { value: 'false', label: 'Not Participated' }
+      ],
+      description: 'Filter by whether voter has participated in surveys'
+    },
+    {
       id: 'dateCreated',
       label: 'Created After',
       type: 'date',
@@ -173,6 +191,7 @@ const VoterListUpload = () => {
         gender: filterValues.gender,
         ageRange: filterValues.ageRange,
         dateCreated: filterValues.dateCreated,
+        hasParticipated: filterValues.hasParticipated,
         status: activeTab
       };
 
@@ -262,21 +281,23 @@ const VoterListUpload = () => {
           `Are you sure you want to archive ${selectedItems.length} voter${selectedItems.length > 1 ? 's' : ''}?`,
           async () => {
             try {
-                             // Execute bulk archive operations
-               const promises = selectedItems.map(async (voterId) => {
-                 const voter = voters.find(v => v.voterId === voterId);
-                 if (voter && voter.isActive) {
-                   return voterService.deleteVoter(voterId);
-                 }
-               });
-              
-              await Promise.all(promises);
-              showSuccessToast('Bulk archive completed', `${selectedItems.length} voters archived successfully`);
+              confirmation.setLoading(true);
+              const response = await voterService.bulkUpdateStatus(selectedItems, 'archive');
+              if (response.success) {
+                showSuccessToast('Bulk archive completed', `${response.processed} voters archived successfully`);
+                if (response.errors && response.errors.length > 0) {
+                  console.warn('Some items failed:', response.errors);
+                }
+              } else {
+                throw new Error(response.message || 'Bulk archive failed');
+              }
               await loadVotersData(); // Reload data
               setSelectedItems([]); // Clear selection
             } catch (error) {
               console.error('Bulk archive error:', error);
-              showErrorToast('Bulk archive failed', 'An error occurred during bulk archive operation');
+              showErrorToast('Bulk archive failed', error.message || 'An error occurred during bulk archive operation');
+            } finally {
+              confirmation.hideConfirmation();
             }
           }
         );
@@ -286,21 +307,23 @@ const VoterListUpload = () => {
           `Are you sure you want to restore ${selectedItems.length} voter${selectedItems.length > 1 ? 's' : ''}?`,
           async () => {
             try {
-                             // Execute bulk restore operations
-               const promises = selectedItems.map(async (voterId) => {
-                 const voter = voters.find(v => v.voterId === voterId);
-                 if (voter && !voter.isActive) {
-                   return voterService.restoreVoter(voterId);
-                 }
-               });
-              
-              await Promise.all(promises);
-              showSuccessToast('Bulk restore completed', `${selectedItems.length} voters restored successfully`);
+              confirmation.setLoading(true);
+              const response = await voterService.bulkUpdateStatus(selectedItems, 'restore');
+              if (response.success) {
+                showSuccessToast('Bulk restore completed', `${response.processed} voters restored successfully`);
+                if (response.errors && response.errors.length > 0) {
+                  console.warn('Some items failed:', response.errors);
+                }
+              } else {
+                throw new Error(response.message || 'Bulk restore failed');
+              }
               await loadVotersData(); // Reload data
               setSelectedItems([]); // Clear selection
             } catch (error) {
               console.error('Bulk restore error:', error);
-              showErrorToast('Bulk restore failed', 'An error occurred during bulk restore operation');
+              showErrorToast('Bulk restore failed', error.message || 'An error occurred during bulk restore operation');
+            } finally {
+              confirmation.hideConfirmation();
             }
           }
         );
@@ -390,23 +413,64 @@ const VoterListUpload = () => {
     avatar: { firstName: 'firstName', lastName: 'lastName', email: null, picture: null },
     title: (v) => `${v.lastName}, ${v.firstName}`,
     subtitle: (v) => (
-      <div className="space-y-1">
-        {/* Personal Info - Each on separate line */}
-        <div className="flex items-center text-sm text-gray-600">
-          <Calendar className="w-3 h-3 mr-1 text-gray-400" />
-          <span>Birth: {new Date(v.birthDate).toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-          })}</span>
+      <div className="w-full">
+        {/* Right-aligned Two-Column Layout for Birth Date and Gender/Age */}
+        <div className="flex justify-end">
+          <div className="grid grid-cols-2 gap-3 text-right">
+            <div className="flex flex-col items-end">
+              <div className="flex items-center text-sm text-gray-600">
+                <Calendar className="w-3 h-3 mr-1.5 text-gray-400 flex-shrink-0" />
+                <span>{new Date(v.birthDate).toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })}</span>
+              </div>
+            </div>
+            <div className="flex flex-col items-end">
+              <div className="flex items-center text-sm text-gray-600">
+                <User className="w-3 h-3 mr-1.5 text-gray-400 flex-shrink-0" />
+                <span>{v.gender} • Age {v.age}</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center text-sm text-gray-600">
-          <User className="w-3 h-3 mr-1 text-gray-400" />
-          <span>Gender: {v.gender}</span>
-        </div>
-        <div className="flex items-center text-sm text-gray-600">
-          <span>Age: {v.age}</span>
-        </div>
+
+        {/* Participation Status Section */}
+        {v.hasParticipated ? (
+          <div className="pt-2 mt-2 border-t border-gray-100">
+            <div className="flex flex-wrap items-center gap-2 justify-center">
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <CheckCircle2 className="w-3 h-3 mr-1 flex-shrink-0" />
+                <span>Has Participated</span>
+              </span>
+              {v.surveyCount > 0 && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                  <FileText className="w-3 h-3 mr-1 flex-shrink-0" />
+                  <span>{v.surveyCount} survey{v.surveyCount !== 1 ? 's' : ''}</span>
+                </span>
+              )}
+              {v.firstSurveyDate && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200">
+                  <Activity className="w-3 h-3 mr-1 flex-shrink-0" />
+                  <span>Since {new Date(v.firstSurveyDate).toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short' 
+                  })}</span>
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="pt-2 mt-2 border-t border-gray-100">
+            <div className="flex justify-center">
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-50 text-gray-600 border border-gray-200">
+                <XCircle className="w-3 h-3 mr-1 flex-shrink-0" />
+                <span>Not Participated</span>
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     ),
     status: (v) => v.isActive ? 'active' : 'archived',
@@ -762,9 +826,9 @@ const VoterListUpload = () => {
                   }
                   
                   try {
-                    const selectedVoters = voters.filter(v => selectedItems.includes(v.voterId));
-                    
-                    await voterService.exportSelectedVoters(format, selectedVoters);
+                    // Use backend export endpoint with selectedIds for proper logging
+                    const selectedIds = selectedItems.join(',');
+                    await voterService.exportVoters(format, 'all', selectedIds);
                     showSuccessToast('Export completed', `${selectedItems.length} voters exported as ${format.toUpperCase()}`);
                   } catch (error) {
                     console.error('Export error:', error);
@@ -848,8 +912,72 @@ const VoterListUpload = () => {
           </div>
         </div>
 
-        {/* Right Column - Forms */}
-        <div className="xl:col-span-1">
+        {/* Right Column - Forms and Statistics */}
+        <div className="xl:col-span-1 space-y-6">
+          {/* Participation Statistics Dashboard - Moved to top */}
+          {/* Participation Summary */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <BarChart3 className="w-4 h-4 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Participation Status</h3>
+                  <p className="text-xs text-gray-600">Survey participation overview</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="text-center p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                  <div className="text-xl font-semibold text-emerald-600">{stats.has_participated_count || 0}</div>
+                  <div className="text-xs text-gray-600 mt-1">Has Participated</div>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="text-xl font-semibold text-gray-600">{stats.not_participated_count || 0}</div>
+                  <div className="text-xs text-gray-600 mt-1">Not Participated</div>
+                </div>
+              </div>
+              
+              {/* Participation Breakdown */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-sm text-gray-600">Total Voters</span>
+                  <span className="text-sm font-medium text-gray-900">{stats.total || 0}</span>
+                </div>
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-sm text-gray-600">Participated</span>
+                  <span className="text-sm font-medium text-emerald-600">{stats.has_participated_count || 0}</span>
+                </div>
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-sm text-gray-600">Not Participated</span>
+                  <span className="text-sm font-medium text-gray-600">{stats.not_participated_count || 0}</span>
+                </div>
+                
+                {/* Participation Percentage */}
+                {stats.total > 0 && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm text-gray-600">Participation Rate</span>
+                      <span className="text-sm font-semibold text-blue-600">
+                        {Math.round((stats.has_participated_count / stats.total) * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-emerald-500 h-2 rounded-full transition-all duration-300" 
+                        style={{ width: `${(stats.has_participated_count / stats.total) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Bulk Import - Upload File */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden sticky top-4">
             <button
@@ -1169,12 +1297,14 @@ const VoterListUpload = () => {
               </div>
             </form>
             </CollapsibleForm>
-          </div>
         </div>
+      </div>
 
+      {/* Toast and Modals */}
       <ToastContainer position="top-right" maxToasts={5} />
+      
       {/* Edit Voter Modal */}
-      {isEditOpen && editTarget && createPortal(
+      {(isEditOpen && editTarget) ? createPortal(
         <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setIsEditOpen(false)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
@@ -1419,10 +1549,10 @@ const VoterListUpload = () => {
             </div>
         </div>,
         document.body
-      )}
+      ) : null}
 
       {/* Bulk Operations Modal */}
-      {showBulkModal && createPortal(
+      {showBulkModal ? createPortal(
         <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setShowBulkModal(false)}>
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-200">
@@ -1470,7 +1600,7 @@ const VoterListUpload = () => {
         </div>
         </div>,
         document.body
-      )}
+      ) : null}
 
       <ConfirmationModal {...confirmation.modalProps} />
     </div>

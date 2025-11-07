@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import PublicLayout from '../../components/layouts/PublicLayout';
 import { getAnnouncementById, getAnnouncements } from '../../services/announcementsService';
+import { useRealtime } from '../../realtime/useRealtime';
 
 const AnnouncementDetail = () => {
   const { id } = useParams();
@@ -32,6 +33,7 @@ const AnnouncementDetail = () => {
   const [related, setRelated] = useState([]);
   const [showQR, setShowQR] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isDeleted, setIsDeleted] = useState(false);
 
   // Category-based fallback images (SVG like list page)
   const buildSvgPlaceholder = (label, colorFrom, colorTo) => {
@@ -136,6 +138,36 @@ const AnnouncementDetail = () => {
     load();
     return () => { mounted = false; };
   }, [id]);
+
+  // Realtime: update detail if this announcement changes; show deleted state if removed
+  useRealtime('announcement:updated', async (payload) => {
+    try {
+      const updatedId = payload?.announcement?.announcement_id || payload?.announcement?.id;
+      if (!updatedId) return;
+      const currentId = id;
+      if (String(updatedId) === String(currentId)) {
+        const resp = await getAnnouncementById(currentId); // silent refresh, do not toggle loading
+        if (resp?.success) setAnnouncement(resp.data);
+      }
+    } catch (_) {}
+  });
+  useRealtime('announcement:deleted', (payload) => {
+    const deletedId = payload?.announcementId || payload?.id;
+    if (deletedId && String(deletedId) === String(id)) {
+      setIsDeleted(true);
+    }
+  });
+  useRealtime('announcement:changed', async (payload) => {
+    try {
+      const t = payload?.type;
+      const pid = payload?.item?.announcement_id;
+      if (!pid) return;
+      if (String(pid) !== String(id)) return;
+      if (t === 'deleted') { setIsDeleted(true); return; }
+      const resp = await getAnnouncementById(id); // silent
+      if (resp?.success) setAnnouncement(resp.data);
+    } catch (_) {}
+  });
 
   // Format date
   const formatDate = (dateString) => {
@@ -261,8 +293,15 @@ const AnnouncementDetail = () => {
             </button>
           </div>
 
+          {/* Deleted banner */}
+          {isDeleted && (
+            <div className="mb-4 sm:mb-6 px-3 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
+              This announcement was deleted. Content is read-only.
+            </div>
+          )}
+
           {/* Two Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
+          <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 ${isDeleted ? 'opacity-60 pointer-events-none' : ''}`}>
             {/* Main Content */}
             <div className="lg:col-span-2">
               <article className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

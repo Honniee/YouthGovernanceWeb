@@ -1,7 +1,9 @@
 import { query } from '../config/database.js';
 import { generateId } from '../utils/idGenerator.js';
 import activityLogService from '../services/activityLogService.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import notificationService from '../services/notificationService.js';
+import { emitToRole, emitBroadcast } from '../services/realtime.js';
 
 /**
  * Announcements Controller
@@ -387,19 +389,22 @@ export const createAnnouncement = async (req, res) => {
       throw dbError;
     }
 
-    // Log activity
+    // Audit log
     try {
-    await activityLogService.logActivity({
-      user_id: created_by,
-      user_type: req.user.user_type,
-      action: 'create',
-      resource_type: 'announcement',
-      resource_id: announcement_id,
-      resource_name: title,
-      details: { category, status },
-      category: 'Announcement'
-    });
-      console.log('✅ Activity logged successfully');
+      await createAuditLog({
+        userId: req.user?.id || created_by,
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Create',
+        resource: '/api/announcements',
+        resourceId: announcement_id,
+        resourceName: title,
+        resourceType: 'announcements',
+        category: 'Announcement Management',
+        details: { category, status },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
     } catch (activityError) {
       console.error('❌ Error logging activity:', activityError);
     }
@@ -431,6 +436,14 @@ export const createAnnouncement = async (req, res) => {
         updated_at: new Date(announcement.updated_at).toISOString()
       }
     });
+
+  // Realtime notify admin/staff and public
+  try {
+    const payload = { type: 'created', item: { announcement_id, title, status } };
+    emitToRole('admin', 'announcement:changed', payload);
+    emitToRole('lydo_staff', 'announcement:changed', payload);
+    emitBroadcast('announcement:changed', payload);
+  } catch (_) {}
 
   } catch (error) {
     console.error('❌ Error creating announcement:', error);
@@ -670,26 +683,28 @@ export const updateAnnouncement = async (req, res) => {
     
     console.log('✅ Update successful, announcement:', announcement);
 
-    // Log activity
+    // Audit log
     try {
-    await activityLogService.logActivity({
-        user_id: req.user.id,
-      user_type: req.user.user_type,
-      action: 'update',
-      resource_type: 'announcement',
-      resource_id: id,
-      resource_name: announcement.title,
-      details: { 
-        changes: updateFields,
-        previous_status: currentAnnouncement.status,
-        new_status: status || currentAnnouncement.status
-      },
-      category: 'Announcement'
-    });
-      console.log('✅ Activity logged successfully');
+      const newStatus = status || currentAnnouncement.status;
+      const actionLabel = newStatus === 'archived' && currentAnnouncement.status !== 'archived' ? 'Archive'
+        : (newStatus === 'published' && currentAnnouncement.status !== 'published' ? 'Publish'
+        : 'Update');
+      await createAuditLog({
+        userId: req.user?.id || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: actionLabel,
+        resource: '/api/announcements',
+        resourceId: id,
+        resourceName: announcement.title,
+        resourceType: 'announcements',
+        category: 'Announcement Management',
+        details: { changes: updateFields, previous_status: currentAnnouncement.status, new_status: newStatus },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
     } catch (activityError) {
       console.error('❌ Error logging activity:', activityError);
-      // Don't fail the request if activity logging fails
     }
 
     // Send notification if status changed to published
@@ -720,6 +735,14 @@ export const updateAnnouncement = async (req, res) => {
         updated_at: new Date(announcement.updated_at).toISOString()
       }
     });
+
+  // Realtime notify admin/staff and public
+  try {
+    const payload = { type: 'updated', item: { announcement_id: id, title: announcement.title, status: announcement.status } };
+    emitToRole('admin', 'announcement:changed', payload);
+    emitToRole('lydo_staff', 'announcement:changed', payload);
+    emitBroadcast('announcement:changed', payload);
+  } catch (_) {}
 
   } catch (error) {
     console.error('Error updating announcement:', error);
@@ -752,28 +775,37 @@ export const deleteAnnouncement = async (req, res) => {
     
     console.log('✅ Delete successful for announcement:', id);
 
-    // Log activity
+    // Audit log
     try {
-    await activityLogService.logActivity({
-        user_id: req.user.id,
-      user_type: req.user.user_type,
-      action: 'delete',
-      resource_type: 'announcement',
-      resource_id: id,
-      resource_name: getResult.rows[0].title,
-      details: { deleted_at: new Date().toISOString() },
-      category: 'Announcement'
-    });
-      console.log('✅ Activity logged successfully for delete');
+      await createAuditLog({
+        userId: req.user?.id || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Delete',
+        resource: '/api/announcements',
+        resourceId: id,
+        resourceName: getResult.rows[0].title,
+        resourceType: 'announcements',
+        category: 'Announcement Management',
+        details: { deleted_at: new Date().toISOString() },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
     } catch (activityError) {
       console.error('❌ Error logging delete activity:', activityError);
-      // Don't fail the request if activity logging fails
     }
 
     res.json({
       success: true,
       message: 'Announcement deleted successfully'
     });
+
+  try {
+    const payload = { type: 'deleted', item: { announcement_id: id } };
+    emitToRole('admin', 'announcement:changed', payload);
+    emitToRole('lydo_staff', 'announcement:changed', payload);
+    emitBroadcast('announcement:changed', payload);
+  } catch (_) {}
 
   } catch (error) {
     console.error('Error deleting announcement:', error);
@@ -1016,23 +1048,25 @@ export const bulkUpdateAnnouncementStatus = async (req, res) => {
       throw queryError;
     }
 
-    // Log activity for each updated announcement
+    // Audit log for each updated announcement
     for (const announcement of result.rows) {
       try {
-      await activityLogService.logActivity({
-          user_id: req.user.id,
-        user_type: req.user.user_type,
-        action: 'bulk_update_status',
-        resource_type: 'announcement',
-        resource_id: announcement.announcement_id,
-        resource_name: announcement.title,
-        details: { new_status: status, bulk_operation: true },
-        category: 'Announcement'
-      });
-        console.log(`✅ Activity logged for bulk update: ${announcement.announcement_id}`);
+        await createAuditLog({
+          userId: req.user?.id || 'SYSTEM',
+          userType: req.user?.userType || req.user?.user_type || 'admin',
+          action: 'Bulk Update',
+          resource: '/api/announcements',
+          resourceId: announcement.announcement_id,
+          resourceName: announcement.title,
+          resourceType: 'announcements',
+          category: 'Announcement Management',
+          details: { new_status: status, bulk_operation: true },
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          status: 'success'
+        });
       } catch (activityError) {
         console.error(`❌ Error logging bulk update activity for ${announcement.announcement_id}:`, activityError);
-        // Don't fail the request if activity logging fails
       }
     }
 
@@ -1041,6 +1075,14 @@ export const bulkUpdateAnnouncementStatus = async (req, res) => {
       message: `Successfully updated ${result.rows.length} announcements`,
       data: result.rows
     });
+
+    // Realtime broadcast bulk status change
+    try {
+      const payload = { type: 'statusChanged', items: result.rows };
+      emitToRole('admin', 'announcement:changed', payload);
+      emitToRole('lydo_staff', 'announcement:changed', payload);
+      emitBroadcast('announcement:changed', payload);
+    } catch (_) {}
 
   } catch (error) {
     console.error('Error bulk updating announcement status:', error);

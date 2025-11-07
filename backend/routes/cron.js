@@ -1,5 +1,11 @@
 import express from 'express';
-import { updateTermStatuses, manualUpdateTermStatuses, getPendingStatusUpdates } from '../controllers/cronController.js';
+import { 
+  updateTermStatuses, 
+  manualUpdateTermStatuses, 
+  getPendingStatusUpdates,
+  manualTriggerClustering,
+  getClusteringCronStatus
+} from '../controllers/cronController.js';
 
 const router = express.Router();
 
@@ -16,5 +22,11 @@ router.get('/manual-update-term-statuses', manualUpdateTermStatuses);
 
 // Get pending status updates (for monitoring)
 router.get('/pending-status-updates', getPendingStatusUpdates);
+
+// Manual trigger for clustering (for testing)
+router.get('/manual-clustering', manualTriggerClustering);
+
+// Get clustering cron job status
+router.get('/clustering-status', getClusteringCronStatus);
 
 export default router;

@@ -3,7 +3,7 @@ import axios from 'axios';
 // API Configuration
 const API_CONFIG = {
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api',
-  timeout: 30000, // 30 seconds - increased from 10 seconds
+  timeout: 120000, // 120 seconds (2 minutes) - for clustering large datasets
   headers: {
     'Content-Type': 'application/json',
   },

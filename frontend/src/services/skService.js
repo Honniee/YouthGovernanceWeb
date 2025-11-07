@@ -453,6 +453,33 @@ class SKService {
   }
 
   /**
+   * Get SK Federation officers for a term
+   * @param {string} termId
+   */
+  async getFederation(termId) {
+    try {
+      const response = await api.get(`/sk-federation/${termId}`);
+      return { success: true, data: response.data?.data || response.data };
+    } catch (error) {
+      return this.handleError(error, 'Failed to load SK Federation officers');
+    }
+  }
+
+  /**
+   * Update SK Federation officers for a term
+   * @param {string} termId
+   * @param {Array<{position:string, official_id:string, display_order?:number, is_active?:boolean}>} assignments
+   */
+  async updateFederation(termId, assignments = []) {
+    try {
+      const response = await api.put(`/sk-federation/${termId}`, { assignments });
+      return { success: true, data: response.data };
+    } catch (error) {
+      return this.handleError(error, 'Failed to update SK Federation officers');
+    }
+  }
+
+  /**
    * Export term detailed report (server-logged)
    * @param {string} termId
    * @param {'csv'|'excel'|'pdf'|'json'} format

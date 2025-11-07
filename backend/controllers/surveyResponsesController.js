@@ -1,5 +1,6 @@
 import db from '../config/database.js';
 import { generateId } from '../utils/idGenerator.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 
 /**
  * Create or update a survey response (auto-save functionality)
@@ -128,6 +129,32 @@ const getSurveyResponse = async (req, res) => {
     }
 
     const response = result.rows[0];
+
+    // Create audit log for survey response access
+    try {
+      await createAuditLog({
+        userId: req.user?.id || req.user?.user_id || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'VIEW_SURVEY_RESPONSE',
+        resource: '/api/survey-responses/retrieve',
+        resourceId: response.response_id,
+        resourceName: `Survey Response ${response.response_id}`,
+        resourceType: 'survey-response',
+        category: 'Data Access',
+        details: {
+          response_id: response.response_id,
+          batch_id: response.batch_id,
+          youth_id: response.youth_id,
+          batch_name: response.batch_name
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+    } catch (auditError) {
+      console.error('❌ Failed to create survey response access audit log:', auditError);
+      // Don't fail the request if audit logging fails
+    }
 
     return res.status(200).json({
       success: true,

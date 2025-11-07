@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { HeaderMainContent, ActionMenu, LoadingSpinner } from '../../components/portal_main_content';
 import { getAnnouncementById, updateAnnouncementStatus, deleteAnnouncement } from '../../services/announcementsService';
+import { useRealtime } from '../../realtime/useRealtime';
 
 // Mock data - in real app this would come from API
 const mockAnnouncement = {
@@ -91,33 +92,43 @@ const AnnouncementDetail = () => {
   const [announcement, setAnnouncement] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isDeleted, setIsDeleted] = useState(false);
 
-  useEffect(() => {
-    const fetchAnnouncement = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        console.log('🔍 Fetching announcement with ID:', id);
-        const response = await getAnnouncementById(id);
-        console.log('📊 Announcement response:', response);
-        
-        if (response?.success && response?.data) {
-          setAnnouncement(response.data);
-        } else {
-          setError('Announcement not found');
-        }
-      } catch (error) {
-        console.error('Error fetching announcement:', error);
-        setError('Failed to load announcement');
-      } finally {
-        setLoading(false);
+  const loadById = async (opts = { silent: false }) => {
+    const { silent } = opts || { silent: false };
+    if (!id) return;
+    if (!silent) { setLoading(true); setError(null); }
+    try {
+      const response = await getAnnouncementById(id);
+      if (response?.success && response?.data) {
+        setAnnouncement(response.data);
+      } else {
+        setError('Announcement not found');
       }
-    };
-
-    if (id) {
-      fetchAnnouncement();
+    } catch (e) {
+      if (!silent) setError('Failed to load announcement');
+    } finally {
+      if (!silent) setLoading(false);
     }
-  }, [id]);
+  };
+
+  useEffect(() => { loadById({ silent: false }); }, [id]);
+
+  // Realtime silent updates
+  useRealtime('announcement:updated', async (payload) => {
+    const updatedId = payload?.announcement?.announcement_id || payload?.announcement?.id;
+    if (!updatedId) return;
+    if (String(updatedId) !== String(id)) return;
+    await loadById({ silent: true });
+  });
+  useRealtime('announcement:changed', async (payload) => {
+    const t = payload?.type;
+    const pid = payload?.item?.announcement_id;
+    if (!pid) return;
+    if (String(pid) !== String(id)) return;
+    if (t === 'deleted') { setIsDeleted(true); return; }
+    await loadById({ silent: true });
+  });
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -247,17 +258,9 @@ const AnnouncementDetail = () => {
       case 'delete':
         if (window.confirm('Are you sure you want to delete this announcement? This action cannot be undone.')) {
           try {
-            console.log('Deleting announcement:', id);
             const response = await deleteAnnouncement(id);
-            if (response?.success) {
-              console.log('Announcement deleted successfully');
-              navigate('/staff/announcements');
-            } else {
-              console.error('Failed to delete announcement');
-            }
-          } catch (error) {
-            console.error('Error deleting announcement:', error);
-          }
+            if (response?.success) { setIsDeleted(true); }
+          } catch (_) {}
         }
         break;
     }
@@ -391,106 +394,49 @@ const AnnouncementDetail = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header Section - Responsive Design */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200">
-          {/* Mobile/Tablet Layout - Vertical Stacking */}
-          <div className="flex flex-col lg:hidden space-y-4">
-            
-            {/* Top Row - Back Button and Actions */}
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => navigate('/staff/announcements')}
-                className="inline-flex items-center px-2 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-3 h-3 mr-1.5" />
-                Back
-              </button>
-              
-              {/* Three-dot menu on the right */}
-              <ActionMenu
-                items={getActionMenuItems()}
-                onActionClick={handleActionClick}
-                trigger={
-                  <button className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
-                    <MoreHorizontal className="w-4 h-4 mr-2" />
-                    Actions
-                  </button>
-                }
-              />
-            </div>
-            
-            {/* Title Section */}
-            <div className="space-y-3">
-              {/* Title */}
-              <h1 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">
-                {announcement ? announcement.title : 'Announcement Details'}
-              </h1>
-              
-              {/* Badges Row */}
-              {announcement && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(announcement.status)}`}>
-                    {capitalizeStatus(announcement.status)}
-                  </span>
-                  <div className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-md border border-gray-200">
-                    ID: {announcement.announcement_id}
-                  </div>
-                </div>
-              )}
-              
-            </div>
+      {/* Page Header */}
+      <HeaderMainContent
+        title={(
+          <span className="inline-flex items-center gap-2 flex-wrap">
+            <span>{announcement ? announcement.title : 'Announcement Details'}</span>
+            {announcement && (
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(announcement.status)}`}>
+                {capitalizeStatus(announcement.status)}
+              </span>
+            )}
+          </span>
+        )}
+        leading={(
+          <button
+            onClick={() => navigate('/staff/announcements')}
+            aria-label="Back"
+            className="inline-flex items-center p-1 text-gray-700 text-base sm:text-sm sm:px-3 sm:py-2 sm:border sm:border-gray-300 sm:rounded-lg hover:bg-transparent sm:hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1.5 sm:mr-2" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        )}
+      >
+        {isDeleted ? (
+          <div className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-red-200 bg-red-50 text-red-700">
+            This announcement was deleted. Content is read-only.
           </div>
-
-          {/* Desktop Layout - Horizontal */}
-          <div className="hidden lg:flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/staff/announcements')}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
+        ) : (
+          <ActionMenu
+            items={getActionMenuItems()}
+            onActionClick={handleActionClick}
+            trigger={
+              <button className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                <MoreHorizontal className="w-4 h-4 mr-2" />
+                Actions
               </button>
-              <div className="h-8 w-px bg-gray-300"></div>
-              <div>
-                <div className="flex items-center space-x-3 mb-2">
-                  <h1 className="text-xl font-bold text-gray-900">
-                    {announcement ? announcement.title : 'Announcement Details'}
-                  </h1>
-                  {announcement && (
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(announcement.status)}`}>
-                      {capitalizeStatus(announcement.status)}
-                    </span>
-                  )}
-                  {announcement && (
-                    <div className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-md border border-gray-200">
-                      ID: {announcement.announcement_id}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {/* Three-dot menu on the right */}
-            <div className="flex items-center space-x-3">
-              <ActionMenu
-                items={getActionMenuItems()}
-                onActionClick={handleActionClick}
-                trigger={
-                  <button className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
-                    <MoreHorizontal className="w-4 h-4 mr-2" />
-                    Actions
-                  </button>
-                }
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+            }
+          />
+        )}
+      </HeaderMainContent>
 
       {/* Main Content - Responsive layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 ${isDeleted ? 'opacity-60 pointer-events-none' : ''}`}>
         {/* Main Content */}
         <div className="lg:col-span-2">
           <article className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

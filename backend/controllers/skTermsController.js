@@ -7,6 +7,9 @@ import universalAuditService from '../services/universalAuditService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import universalNotificationService from '../services/universalNotificationService.js';
 import skValidation from '../utils/skValidation.js';
+import SKTermsService from '../services/skTermsService.js';
+import logger from '../utils/logger.js';
+import { emitToAdmins, emitBroadcast } from '../services/realtime.js';
 
 // Simple string sanitizer for individual fields
 const sanitizeString = (str) => {
@@ -216,16 +219,277 @@ const getAllTerms = async (req, res) => {
 };
 
 /**
+ * Get current term SK Chairpersons by barangay (public endpoint)
+ * GET /api/sk-terms/public/chairpersons-by-barangay
+ */
+const getPublicChairpersonsByBarangay = async (req, res) => {
+  try {
+    // Check if termId is provided in query params, otherwise get active term
+    let termId = req.query?.termId;
+    
+    if (!termId) {
+      // Get current active term (exclude completed terms)
+      const termRes = await query(
+        `SELECT term_id FROM "SK_Terms"
+         WHERE (is_current = true OR status = 'active')
+           AND status != 'completed'
+         ORDER BY is_current DESC, updated_at DESC
+         LIMIT 1`
+      );
+      termId = termRes.rows?.[0]?.term_id;
+    }
+    
+    if (!termId) {
+      // No active term, return all barangays with null chairpersons
+      const allBarangays = await query('SELECT barangay_id, barangay_name FROM "Barangay" ORDER BY barangay_name ASC');
+      return res.json({
+        success: true,
+        data: allBarangays.rows.map(b => ({
+          barangayId: b.barangay_id,
+          barangayName: b.barangay_name,
+          chairperson: null
+        }))
+      });
+    }
+
+    // Get all barangays with their chairpersons for current term
+    const sql = `
+      SELECT 
+        b.barangay_id,
+        b.barangay_name,
+        sk.sk_id,
+        sk.first_name,
+        sk.last_name,
+        sk.middle_name,
+        sk.suffix,
+        COALESCE(NULLIF(sk.profile_picture, ''), NULL) AS profile_picture,
+        sk.updated_at,
+        prof.contact_number
+      FROM "Barangay" b
+      LEFT JOIN "SK_Officials" sk ON sk.barangay_id = b.barangay_id 
+        AND sk.term_id = $1 
+        AND sk.is_active = true 
+        AND (sk.position = 'SK Chairperson' OR sk.position ILIKE '%Chairperson%')
+      LEFT JOIN "SK_Officials_Profiling" prof ON prof.sk_id = sk.sk_id
+      ORDER BY b.barangay_name ASC
+    `;
+
+    const result = await query(sql, [termId]);
+
+    // Transform data - one entry per barangay
+    const data = result.rows.map(row => {
+      if (!row.sk_id) {
+        // No chairperson assigned
+        return {
+          barangayId: row.barangay_id,
+          barangayName: row.barangay_name,
+          chairperson: null
+        };
+      }
+
+      // Build full name
+      const nameParts = [
+        row.first_name,
+        row.middle_name,
+        row.last_name,
+        row.suffix
+      ].filter(Boolean);
+      const fullName = nameParts.join(' ').trim();
+
+      return {
+        barangayId: row.barangay_id,
+        barangayName: row.barangay_name,
+        chairperson: {
+          skId: row.sk_id,
+          name: fullName || 'Unknown',
+          firstName: row.first_name || '',
+          middleName: row.middle_name || '',
+          lastName: row.last_name || '',
+          suffix: row.suffix || '',
+          profilePicture: row.profile_picture ? String(row.profile_picture).trim() : '',
+          contactNumber: row.contact_number || '',
+          updatedAt: row.updated_at || null
+        }
+      };
+    });
+
+    return res.json({
+      success: true,
+      data,
+      termId
+    });
+
+  } catch (error) {
+    console.error('Error fetching public chairpersons by barangay:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch SK Chairpersons by barangay',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get current term SK Officials by barangay (public endpoint)
+ * GET /api/sk-terms/public/officials-by-barangay
+ */
+const getPublicOfficialsByBarangay = async (req, res) => {
+  try {
+    // Check if termId is provided in query params, otherwise get active term
+    let termId = req.query?.termId;
+    
+    if (!termId) {
+      // Get current active term (exclude completed terms)
+      const termRes = await query(
+        `SELECT term_id FROM "SK_Terms"
+         WHERE (is_current = true OR status = 'active')
+           AND status != 'completed'
+         ORDER BY is_current DESC, updated_at DESC
+         LIMIT 1`
+      );
+      termId = termRes.rows?.[0]?.term_id;
+    }
+    
+    if (!termId) {
+      // No active term, return all barangays with empty officials
+      const allBarangays = await query('SELECT barangay_id, barangay_name FROM "Barangay" ORDER BY barangay_name ASC');
+      return res.json({
+        success: true,
+        data: allBarangays.rows.map(b => ({
+          barangayId: b.barangay_id,
+          barangayName: b.barangay_name,
+          chairperson: null,
+          councilors: []
+        }))
+      });
+    }
+
+    // Get all barangays with their SK officials for current term
+    const sql = `
+      SELECT 
+        b.barangay_id,
+        b.barangay_name,
+        sk.sk_id,
+        sk.first_name,
+        sk.last_name,
+        sk.middle_name,
+        sk.suffix,
+        sk.position,
+        COALESCE(NULLIF(sk.profile_picture, ''), NULL) AS profile_picture,
+        sk.updated_at,
+        prof.contact_number
+      FROM "Barangay" b
+      LEFT JOIN "SK_Officials" sk ON sk.barangay_id = b.barangay_id 
+        AND sk.term_id = $1 
+        AND sk.is_active = true
+      LEFT JOIN "SK_Officials_Profiling" prof ON prof.sk_id = sk.sk_id
+      ORDER BY b.barangay_name ASC,
+               CASE 
+                 WHEN sk.position = 'SK Chairperson' OR sk.position ILIKE '%Chairperson%' THEN 1
+                 WHEN sk.position = 'SK Secretary' THEN 2
+                 WHEN sk.position = 'SK Treasurer' THEN 3
+                 WHEN sk.position = 'SK Councilor' THEN 4
+                 ELSE 5
+               END,
+               sk.last_name ASC, sk.first_name ASC
+    `;
+
+    const result = await query(sql, [termId]);
+
+    // Group by barangay and separate chairperson from councilors
+    const grouped = {};
+    
+    result.rows.forEach(row => {
+      const barangayId = row.barangay_id;
+      
+      if (!grouped[barangayId]) {
+        grouped[barangayId] = {
+          barangayId: row.barangay_id,
+          barangayName: row.barangay_name,
+          chairperson: null,
+          councilors: []
+        };
+      }
+
+      // Skip if no official (barangay without officials)
+      if (!row.sk_id) {
+        return;
+      }
+
+      // Build full name
+      const nameParts = [
+        row.first_name,
+        row.middle_name,
+        row.last_name,
+        row.suffix
+      ].filter(Boolean);
+      const fullName = nameParts.join(' ').trim();
+
+      const officialData = {
+        skId: row.sk_id,
+        name: fullName || 'Unknown',
+        firstName: row.first_name || '',
+        middleName: row.middle_name || '',
+        lastName: row.last_name || '',
+        suffix: row.suffix || '',
+        position: row.position || '',
+        profilePicture: row.profile_picture ? String(row.profile_picture).trim() : '',
+        contactNumber: row.contact_number || '',
+        updatedAt: row.updated_at || null
+      };
+
+      // Check if chairperson
+      const isChairperson = row.position && (
+        row.position === 'SK Chairperson' || 
+        row.position.toLowerCase().includes('chairperson')
+      );
+
+      // Check if councilor (exclude Secretary and Treasurer)
+      const isCouncilor = row.position && (
+        row.position === 'SK Councilor' || 
+        row.position.toLowerCase().includes('councilor')
+      );
+
+      if (isChairperson) {
+        grouped[barangayId].chairperson = officialData;
+      } else if (isCouncilor) {
+        // Only SK Councilors go in councilors array (exclude Secretary, Treasurer, etc.)
+        grouped[barangayId].councilors.push(officialData);
+      }
+      // Skip other positions like Secretary, Treasurer, etc.
+    });
+
+    // Convert to array
+    const data = Object.values(grouped);
+
+    return res.json({
+      success: true,
+      data,
+      termId
+    });
+
+  } catch (error) {
+    console.error('Error fetching public officials by barangay:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch SK officials by barangay',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Get active SK Term
  * GET /api/sk-terms/active
  */
 const getActiveTerm = async (req, res) => {
   try {
-    // REAL DATABASE QUERY for Active Term
+    // REAL DATABASE QUERY for Active Term (exclude completed terms)
     const activeTermQuery = `
       SELECT * FROM "SK_Terms" 
-      WHERE status = 'active' 
-      ORDER BY start_date DESC 
+      WHERE (is_current = true OR status = 'active')
+        AND status != 'completed'
+      ORDER BY is_current DESC, updated_at DESC 
       LIMIT 1
     `;
 
@@ -542,167 +806,73 @@ const getTermById = async (req, res) => {
  * POST /api/sk-terms
  */
 const createTerm = async (req, res) => {
-  let client;
   try {
     const rawData = req.body || {};
     const data = sanitizeInput(rawData);
-
-    client = await getClient();
-    try {
-      // Validate input data with comprehensive data integrity checks
-      const validation = await validateTermCreation(data, false, client);
-    if (!validation.isValid) {
-        // Create a more user-friendly error message with specific suggestions
-        const errorCount = validation.errors.length;
-        let mainMessage = 'Please fix the following issues:';
-        
-        // Generate specific suggestions based on validation errors
-        const suggestions = await getSuggestedTermDates(client);
-        let specificSuggestions = [];
-        
-        // Check for specific error types and provide targeted suggestions
-        if (validation.errors.some(err => err.includes('already exists'))) {
-          specificSuggestions.push('Try using a different term name like "2025-2027 SK Term" or "2025-2027 Term"');
-        }
-        
-        if (validation.errors.some(err => err.includes('too short'))) {
-          specificSuggestions.push('Ensure your term duration is at least 1 year (365 days)');
-        }
-        
-        if (validation.errors.some(err => err.includes('too far in the past'))) {
-          specificSuggestions.push('Use a start date within the last 30 days or today\'s date');
-        }
-        
-        if (validation.errors.some(err => err.includes('too far in the future'))) {
-          specificSuggestions.push('Use an end date within the next 10 years');
-        }
-        
-        if (errorCount === 1) {
-          mainMessage = validation.errors[0];
-        } else if (errorCount === 2) {
-          mainMessage = `${validation.errors[0]} and ${validation.errors[1].toLowerCase()}`;
-        } else {
-          mainMessage = `Please fix ${errorCount} validation issues`;
-        }
-        
-      return res.status(400).json({
-        success: false,
-          message: mainMessage,
-          errors: validation.errors,
-          details: {
-            errorCount,
-            suggestions: suggestions,
-            specificSuggestions: specificSuggestions
-          }
-      });
-    }
 
     const {
       termName,
       startDate,
       endDate,
       autoActivate = false
-      } = data;
+    } = data;
 
-      await client.query('BEGIN');
-
-      // Sanitize inputs - termName is already sanitized from the data object
-    const sanitizedData = {
-        termName: termName.trim()
-    };
-
-    // Generate term ID
-      const termId = await generateTermId();
-
-      // Check if term ID already exists
-      const idExists = await client.query('SELECT COUNT(*) AS count FROM "SK_Terms" WHERE term_id = $1', [termId]);
-      if (parseInt(idExists.rows[0].count) > 0) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({
-          success: false,
-          message: 'Generated term ID already exists. Please retry.'
-        });
-      }
-
-    // Determine status
-    let status = 'upcoming';
-    const currentDate = new Date();
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    if (autoActivate && start <= currentDate && end >= currentDate) {
-      // Check if there's already an active term
-      const activeTermCheck = await client.query(
-        'SELECT term_id FROM "SK_Terms" WHERE status = $1',
-        ['active']
-      );
-
-      if (activeTermCheck.rows.length > 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot auto-activate term. Another term is already active.'
-        });
-      }
-
-      status = 'active';
-    }
-
-    // Insert SK Term
-    const insertQuery = `
-      INSERT INTO "SK_Terms" (
-          term_id, term_name, start_date, end_date, status, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `;
-
-      const createdBy = req.user?.lydoId || req.user?.userId || 'ADMIN001';
-    const insertValues = [
-      termId,
-      sanitizedData.termName,
+    // Prepare term data for service
+    const termData = {
+      termName,
       startDate,
       endDate,
-      status,
-        createdBy
-    ];
+      autoActivate,
+      createdBy: req.user?.lydoId || req.user?.userId || req.user?.lydo_id || 'ADMIN001'
+    };
 
-    const result = await client.query(insertQuery, insertValues);
-    const newTerm = result.rows[0];
+    // Call service to create term
+    const newTerm = await SKTermsService.createTerm(termData);
 
-    await client.query('COMMIT');
-
-      // Fire-and-forget notifications (don't block response)
-      console.log('📧 Sending SK term creation notifications...');
-      
-      // Send universal notification
+    // Fire-and-forget notifications (don't block response)
+    console.log('📧 Sending SK term creation notifications...');
+    
+    // Send universal notification
     universalNotificationService.sendNotificationAsync('sk-terms', 'creation', {
       termId: newTerm.term_id,
       termName: newTerm.term_name,
       startDate: newTerm.start_date,
-        endDate: newTerm.end_date,
-        status: newTerm.status
-      }, req.user).catch(err => console.error('❌ Universal notification failed:', err));
+      endDate: newTerm.end_date,
+      status: newTerm.status
+    }, req.user).catch(err => console.error('❌ Universal notification failed:', err));
 
-      // Send admin notifications about term creation
-      setTimeout(async () => {
-        try {
-          console.log('🔔 Sending term creation notification to admins...');
-          await notificationService.notifyAdminsAboutTermCreation(newTerm, req.user);
-        } catch (notifError) {
-          console.error('Admin notification error:', notifError);
-        }
-      }, 100);
+    // Send admin notifications about term creation
+    setTimeout(async () => {
+      try {
+        console.log('🔔 Sending term creation notification to admins...');
+        await notificationService.notifyAdminsAboutTermCreation(newTerm, req.user);
+      } catch (notifError) {
+        console.error('Admin notification error:', notifError);
+      }
+    }, 100);
 
     // Create audit log for SK term creation
-    universalAuditService.logCreation('sk-terms', {
-      termId: newTerm.term_id,
-      termName: newTerm.term_name,
-      startDate: newTerm.start_date,
+    await createAuditLog({
+      userId: req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: 'Create',
+      resource: '/api/sk-terms',
+      resourceId: newTerm.term_id,
+      resourceName: newTerm.term_name,
+      details: {
+        resourceType: 'sk-terms',
+        termId: newTerm.term_id,
+        termName: newTerm.term_name,
+        startDate: newTerm.start_date,
         endDate: newTerm.end_date,
         status: newTerm.status
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
-      return res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'SK Term created successfully',
       data: {
@@ -715,42 +885,31 @@ const createTerm = async (req, res) => {
       }
     });
 
-    } catch (txErr) {
-    await client.query('ROLLBACK');
-      
-      // Handle specific database errors
-      if (txErr.code === '23505') { // unique_violation
-        return res.status(409).json({
-          success: false,
-          message: 'Term with this name already exists'
-        });
-      }
-      
-      console.error('createTerm tx error:', txErr);
-      return res.status(500).json({
+    // Realtime: notify admins a term was created
+    try { emitToAdmins('skTerm:created', { termId: newTerm.term_id, termName: newTerm.term_name, startDate: newTerm.start_date, endDate: newTerm.end_date, status: newTerm.status }); } catch (_) {}
+
+  } catch (error) {
+    logger.error('Create term error:', error);
+    
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
         success: false,
-        message: 'Failed to create SK Term',
-        error: process.env.NODE_ENV === 'development' ? txErr.message : 'Internal server error'
+        message: error.message
       });
     }
-  } catch (error) {
-    console.error('Error creating SK Term:', error);
-    console.error('Request body:', req.body);
-    console.error('User:', req.user);
-    
-    // Only send response if headers haven't been sent yet
-    if (!res.headersSent) {
+
+    if (error.message.includes('Validation failed')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Failed to create SK Term',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-    }
-  } finally {
-    // Only release if client exists and hasn't been released
-    if (client && !client.released) {
-    client.release();
-    }
   }
 };
 
@@ -759,98 +918,50 @@ const createTerm = async (req, res) => {
  * PUT /api/sk-terms/:id
  */
 const updateTerm = async (req, res) => {
-  const client = await getClient();
-  
   try {
-    await client.query('BEGIN');
-
     const { id } = req.params;
-    const {
-      termName,
-      startDate,
-      endDate
-    } = req.body;
 
-    // Check if SK Term exists
-    const existingCheck = await client.query(
-      'SELECT * FROM "SK_Terms" WHERE term_id = $1',
-      [id]
-    );
+    // Build update data - only include fields that are provided (Survey Batch pattern)
+    const updateData = {};
+    
+    if (req.body.termName !== undefined) {
+      updateData.termName = sanitizeString(req.body.termName);
+    }
+    if (req.body.startDate !== undefined) {
+      updateData.startDate = req.body.startDate;
+    }
+    if (req.body.endDate !== undefined) {
+      updateData.endDate = req.body.endDate;
+    }
 
-    if (existingCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
+    // Check if any fields are being updated
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid fields to update'
+      });
+    }
+
+    // Get existing term for notifications/audit
+    const existingTerm = await SKTermsService.getTermById(id);
+    if (!existingTerm) {
       return res.status(404).json({
         success: false,
         message: 'SK Term not found'
       });
     }
 
-    const existingTerm = existingCheck.rows[0];
+    // Call service to update term
+    const updatedTerm = await SKTermsService.updateTerm(id, updateData);
 
-    // Validate input data with comprehensive data integrity checks
-    const validation = await validateTermCreation({
-      termName,
-      startDate,
-      endDate,
-      termId: id // Pass the term ID for update validation
-    }, true, client);
-
-    if (!validation.isValid) {
-      await client.query('ROLLBACK');
-      
-      // Get suggested dates to help the user
-      const suggestedDates = await getSuggestedTermDates(client);
-      
-      const errorResponse = {
-        success: false,
-        message: 'Validation failed',
-        details: validation.errors, // Use 'details' for consistency with frontend
-        suggestions: {
-          message: 'Here are some suggested date ranges that should work:',
-          dates: suggestedDates
-        }
-      };
-      
-      console.log('🔧 Backend sending error response:', JSON.stringify(errorResponse, null, 2));
-      
-      return res.status(400).json(errorResponse);
-    }
-
-    // Sanitize inputs
-    const sanitizedData = {
-      termName: sanitizeString(termName)
-    };
-
-    // Update SK Term
-    const updateQuery = `
-      UPDATE "SK_Terms" 
-      SET term_name = $1, start_date = $2, end_date = $3,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE term_id = $4
-      RETURNING *
-    `;
-
-    const updateValues = [
-      sanitizedData.termName,
-      startDate,
-      endDate,
-      id
-    ];
-
-    const result = await client.query(updateQuery, updateValues);
-    const updatedTerm = result.rows[0];
-
-    await client.query('COMMIT');
-
-    // Send notifications (fire-and-forget) - Enhanced with Universal Notification Service
+    // Send notifications (fire-and-forget)
     console.log('🔔 Sending term update notification...');
     try {
       await universalNotificationService.sendNotificationAsync('sk-terms', 'update', {
-        // Ensure correct field mapping for nameTemplate function
-      termId: updatedTerm.term_id,
-      termName: updatedTerm.term_name,
-      startDate: updatedTerm.start_date,
-      endDate: updatedTerm.end_date
+        termId: updatedTerm.term_id,
+        termName: updatedTerm.term_name,
+        startDate: updatedTerm.start_date,
+        endDate: updatedTerm.end_date
       }, {
         id: req.user?.lydo_id || req.user?.lydoId,
         userType: 'admin',
@@ -858,30 +969,43 @@ const updateTerm = async (req, res) => {
         lastName: req.user?.last_name || 'User'
       }, { 
         originalData: {
-      termId: existingTerm.term_id,
-      termName: existingTerm.term_name,
-      startDate: existingTerm.start_date,
-      endDate: existingTerm.end_date
+          termId: existingTerm.term_id,
+          termName: existingTerm.term_name,
+          startDate: existingTerm.start_date,
+          endDate: existingTerm.end_date
         }
       });
       console.log('✅ Term update notification sent');
     } catch (notificationError) {
       console.error('❌ Notification failed, but continuing with update:', notificationError);
-      // Don't fail the entire update if notification fails
     }
 
-    // Create audit log for SK term update
+    // Create audit log
     try {
-      await universalAuditService.logUpdate('sk-terms', id, {
-      termId: updatedTerm.term_id,
-      termName: updatedTerm.term_name,
-      startDate: updatedTerm.start_date,
-      endDate: updatedTerm.end_date
-      }, universalAuditService.createUserContext(req));
+      await createAuditLog({
+        userId: req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+        userType: req.user?.userType || 'admin',
+        action: 'Update',
+        resource: '/api/sk-terms',
+        resourceId: id,
+        resourceName: updatedTerm.term_name,
+        details: {
+          resourceType: 'sk-terms',
+          termId: updatedTerm.term_id,
+          termName: updatedTerm.term_name,
+          startDate: updatedTerm.start_date,
+          endDate: updatedTerm.end_date,
+          oldTermName: existingTerm.term_name,
+          oldStartDate: existingTerm.start_date,
+          oldEndDate: existingTerm.end_date
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
       console.log('✅ Audit log created');
     } catch (auditError) {
       console.error('❌ Audit log failed, but continuing with update:', auditError);
-      // Don't fail the entire update if audit log fails
     }
 
     res.json({
@@ -897,16 +1021,30 @@ const updateTerm = async (req, res) => {
       }
     });
 
+    try { emitToAdmins('skTerm:updated', { termId: updatedTerm.term_id, termName: updatedTerm.term_name, startDate: updatedTerm.start_date, endDate: updatedTerm.end_date, status: updatedTerm.status }); } catch (_) {}
+
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error updating SK Term:', error);
+    logger.error('Update term error:', error);
+    
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Validation failed')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Failed to update SK Term',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  } finally {
-    client.release();
   }
 };
 
@@ -915,58 +1053,29 @@ const updateTerm = async (req, res) => {
  * DELETE /api/sk-terms/:id
  */
 const deleteTerm = async (req, res) => {
-  const client = await getClient();
-  
   try {
-    await client.query('BEGIN');
-
     const { id } = req.params;
 
-    // Check if SK Term exists
-    const existingCheck = await client.query(
-      'SELECT * FROM "SK_Terms" WHERE term_id = $1',
-      [id]
-    );
-
-    if (existingCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
+    // Get term for notifications/audit before deletion
+    const term = await SKTermsService.getTermById(id);
+    if (!term) {
       return res.status(404).json({
         success: false,
         message: 'SK Term not found'
       });
     }
 
-    const term = existingCheck.rows[0];
+    // Call service to delete term
+    const deleted = await SKTermsService.deleteTerm(id);
 
-    // Check if term has officials
-    const officialsCheck = await client.query(
-      'SELECT COUNT(*) as count FROM "SK_Officials" WHERE term_id = $1',
-      [id]
-    );
-
-    const officialsCount = parseInt(officialsCheck.rows[0].count);
-
-    if (officialsCount > 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
+    if (!deleted) {
+      return res.status(404).json({
         success: false,
-        message: `Cannot delete term. ${officialsCount} SK officials are assigned to this term.`
+        message: 'SK Term not found'
       });
     }
 
-    // Soft delete by disabling the term (schema does not allow 'deleted' status)
-    const deleteQuery = `
-      UPDATE "SK_Terms" 
-      SET is_active = false, updated_at = CURRENT_TIMESTAMP
-      WHERE term_id = $1
-      RETURNING *
-    `;
-
-    const result = await client.query(deleteQuery, [id]);
-
-    await client.query('COMMIT');
-
-    // Send notifications (fire-and-forget) - Enhanced with Universal Notification Service
+    // Send notifications (fire-and-forget)
     universalNotificationService.sendNotificationAsync('sk-terms', 'status', {
       termId: term.term_id,
       termName: term.term_name,
@@ -974,179 +1083,285 @@ const deleteTerm = async (req, res) => {
       endDate: term.end_date
     }, req.user, { oldStatus: 'active', newStatus: 'deleted' });
 
-    // Create audit log for SK term deletion
-    universalAuditService.logDeletion('sk-terms', id, {
-      termId: term.term_id,
-      termName: term.term_name,
-      startDate: term.start_date,
-      endDate: term.end_date
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+    // Create audit log
+    await createAuditLog({
+      userId: req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: 'Delete',
+      resource: '/api/sk-terms',
+      resourceId: id,
+      resourceName: term.term_name,
+      details: {
+        resourceType: 'sk-terms',
+        termId: term.term_id,
+        termName: term.term_name,
+        startDate: term.start_date,
+        endDate: term.end_date,
+        deletionType: 'soft_delete',
+        isActive: false
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
     res.json({
       success: true,
       message: 'SK Term deleted successfully',
       data: {
-        termId: result.rows[0].term_id,
-        isActive: result.rows[0].is_active
+        termId: id,
+        isActive: false
       }
     });
 
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error deleting SK Term:', error);
+    logger.error('Delete term error:', error);
+    
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Cannot delete')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Failed to delete SK Term',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  } finally {
-    client.release();
   }
 };
 
 // === TERM STATUS MANAGEMENT ===
 
 /**
+ * Update SK Term Status (like Survey Batch's updateBatchStatus)
+ * PATCH /api/sk-terms/:id/status
+ */
+const updateTermStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, reason, action } = req.body;
+    const userId = req.user?.id || req.user?.lydo_id || req.user?.lydoId;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Term ID is required'
+      });
+    }
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status is required'
+      });
+    }
+
+    // Validate status
+    if (!SKTermsService.VALID_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Valid statuses: ${SKTermsService.VALID_STATUSES.join(', ')}`
+      });
+    }
+
+    // Prepare options (like Survey Batch)
+    const options = {
+      reason: reason ? reason.trim() : '',
+      isForce: action === 'force-activate' || action === 'force-close' || action === 'force'
+    };
+
+    // Get current term to determine old status before updating
+    const currentTerm = await SKTermsService.getTermById(id);
+    if (!currentTerm) {
+      return res.status(404).json({
+        success: false,
+        message: 'SK Term not found'
+      });
+    }
+
+    const updatedTerm = await SKTermsService.updateTermStatus(id, status, userId, options);
+
+    // Send notifications (fire-and-forget)
+    universalNotificationService.sendNotificationAsync('sk-terms', 'status', {
+      termId: updatedTerm.term_id,
+      termName: updatedTerm.term_name,
+      startDate: updatedTerm.start_date,
+      endDate: updatedTerm.end_date
+    }, req.user, { oldStatus: currentTerm.status, newStatus: status });
+
+    // Create audit log with action-specific details (like Survey Batch)
+    const actionMap = {
+      'activate': 'Activate',
+      'force-activate': 'Force Activate',
+      'complete': 'Complete',
+      'force-complete': 'Force Complete',
+      'extend': 'Extend',
+      'force-extend': 'Force Extend'
+    };
+
+    await createAuditLog({
+      userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: actionMap[action] || 'Update Status',
+      resource: '/api/sk-terms',
+      resourceId: id,
+      resourceName: updatedTerm.term_name,
+      details: {
+        resourceType: 'sk-terms',
+        termId: updatedTerm.term_id,
+        termName: updatedTerm.term_name,
+        action: action || 'update',
+        oldStatus: currentTerm.status,
+        newStatus: status,
+        startDate: updatedTerm.start_date,
+        endDate: updatedTerm.end_date,
+        ...(reason && { reason }),
+        ...(action === 'force-activate' && { startDateAdjusted: true })
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
+
+    res.json({
+      success: true,
+      message: `SK Term ${action || 'status updated'} successfully`,
+      data: {
+        termId: updatedTerm.term_id,
+        termName: updatedTerm.term_name,
+        status: updatedTerm.status,
+        startDate: updatedTerm.start_date,
+        endDate: updatedTerm.end_date,
+        updatedAt: updatedTerm.updated_at
+      }
+    });
+
+    // Realtime: status change event
+    try { emitToAdmins(`skTerm:${status}`, { termId: updatedTerm.term_id, termName: updatedTerm.term_name, status, startDate: updatedTerm.start_date, endDate: updatedTerm.end_date }); } catch (_) {}
+
+  } catch (error) {
+    logger.error('Update term status error:', error);
+    
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Invalid status') || 
+        error.message.includes('Only one active') ||
+        error.message.includes('Start date') ||
+        error.message.includes('End date')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update SK Term status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
  * Activate SK Term
  * PATCH /api/sk-terms/:id/activate
  */
 const activateTerm = async (req, res) => {
-  const client = await getClient();
-  
   try {
     const { id } = req.params;
-    console.log('🔧 Activating term with ID:', id);
-    await client.query('BEGIN');
+    const { force = false } = req.body; // Allow force activation
 
-    // Validate term activation with comprehensive data integrity checks
-    console.log('🔍 Running activation validation for term:', id);
-    const validationErrors = await validateTermActivation(id, client);
-    if (validationErrors.length > 0) {
-      console.error('❌ Activation validation failed:', validationErrors);
-      await client.query('ROLLBACK');
-      
-      // Create a more user-friendly error message
-      const errorCount = validationErrors.length;
-      let mainMessage = 'Please fix the following issues:';
-      
-      // Generate specific suggestions based on validation errors
-      let specificSuggestions = [];
-      
-      // Check for specific error types and provide targeted suggestions
-      if (validationErrors.some(err => err.includes('already active'))) {
-        specificSuggestions.push('Complete or deactivate the current active term first');
-      }
-      
-      if (validationErrors.some(err => err.includes('Start date is in the future'))) {
-        specificSuggestions.push('Wait until the start date arrives, or update the term dates');
-      }
-      
-      if (validationErrors.some(err => err.includes('End date has already passed'))) {
-        specificSuggestions.push('The term has already ended. Create a new term instead');
-      }
-      
-      if (validationErrors.some(err => err.includes('status is'))) {
-        specificSuggestions.push('Only upcoming terms can be activated');
-      }
-      
-      if (errorCount === 1) {
-        mainMessage = validationErrors[0];
-      } else if (errorCount === 2) {
-        mainMessage = `${validationErrors[0]} and ${validationErrors[1].toLowerCase()}`;
-      } else {
-        mainMessage = `Please fix ${errorCount} activation issues`;
-      }
-      
-      return res.status(400).json({
-        success: false,
-        message: mainMessage,
-        errors: validationErrors,
-        details: {
-          termId: id,
-          validationStep: 'pre-activation',
-          errorCount,
-          specificSuggestions,
-          timestamp: new Date().toISOString()
-        }
-      });
-    }
+    // Call service to activate term
+    const activatedTerm = await SKTermsService.activateTerm(id, force);
 
-    // Activate the term
-    console.log('🔧 Executing activation update for term:', id);
-    const updateQuery = `
-      UPDATE "SK_Terms" 
-      SET status = 'active', updated_at = CURRENT_TIMESTAMP
-      WHERE term_id = $1
-      RETURNING *
-    `;
-
-    const result = await client.query(updateQuery, [id]);
-    
-    if (result.rows.length === 0) {
-      console.error('❌ No rows updated during activation for term:', id);
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'Term not found or could not be updated',
-        details: {
-          termId: id,
-          operation: 'activation',
-          timestamp: new Date().toISOString()
-        }
-      });
-    }
-
-    await client.query('COMMIT');
-
-    // Send notifications (fire-and-forget) - Enhanced with Universal Notification Service
+    // Send notifications (fire-and-forget)
     universalNotificationService.sendNotificationAsync('sk-terms', 'status', {
-      termId: result.rows[0].term_id,
-      termName: result.rows[0].term_name,
-      startDate: result.rows[0].start_date,
-      endDate: result.rows[0].end_date
+      termId: activatedTerm.term_id,
+      termName: activatedTerm.term_name,
+      startDate: activatedTerm.start_date,
+      endDate: activatedTerm.end_date
     }, req.user, { oldStatus: 'inactive', newStatus: 'active' });
 
-    // Create audit log for SK term activation
-    universalAuditService.logStatusChange('sk-terms', id, 'active', {
-      termId: result.rows[0].term_id,
-      termName: result.rows[0].term_name,
-      startDate: result.rows[0].start_date,
-      endDate: result.rows[0].end_date
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Audit log failed:', err));
+    // Create audit log (use "Force Activate" if force=true)
+    await createAuditLog({
+      userId: req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: force ? 'Force Activate' : 'Activate',
+      resource: '/api/sk-terms',
+      resourceId: id,
+      resourceName: activatedTerm.term_name,
+      details: {
+        resourceType: 'sk-terms',
+        termId: activatedTerm.term_id,
+        termName: activatedTerm.term_name,
+        startDate: activatedTerm.start_date,
+        endDate: activatedTerm.end_date,
+        isForce: force,
+        ...(force && { startDateAdjusted: true })
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Audit log failed:', err));
 
     res.json({
       success: true,
       message: 'SK Term activated successfully',
       data: {
-        termId: result.rows[0].term_id,
-        status: result.rows[0].status,
-        updatedAt: result.rows[0].updated_at
+        termId: activatedTerm.term_id,
+        status: activatedTerm.status,
+        updatedAt: activatedTerm.updated_at
       }
     });
 
+    try { emitToAdmins('skTerm:activated', { termId: activatedTerm.term_id, termName: activatedTerm.term_name, startDate: activatedTerm.start_date, endDate: activatedTerm.end_date }); } catch (_) {}
+
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('❌ Error activating SK Term:', error);
-    console.error('❌ Error details:', {
-      termId: req.params.id,
-      errorMessage: error.message,
-      errorStack: error.stack,
-      timestamp: new Date().toISOString()
-    });
+    logger.error('Activate term error:', error);
     
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('already active') || 
+        error.message.includes('Start date') ||
+        error.message.includes('End date') ||
+        error.message.includes('status is')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Failed to activate SK Term',
-      error: error.message,
-      details: {
-        termId: req.params.id,
-        operation: 'activation',
-        errorType: error.constructor.name,
-        timestamp: new Date().toISOString()
-      }
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  } finally {
-    client.release();
   }
 };
 
@@ -1155,10 +1370,8 @@ const activateTerm = async (req, res) => {
  * GET /api/sk-terms/suggested-dates
  */
 const getSuggestedDates = async (req, res) => {
-  const client = await getClient();
-  
   try {
-    const suggestions = await getSuggestedTermDates(client);
+    const suggestions = await SKTermsService.getSuggestedDates();
     
     res.json({
       success: true,
@@ -1168,16 +1381,12 @@ const getSuggestedDates = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error getting suggested dates:', error);
+    logger.error('Error getting suggested dates:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get suggested dates',
       error: error.message
     });
-  } finally {
-    if (client && !client.released) {
-    client.release();
-    }
   }
 };
 
@@ -1303,13 +1512,20 @@ const completeTerm = async (req, res) => {
     let endDate = term.end_date;
     let validationErrors = [];
 
-    if (force) {
+    // For active terms, always set end_date to today (like closing a batch)
+    // This ensures consistency with Survey Batch behavior
+    if (term.status === 'active') {
+      // Set end_date to today when completing an active term
+      endDate = today;
+      completionType = 'manual'; // Still manual completion, just with adjusted date
+      console.log(`🔧 Completing active term ${id} with end date set to ${today}`);
+    } else if (force) {
       // Force completion: update end date to today and skip some validations
       completionType = 'forced';
       endDate = today;
       console.log(`🔧 Force completing term ${id} with end date updated to ${today}`);
     } else {
-      // Normal completion: validate as usual
+      // Normal completion for non-active terms: validate as usual
       console.log(`🔍 Running completion validation for term ${id}`);
       validationErrors = await validateTermCompletion(id, client);
       console.log(`🔍 Validation errors:`, validationErrors);
@@ -1325,10 +1541,12 @@ const completeTerm = async (req, res) => {
     }
 
     // Mark the term as completed with enhanced audit fields
+    // Also set is_current = false to prevent it from being selected as active
     const updateQuery = `
       UPDATE "SK_Terms" 
       SET 
         status = 'completed',
+        is_current = false,
         completion_type = $1,
         completed_at = CURRENT_TIMESTAMP,
         completed_by = $2,
@@ -1492,29 +1710,42 @@ const completeTerm = async (req, res) => {
       console.error('❌ Test notification failed:', testError);
     }
 
-    // Create comprehensive audit log
-    await universalAuditService.logStatusChange(
-      'sk-terms',
-      id,
-      'completed',
-      {
+    // Create comprehensive audit log for term completion (use "Force Complete" if force=true)
+    await createAuditLog({
+      userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: force ? 'Force Complete' : 'Complete',
+      resource: '/api/sk-terms',
+      resourceId: id,
+      resourceName: result.rows[0].term_name,
+      details: {
+        resourceType: 'sk-terms',
+        termId: result.rows[0].term_id,
         termName: result.rows[0].term_name,
         completionType: completionType,
         endDateUpdated: force,
+        oldEndDate: term.end_date,
         newEndDate: endDate,
         officialsAffected: accountResult.rows.length,
-        reason: statusChangeReason
+        reason: statusChangeReason,
+        isForce: force
       },
-      universalAuditService.createUserContext(req)
-    );
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Term completion audit log failed:', err));
 
     // Log account access changes for each official
     for (const official of accountResult.rows) {
-      await universalAuditService.logStatusChange(
-        'sk-officials',
-        official.sk_id,
-        'inactive',
-        {
+      await createAuditLog({
+        userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+        userType: req.user?.userType || 'admin',
+        action: 'Deactivate',
+        resource: '/api/sk-officials',
+        resourceId: official.sk_id,
+        resourceName: `${official.first_name} ${official.last_name}`,
+        details: {
+          resourceType: 'sk-officials',
           reason: `Term ${force ? 'force ' : ''}completed`,
           termId: id,
           termName: result.rows[0].term_name,
@@ -1522,8 +1753,10 @@ const completeTerm = async (req, res) => {
           email: official.email,
           accountAccess: 'disabled'
         },
-        universalAuditService.createUserContext(req)
-      );
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      }).catch(err => console.error('Account access log failed:', err));
     }
 
     res.json({
@@ -1539,6 +1772,8 @@ const completeTerm = async (req, res) => {
         updatedAt: result.rows[0].updated_at
       }
     });
+
+    try { emitToAdmins('skTerm:completed', { termId: result.rows[0].term_id, termName: result.rows[0].term_name, endDate, completionType }); } catch (_) {}
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -1804,7 +2039,18 @@ const getTermOfficialsByBarangay = async (req, res) => {
 const exportTermDetailed = async (req, res) => {
   try {
     const { id } = req.params;
-    const { barangayId, format = 'json' } = req.query;
+    const { barangayId, format = 'json', logFormat } = req.query;
+    const actualFormat = logFormat || format;
+
+    // Get term name for audit log
+    const termQueryResult = await query(
+      'SELECT term_id, term_name FROM "SK_Terms" WHERE term_id = $1',
+      [id]
+    );
+    
+    const termName = termQueryResult.rows.length > 0 
+      ? termQueryResult.rows[0].term_name 
+      : `Term ${id}`;
 
     // Reuse grouping logic
     const sql = `
@@ -1864,16 +2110,25 @@ const exportTermDetailed = async (req, res) => {
       });
     }
 
-    // Write EXPORT audit log (consistent with SKManagement export)
+    // Write EXPORT audit log (consistent with other exports)
     try {
       await createAuditLog({
-        userId: req.user?.id || req.user?.lydo_id || 'SYSTEM',
+        userId: req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
         userType: req.user?.userType || 'admin',
-        action: 'EXPORT',
-        resource: '/reports/term-detailed',
-        resourceId: barangayId || 'bulk',
-        details: `Exported ${result.rows.length} records in ${String(format || 'json').toUpperCase()} format${barangayId ? ` for barangay ${barangayId}` : ''}`,
-        ipAddress: req.ip,
+        action: 'Export',
+        resource: '/api/sk-terms',
+        resourceId: id,
+        resourceName: `Term Detailed Report - ${termName}${barangayId ? ` (Barangay ${barangayId})` : ''}`,
+        details: {
+          resourceType: 'sk-terms',
+          reportType: 'term-detailed',
+          termId: id,
+          termName: termName,
+          format: actualFormat,
+          count: result.rows.length,
+          barangayId: barangayId || null
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
         userAgent: req.get('User-Agent'),
         status: 'success'
       });
@@ -2107,28 +2362,42 @@ const extendTerm = async (req, res) => {
     }
     console.log('✅ Account access notifications sent to all affected officials');
 
-    // Create comprehensive audit log
-    await universalAuditService.logStatusChange(
-      'sk-terms',
-      id,
-      'active',
-      {
+    // Create comprehensive audit log for term extension
+    await createAuditLog({
+      userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: 'Extend',
+      resource: '/api/sk-terms',
+      resourceId: id,
+      resourceName: result.rows[0].term_name,
+      details: {
+        resourceType: 'sk-terms',
+        termId: result.rows[0].term_id,
         termName: result.rows[0].term_name,
+        actionType: 'extend',
+        oldStatus: 'completed',
+        newStatus: 'active',
         oldEndDate: term.end_date,
         newEndDate: newEndDate,
         officialsAffected: accountResult.rows.length,
         reason: statusChangeReason
       },
-      universalAuditService.createUserContext(req)
-    );
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
+    }).catch(err => console.error('Term extension audit log failed:', err));
 
     // Log account access changes for each official
     for (const official of accountResult.rows) {
-      await universalAuditService.logStatusChange(
-        'sk-officials',
-        official.sk_id,
-        'active',
-        {
+      await createAuditLog({
+        userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+        userType: req.user?.userType || 'admin',
+        action: 'Activate',
+        resource: '/api/sk-officials',
+        resourceId: official.sk_id,
+        resourceName: `${official.first_name} ${official.last_name}`,
+        details: {
+          resourceType: 'sk-officials',
           reason: 'Term extended',
           termId: id,
           termName: result.rows[0].term_name,
@@ -2136,8 +2405,10 @@ const extendTerm = async (req, res) => {
           email: official.email,
           accountAccess: 'enabled'
         },
-        universalAuditService.createUserContext(req)
-      );
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      }).catch(err => console.error('Account access log failed:', err));
     }
 
     res.json({
@@ -2152,6 +2423,8 @@ const extendTerm = async (req, res) => {
         updatedAt: result.rows[0].updated_at
       }
     });
+
+    try { emitToAdmins('skTerm:extended', { termId: result.rows[0].term_id, termName: result.rows[0].term_name, newEndDate }); } catch (_) {}
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -2173,6 +2446,153 @@ const extendTerm = async (req, res) => {
   }
 };
 
+/**
+ * Export SK Terms (logging endpoint for activity logs)
+ * Since exports are done client-side, this endpoint just logs the activity
+ * GET /api/sk-terms/export
+ */
+const exportSKTerms = async (req, res) => {
+  try {
+    const { format = 'json', selectedIds, logFormat, count: providedCount, tab, exportType: exportTypeParam } = req.query;
+    // logFormat is the actual format exported (for logging), format is the response format
+    const actualFormat = logFormat || format;
+    
+    console.log('🔍 SK Terms export request received:', { format, actualFormat, selectedIds, providedCount, tab, exportTypeParam, queryParams: req.query });
+    
+    if (!['csv', 'json', 'pdf'].includes(format)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid export format. Use "csv", "json", or "pdf"' 
+      });
+    }
+
+    // Use provided count if available (from filtered dataset), otherwise count from database
+    let count = 0;
+    let exportType = 'all';
+    
+    // Check if exportType is explicitly set to 'bulk' from frontend
+    if (exportTypeParam === 'bulk' && selectedIds && selectedIds.length > 0) {
+      // Bulk export: use provided count and selectedIds
+      count = providedCount ? parseInt(providedCount) : (selectedIds.split(',').length);
+      exportType = 'bulk';
+    } else if (providedCount) {
+      // Use the count provided by frontend (filtered dataset length)
+      count = parseInt(providedCount);
+      exportType = tab ? `tab:${tab}` : 'filtered';
+    } else if (selectedIds && selectedIds.length > 0) {
+      const idsArray = Array.isArray(selectedIds) ? selectedIds : selectedIds.split(',');
+      const sanitizedIds = idsArray
+        .map(id => String(id).trim())
+        .filter(id => id.length > 0);
+      
+      if (sanitizedIds.length > 0) {
+        const placeholders = sanitizedIds.map((_, index) => `$${index + 1}`).join(',');
+        const countResult = await query(
+          `SELECT COUNT(*) as count FROM "SK_Terms" WHERE term_id IN (${placeholders})`,
+          sanitizedIds
+        );
+        count = parseInt(countResult.rows[0].count);
+        exportType = 'selected';
+      }
+    } else {
+      // Count all terms
+      const countResult = await query(`SELECT COUNT(*) as count FROM "SK_Terms"`);
+      count = parseInt(countResult.rows[0].count);
+    }
+
+    // Prepare audit log data
+    const userId = req.user?.id || req.user?.lydo_id || req.user?.lydoId || null;
+    const userType = req.user?.userType || 'admin';
+    
+    // Determine action: 'Bulk Export' for bulk exports, 'Export' for regular exports
+    const action = exportType === 'bulk' ? 'Bulk Export' : 'Export';
+    
+    // Create meaningful resource name for export
+    const resourceName = `SK Terms Export - ${actualFormat.toUpperCase()} (${count} ${count === 1 ? 'term' : 'terms'})`;
+    
+    console.log('🔍 SK Terms Export - Will create audit log with:', { userId, userType, format: actualFormat, count, resourceName, action, exportType });
+
+    if (format === 'json') {
+      // Create audit log for JSON export (await before responding)
+      try {
+        await createAuditLog({
+          userId: userId,
+          userType: userType,
+          action: action,
+          resource: '/api/sk-terms/export',
+          resourceId: null,
+          resourceName: resourceName,
+          details: {
+            resourceType: 'sk-terms',
+            reportType: 'sk_terms',
+            format: actualFormat,
+            count: count,
+            exportType: exportType
+          },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.get('User-Agent'),
+          status: 'success'
+        });
+        console.log(`✅ SK Terms export audit log created: JSON export of ${count} terms`);
+      } catch (err) {
+        console.error('❌ SK Terms export audit log failed:', err);
+      }
+
+      return res.json({
+        success: true,
+        exportedAt: new Date().toISOString(),
+        total: count,
+        exportType: exportType
+      });
+    }
+
+    // For CSV/PDF, just return JSON (frontend handles the actual export)
+    return res.json({
+      success: true,
+      exportedAt: new Date().toISOString(),
+      total: count,
+      exportType: exportType
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in SK Terms export:', error);
+    
+    // Create audit log for failed export
+    const userId = req.user?.id || req.user?.lydo_id || req.user?.lydoId || null;
+    const userType = req.user?.userType || 'admin';
+    const resourceName = `SK Terms Export - Failed`;
+    
+    // For failed exports, we don't know if it was bulk or not, so use 'Export'
+    try {
+      await createAuditLog({
+        userId: userId,
+        userType: userType,
+        action: 'Export',
+        resource: '/api/sk-terms/export',
+        resourceId: null,
+        resourceName: resourceName,
+        details: {
+          resourceType: 'sk-terms',
+          error: error.message,
+          exportFailed: true
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'error',
+        errorMessage: error.message
+      });
+    } catch (err) {
+      console.error('❌ Failed export audit log error:', err);
+    }
+
+    return res.status(500).json({ 
+      success: false,
+      message: 'Failed to log SK Terms export',
+      error: error.message
+    });
+  }
+};
+
 export default {
   // List & Search
   getAllTerms,
@@ -2187,6 +2607,7 @@ export default {
   deleteTerm,
   
   // Status Management
+  updateTermStatus,
   activateTerm,
   completeTerm,
   extendTerm,
@@ -2200,5 +2621,12 @@ export default {
   getTermSpecificStats
   ,
   getTermOfficialsByBarangay,
-  exportTermDetailed
+  exportTermDetailed,
+  
+  // Public endpoints
+  getPublicChairpersonsByBarangay,
+  getPublicOfficialsByBarangay,
+  
+  // Export
+  exportSKTerms
 };

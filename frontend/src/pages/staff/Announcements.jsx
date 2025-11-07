@@ -49,6 +49,7 @@ import {
   BulkActionsBar,
   LoadingSpinner
 } from '../../components/portal_main_content';
+import { useRealtime } from '../../realtime/useRealtime';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 
 // Note: Dummy data removed - now using real API calls
@@ -224,6 +225,34 @@ const Announcements = () => {
   // Guard to ensure flash toast is processed only once
   const flashHandledRef = useRef(false);
 
+  // Fetch announcements (full and silent)
+  const fetchAnnouncementsData = async (opts = { silent: false, pageOverride: null }) => {
+    const { silent, pageOverride } = opts || { silent: false };
+    try {
+      if (!silent) { setLoading(true); setError(null); }
+      const params = {
+        page: pageOverride ?? currentPage,
+        limit: itemsPerPage,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        search: searchQuery || undefined,
+        category: categoryFilter === 'all' ? undefined : categoryFilter,
+        is_featured: featuredFilter === 'all' ? undefined : featuredFilter === 'featured',
+        is_pinned: pinnedFilter === 'all' ? undefined : pinnedFilter === 'pinned',
+        date_from: dateRangeFilter.start || undefined,
+        date_to: dateRangeFilter.end || undefined,
+        sortBy: sortBy === 'publishAt' ? 'published_at' : sortBy,
+        sortOrder: (sortOrder || 'desc').toUpperCase()
+      };
+      const response = await getAnnouncements(params);
+      setAnnouncements(response.data || []);
+      setTotalItems(response.pagination?.total || 0);
+    } catch (err) {
+      if (!silent) setError(err.message || 'Failed to fetch announcements');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
   // Fetch announcements data
   useEffect(() => {
     // Handle flash toast from navigation state (once)
@@ -237,46 +266,26 @@ const Announcements = () => {
       navigate('.', { replace: true, state: {} });
     }
 
-    const fetchAnnouncements = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const params = {
-          page: currentPage,
-          limit: itemsPerPage,
-          status: statusFilter === 'all' ? undefined : statusFilter,
-          search: searchQuery || undefined,
-          category: categoryFilter === 'all' ? undefined : categoryFilter,
-          is_featured: featuredFilter === 'all' ? undefined : featuredFilter === 'featured',
-          is_pinned: pinnedFilter === 'all' ? undefined : pinnedFilter === 'pinned',
-          date_from: dateRangeFilter.start || undefined,
-          date_to: dateRangeFilter.end || undefined,
-          sortBy: sortBy === 'publishAt' ? 'published_at' : sortBy,
-          sortOrder: sortOrder.toUpperCase()
-        };
-
-        console.log('🔍 Fetching announcements with params:', params);
-        const response = await getAnnouncements(params);
-        console.log('📊 Response data:', response.data?.length, 'items');
-        console.log('📈 Pagination:', response.pagination);
-        
-        // Debug: Log the status of each announcement
-        if (response.data && response.data.length > 0) {
-          console.log('📋 Announcement statuses:', response.data.map(a => ({ id: a.announcement_id, title: a.title, status: a.status })));
-        }
-        setAnnouncements(response.data);
-        setTotalItems(response.pagination.total);
-      } catch (err) {
-        console.error('Error fetching announcements:', err);
-        setError(err.message || 'Failed to fetch announcements');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAnnouncements();
+    fetchAnnouncementsData({ silent: false });
   }, [location?.state?.flash, currentPage, itemsPerPage, statusFilter, searchQuery, categoryFilter, featuredFilter, pinnedFilter, dateRangeFilter, sortBy, sortOrder]);
+
+  useRealtime('announcement:changed', () => {
+    fetchAnnouncementsData({ silent: true });
+    // silently refresh tab statistics
+    (async () => {
+      try {
+        const response = await getAnnouncementStatistics();
+        if (response.success && response.data) {
+          setStatistics({
+            total: response.data.total || 0,
+            published: response.data.by_status?.published || 0,
+            draft: response.data.by_status?.draft || 0,
+            archived: response.data.by_status?.archived || 0
+          });
+        }
+      } catch (_) {}
+    })();
+  });
 
   // Auto-publish sweep: publish drafts whose published_at is due
   useEffect(() => {
@@ -717,54 +726,21 @@ const Announcements = () => {
  
   return (
     <div className="space-y-6">
-      {/* Header Section - Responsive Design */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
-          {/* Mobile/Tablet Layout - Inline */}
-          <div className="flex items-center justify-between lg:hidden">
-            <div className="flex items-center space-x-3">
-              <h1 className="text-base sm:text-lg font-bold text-gray-900">
-                Announcements
-              </h1>
-            </div>
-            
-            {/* New Announcement Button */}
-            <button
-              type="button"
-              className="inline-flex items-center px-2 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
-              onClick={() => navigate('/staff/announcements/create')}
-            >
-              <Plus className="w-3 h-3 mr-1.5" />
-              <span className="hidden sm:inline">New</span>
-            </button>
-          </div>
-
-          {/* Desktop Layout - Horizontal */}
-          <div className="hidden lg:flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">
-                  Announcements
-                </h1>
-                <p className="text-sm text-gray-600 mt-1">
-                  Public communications and updates for the youth community.
-                </p>
-              </div>
-            </div>
-            
-            {/* New Announcement Button */}
-            <button
-              type="button"
-              className="inline-flex items-center px-3 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
-              onClick={() => navigate('/staff/announcements/create')}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              <span className="hidden sm:inline">New Announcement</span>
-              <span className="sm:hidden">New</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Page Header */}
+      <HeaderMainContent
+        title="Announcements"
+        description="Public communications and updates for the youth community."
+      >
+        <button
+          type="button"
+          className="inline-flex items-center px-3 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
+          onClick={() => navigate('/staff/announcements/create')}
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          <span className="hidden sm:inline">New Announcement</span>
+          <span className="sm:hidden">New</span>
+        </button>
+      </HeaderMainContent>
 
       {/* Featured Announcements Banner */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">

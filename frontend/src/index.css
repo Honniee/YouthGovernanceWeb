@@ -38,39 +38,66 @@
   animation: slide-up 0.5s ease-out;
 }
 
-/* Hide Scrollbars Across the System */
+/* Custom Scrollbars Across the System */
 /* Webkit browsers (Chrome, Safari, Edge) */
 ::-webkit-scrollbar {
-  width: 0px;
-  height: 0px;
-  background: transparent;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #f3f4f6;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: transparent;
+  background: #9ca3af;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
 }
 
 ::-webkit-scrollbar-corner {
-  background: transparent;
+  background: #f3f4f6;
 }
 
 /* Firefox */
 html {
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: #9ca3af #f3f4f6;
 }
 
 /* For better cross-browser support */
 * {
-  scrollbar-width: none;
-  -ms-overflow-style: none; /* Internet Explorer and Edge */
+  scrollbar-width: thin;
+  scrollbar-color: #9ca3af #f3f4f6;
+  -ms-overflow-style: auto; /* Internet Explorer and Edge - show scrollbar */
 }
 
 /* Ensure scrolling still works */
 html, body {
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* Hide scrollbar for sidebar - keep functionality but hide scrollbar */
+.admin-sidebar::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+  background: transparent;
+}
+
+.admin-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-sidebar::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.admin-sidebar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }

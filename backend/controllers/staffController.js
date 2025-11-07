@@ -300,13 +300,20 @@ export const createStaff = async (req, res) => {
 			// OLD notification system removed - now using the new notifyAdminsAboutStaffCreation method above
 
 			// Create audit log for staff creation
+			const staffName = `${data.firstName} ${data.lastName}`;
 			createAuditLog({
 				userId: req.user?.id || 'SYSTEM',
 				userType: req.user?.userType || 'admin',
-				action: 'CREATE',
-				resource: 'staff',
+				action: 'Create',
+				resource: '/api/staff',
 				resourceId: lydoId,
-				details: `Created Staff Member: ${data.firstName} ${data.lastName} (${data.roleId || DEFAULT_ROLE_ID}) with email ${data.personalEmail}`,
+				resourceName: staffName,
+				details: {
+					staffName: staffName,
+					resourceType: 'staff',
+					roleId: data.roleId || DEFAULT_ROLE_ID,
+					email: data.personalEmail
+				},
 				ipAddress: req.ip,
 				userAgent: req.get('User-Agent'),
 				status: 'success'
@@ -426,13 +433,19 @@ export const updateStaff = async (req, res) => {
 		}, 100);
 
 		// Create audit log for staff update
+		const updatedStaffName = `${result.rows[0].first_name} ${result.rows[0].last_name}`;
 		createAuditLog({
 			userId: req.user?.id || 'SYSTEM',
 			userType: req.user?.userType || 'admin',
-			action: 'UPDATE',
-			resource: 'staff',
+			action: 'Update',
+			resource: '/api/staff',
 			resourceId: id,
-			details: `Updated Staff Member: ${result.rows[0].first_name} ${result.rows[0].last_name} (${result.rows[0].role_id})`,
+			resourceName: updatedStaffName,
+			details: {
+				staffName: updatedStaffName,
+				resourceType: 'staff',
+				roleId: result.rows[0].role_id
+			},
 			ipAddress: req.ip,
 			userAgent: req.get('User-Agent'),
 			status: 'success'
@@ -507,13 +520,20 @@ export const updateStatus = async (req, res) => {
 		}, 100);
 
 		// Create audit log for staff status update
+		const statusStaffName = `${result.rows[0].first_name} ${result.rows[0].last_name}`;
 		createAuditLog({
 			userId: req.user?.id || 'SYSTEM',
 			userType: req.user?.userType || 'admin',
-			action: data.status === 'active' ? 'ACTIVATE' : 'DEACTIVATE',
-			resource: 'staff',
+			action: data.status === 'active' ? 'Activate' : 'Deactivate',
+			resource: '/api/staff',
 			resourceId: id,
-			details: `${data.status === 'active' ? 'Activated' : 'Deactivated'} Staff Member: ${result.rows[0].first_name} ${result.rows[0].last_name} (${result.rows[0].role_id})`,
+			resourceName: statusStaffName,
+			details: {
+				staffName: statusStaffName,
+				resourceType: 'staff',
+				newStatus: data.status,
+				roleId: result.rows[0].role_id
+			},
 			ipAddress: req.ip,
 			userAgent: req.get('User-Agent'),
 			status: 'success'
@@ -570,13 +590,19 @@ export const deleteStaffSoft = async (req, res) => {
 		}, 100);
 
 		// Create audit log for staff soft deletion
+		const deletedStaffName = `${result.rows[0].first_name} ${result.rows[0].last_name}`;
 		createAuditLog({
 			userId: req.user?.id || 'SYSTEM',
 			userType: req.user?.userType || 'admin',
-			action: 'DELETE',
-			resource: 'staff',
+			action: 'Delete',
+			resource: '/api/staff',
 			resourceId: id,
-			details: `Deleted Staff Member: ${result.rows[0].first_name} ${result.rows[0].last_name} (${result.rows[0].role_id})`,
+			resourceName: deletedStaffName,
+			details: {
+				staffName: deletedStaffName,
+				resourceType: 'staff',
+				roleId: result.rows[0].role_id
+			},
 			ipAddress: req.ip,
 			userAgent: req.get('User-Agent'),
 			status: 'success'
@@ -655,13 +681,22 @@ export const bulkUpdateStatus = async (req, res) => {
 			}, 100);
 
 			// Create audit log for bulk staff operation
+			const bulkAction = action.charAt(0).toUpperCase() + action.slice(1); // Capitalize first letter
+			const resourceName = `Staff Bulk ${bulkAction} - ${results.length} ${results.length === 1 ? 'member' : 'members'}`;
+			
 			createAuditLog({
 				userId: req.user?.id || 'SYSTEM',
 				userType: req.user?.userType || 'admin',
-				action: `BULK_${action.toUpperCase()}`,
-				resource: 'staff',
-				resourceId: ids.join(','),
-				details: `Bulk ${action.charAt(0).toUpperCase() + action.slice(1)} Staff Members: ${results.map(s => `${s.first_name} ${s.last_name}`).join(', ')} (${results.length} members)`,
+				action: `Bulk ${bulkAction}`,
+				resource: '/api/staff',
+				resourceId: null,
+				resourceName: resourceName,
+				details: {
+					resourceType: 'staff',
+					totalItems: ids.length,
+					successCount: results.length,
+					action: action
+				},
 				ipAddress: req.ip,
 				userAgent: req.get('User-Agent'),
 				status: 'success'
@@ -698,9 +733,11 @@ export const bulkUpdateStatus = async (req, res) => {
 // NEW: Export functionality
 export const exportStaff = async (req, res) => {
 	try {
-		const { format = 'csv', status = 'all', selectedIds } = req.query;
+		const { format = 'csv', status = 'all', selectedIds, logFormat } = req.query;
+		// logFormat is the actual format exported (for logging), format is the response format
+		const actualFormat = logFormat || format;
 		
-		console.log('🔍 Export request received:', { format, status, selectedIds, queryParams: req.query });
+		console.log('🔍 Export request received:', { format, actualFormat, status, selectedIds, queryParams: req.query });
 		
 		if (!['csv', 'json', 'pdf'].includes(format)) {
 			return res.status(400).json({ 
@@ -775,26 +812,65 @@ export const exportStaff = async (req, res) => {
 		const staff = result.rows.map(mapStaffRow);
 		console.log(`📊 Export query returned ${staff.length} staff members for ${exportType} export`);
 
+		// Debug: Log user info
+		console.log('🔍 Export - req.user:', req.user ? {
+			id: req.user.id,
+			lydo_id: req.user.lydo_id,
+			user_id: req.user.user_id,
+			userType: req.user.userType,
+			user_type: req.user.user_type
+		} : 'No user');
+
 		// Create detailed export list for audit log (used in all formats)
 		const exportedStaffNames = staff.map(s => `${s.firstName} ${s.lastName} (${s.lydoId})`);
 		const staffList = exportedStaffNames.length <= 5 
 			? exportedStaffNames.join(', ')
 			: `${exportedStaffNames.slice(0, 5).join(', ')} and ${exportedStaffNames.length - 5} more`;
 
+		// Prepare audit log data (before sending response)
+		const userId = req.user?.id || req.user?.lydo_id || req.user?.user_id || 'SYSTEM';
+		const userType = req.user?.userType || req.user?.user_type || 'admin';
+		
+		// Determine action: 'Bulk Export' for bulk exports (selectedIds), 'Export' for regular exports
+		const action = exportType === 'selected' ? 'Bulk Export' : 'Export';
+		
+		// Create meaningful resource name for export
+		const resourceName = `Staff Export - ${actualFormat.toUpperCase()} (${staff.length} ${staff.length === 1 ? 'member' : 'members'})`;
+		
+		console.log('🔍 Export - Will create audit log with:', { userId, userType, format: actualFormat, count: staff.length, resourceName, action, exportType });
+
 		if (format === 'json') {
 
-			// Create audit log for JSON export
-			createAuditLog({
-				userId: req.user?.id || 'SYSTEM',
-				userType: req.user?.userType || 'admin',
-				action: 'EXPORT',
-				resource: 'staff',
-				resourceId: exportType === 'selected' ? (Array.isArray(selectedIds) ? selectedIds : selectedIds?.split(','))?.join(',') || 'bulk' : 'bulk',
-				details: `Exported ${staff.length} Staff Members in JSON format (${exportType} export - status: ${status}): ${staffList}`,
-				ipAddress: req.ip,
-				userAgent: req.get('User-Agent'),
-				status: 'success'
-			}).catch(err => console.error('Export audit log failed:', err));
+			// Create audit log for JSON export (await before responding)
+			try {
+				const logId = await createAuditLog({
+					userId: userId,
+					userType: userType,
+					action: action,
+					resource: '/api/staff/export',
+					resourceId: null,
+					resourceName: resourceName,
+					details: {
+						resourceType: 'staff',
+						reportType: 'staff',
+						format: actualFormat,
+						count: staff.length,
+						exportType: exportType,
+						status: status
+					},
+					ipAddress: req.ip,
+					userAgent: req.get('User-Agent'),
+					status: 'success',
+					category: 'Data Export'
+				});
+				if (logId) {
+					console.log(`✅ Export audit log created: ${logId} - JSON export of ${staff.length} staff members`);
+				} else {
+					console.error('❌ Export audit log returned null');
+				}
+			} catch (err) {
+				console.error('❌ Export audit log failed:', err);
+			}
 
 			return res.json({
 				success: true,
@@ -827,21 +903,39 @@ export const exportStaff = async (req, res) => {
 				...csvRows.map(row => row.map(cell => `"${cell}"`).join(','))
 			].join('\n');
 
+			// Create audit log for CSV export (BEFORE sending response)
+			try {
+				const logId = await createAuditLog({
+					userId: userId,
+					userType: userType,
+					action: action,
+					resource: '/api/staff/export',
+					resourceId: null,
+					resourceName: resourceName,
+					details: {
+						resourceType: 'staff',
+						reportType: 'staff',
+						format: actualFormat,
+						count: staff.length,
+						exportType: exportType,
+						status: status
+					},
+					ipAddress: req.ip,
+					userAgent: req.get('User-Agent'),
+					status: 'success',
+					category: 'Data Export'
+				});
+				if (logId) {
+					console.log(`✅ Export audit log created: ${logId} - CSV export of ${staff.length} staff members`);
+				} else {
+					console.error('❌ Export audit log returned null');
+				}
+			} catch (err) {
+				console.error('❌ Export audit log failed:', err);
+			}
+
 			res.setHeader('Content-Type', 'text/csv');
 			res.setHeader('Content-Disposition', `attachment; filename="staff_export_${new Date().toISOString().split('T')[0]}.csv"`);
-			
-			// Create audit log for CSV export
-			createAuditLog({
-				userId: req.user?.id || 'SYSTEM',
-				userType: req.user?.userType || 'admin',
-				action: 'EXPORT',
-				resource: 'staff',
-				resourceId: exportType === 'selected' ? (Array.isArray(selectedIds) ? selectedIds : selectedIds?.split(','))?.join(',') || 'bulk' : 'bulk',
-				details: `Exported ${staff.length} Staff Members in CSV format (${exportType} export - status: ${status}): ${staffList}`,
-				ipAddress: req.ip,
-				userAgent: req.get('User-Agent'),
-				status: 'success'
-			}).catch(err => console.error('Export audit log failed:', err));
 			
 			return res.send(csvContent);
 		} else if (format === 'pdf') {
@@ -880,18 +974,37 @@ export const exportStaff = async (req, res) => {
 					break;
 			}
 
-			// Create audit log for PDF export
-			createAuditLog({
-				userId: req.user?.id || 'SYSTEM',
-				userType: req.user?.userType || 'admin',
-				action: 'EXPORT',
-				resource: 'staff',
-				resourceId: exportType === 'selected' ? (Array.isArray(selectedIds) ? selectedIds : selectedIds?.split(','))?.join(',') || 'bulk' : 'bulk',
-				details: `Exported ${staff.length} Staff Members in PDF format (${exportType} export - status: ${status}, style: ${pdfStyle}): ${staffList}`,
-				ipAddress: req.ip,
-				userAgent: req.get('User-Agent'),
-				status: 'success'
-			}).catch(err => console.error('Export audit log failed:', err));
+			// Create audit log for PDF export (BEFORE ending document - await it)
+			try {
+				const logId = await createAuditLog({
+					userId: userId,
+					userType: userType,
+					action: action,
+					resource: '/api/staff/export',
+					resourceId: null,
+					resourceName: resourceName,
+					details: {
+						resourceType: 'staff',
+						reportType: 'staff',
+						format: actualFormat,
+						count: staff.length,
+						exportType: exportType,
+						status: status,
+						pdfStyle: pdfStyle
+					},
+					ipAddress: req.ip,
+					userAgent: req.get('User-Agent'),
+					status: 'success',
+					category: 'Data Export'
+				});
+				if (logId) {
+					console.log(`✅ Export audit log created: ${logId} - PDF export of ${staff.length} staff members`);
+				} else {
+					console.error('❌ Export audit log returned null');
+				}
+			} catch (err) {
+				console.error('❌ Export audit log failed:', err);
+			}
 
 			doc.end();
 			return;
@@ -900,17 +1013,38 @@ export const exportStaff = async (req, res) => {
 		console.error('exportStaff error:', error);
 
 		// Create audit log for failed export
-		createAuditLog({
-			userId: req.user?.id || 'SYSTEM',
-			userType: req.user?.userType || 'admin',
-			action: 'EXPORT',
-			resource: 'staff',
-			resourceId: 'export-failed',
-			details: `Failed to export Staff Members: ${error.message}`,
-			ipAddress: req.ip,
-			userAgent: req.get('User-Agent'),
-			status: 'error'
-		}).catch(err => console.error('Export error audit log failed:', err));
+		const userId = req.user?.id || req.user?.lydo_id || req.user?.user_id || 'SYSTEM';
+		const userType = req.user?.userType || req.user?.user_type || 'admin';
+		const resourceName = `Staff Export - Failed`;
+		
+		try {
+			const logId = await createAuditLog({
+				userId: userId,
+				userType: userType,
+				action: 'Export',
+				resource: '/api/staff/export',
+				resourceId: null,
+				resourceName: resourceName,
+				details: {
+					resourceType: 'staff',
+					reportType: 'staff',
+					error: error.message,
+					exportFailed: true
+				},
+				ipAddress: req.ip,
+				userAgent: req.get('User-Agent'),
+				status: 'error',
+				errorMessage: error.message,
+				category: 'Data Export'
+			});
+			if (logId) {
+				console.log(`✅ Export error audit log created: ${logId}`);
+			} else {
+				console.error('❌ Export error audit log returned null');
+			}
+		} catch (err) {
+			console.error('❌ Export error audit log failed:', err);
+		}
 
 		return res.status(500).json({ 
 			success: false,

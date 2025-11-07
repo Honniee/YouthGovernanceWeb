@@ -80,56 +80,15 @@ const StaffSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
     
     // 🗳️ KK Survey Management
     { 
-      name: 'Voter List Upload', 
-      href: '/staff/survey/voter-lists', 
-      icon: Upload,
-      description: 'Upload and manage barangay voter lists',
-      category: 'survey'
-    },
-    { 
       name: 'Survey Batches', 
       href: '/staff/survey/batches', 
       icon: Calendar,
       description: 'Open/close batches, set deadlines',
       category: 'survey'
     },
-    { 
-      name: 'Survey Responses', 
-      href: '/staff/survey/responses', 
-      icon: FileText,
-      description: 'View validated responses, filter by barangay/batch',
-      category: 'survey'
-    },
-    { 
-      name: 'Validation Queue', 
-      href: '/staff/survey/validation', 
-      icon: Filter,
-      description: 'Monitor pending manual validations',
-      category: 'survey'
-    },
+    // Items removed for staff: Voter List Upload, Survey Responses, Validation Queue
     
-    // 📈 Recommendations
-    { 
-      name: 'Batch Reports', 
-      href: '/staff/recommendations/batch-reports', 
-      icon: BarChart3,
-      description: 'View generated recommendations per barangay',
-      category: 'reports'
-    },
-    { 
-      name: 'Trend Analysis', 
-      href: '/staff/recommendations/trends', 
-      icon: TrendingUp,
-      description: 'Compare participation and needs across batches',
-      category: 'reports'
-    },
-    { 
-      name: 'Export Reports', 
-      href: '/staff/recommendations/export', 
-      icon: Download,
-      description: 'Download data for planning or documentation',
-      category: 'reports'
-    },
+    // 📈 Reports & Analytics removed for staff
     
     
   ];
@@ -191,8 +150,8 @@ const StaffSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
     return acc;
   }, {});
 
-  // Reorder categories: Overview, Communication, SK Governance, Survey Management, Reports
-  const orderedCategories = ['main', 'communication', 'governance', 'survey', 'reports'];
+  // Reorder categories: Overview, Communication, SK Governance, Survey Management
+  const orderedCategories = ['main', 'communication', 'governance', 'survey'];
 
   return (
     <>

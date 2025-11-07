@@ -35,12 +35,13 @@ import {
   AlertCircle,
   Info
 } from 'lucide-react';
-import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, ViewStaffModal, EditStaffModal, ActiveTermBanner } from '../../components/portal_main_content';
+import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, TabbedDetailModal, ActiveTermBanner } from '../../components/portal_main_content';
 import { ToastContainer, showSKSuccessToast, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import skService from '../../services/skService.js';
 import skTermsService from '../../services/skTermsService.js';
 import { useActiveTerm } from '../../hooks/useActiveTerm.js';
 import { useSKValidation } from '../../hooks/useSKValidation.js';
+import { skDetailConfig } from '../../components/portal_main_content/tabbedModalConfigs.jsx';
 
 // Toast helper functions are now imported from universal components
 
@@ -402,45 +403,159 @@ const SKManagement = () => {
     onItemsPerPageChange: setItemsPerPage
   });
 
-  // Export state management using generic export hook wired to SK service
+  // Client-side export helpers (CSV, Excel XML, PDF)
+  const escapeCsv = (v) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  };
+  const downloadFile = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = filename; document.body.appendChild(link);
+    link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
+  };
+  const buildSKCsvRows = (list) => {
+    const headers = ['SK ID','Name','Barangay','Position','Status','Email'];
+    const rows = list.map(o => [
+      o.skId || '',
+      `${o.firstName || ''} ${o.lastName || ''}`.trim(),
+      o.barangayName || '',
+      o.position || '',
+      (o.isActive && !o.deactivated) ? 'Active' : 'Deactivated',
+      o.personalEmail || ''
+    ]);
+    return [headers, ...rows];
+  };
+  const downloadCsv = (filename, rows) => {
+    const csv = rows.map(r => r.map(escapeCsv).join(',')).join('\n');
+    downloadFile(new Blob(["\uFEFF"+csv], { type: 'text/csv;charset=utf-8;' }), filename);
+  };
+  const buildExcelXml = (sheetName, rows) => {
+    const rowXml = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type=\"String\">${String(c??'')}</Data></Cell>`).join('')}</Row>`).join('');
+    return `<?xml version=\"1.0\"?>\n<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"><Worksheet ss:Name=\"${sheetName}\"><Table>${rowXml}</Table></Worksheet></Workbook>`;
+  };
+  const escapeHtml = (s) => String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const openPrintPdf = (title, headers, rows) => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const thead = `<thead><tr>${headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>`;
+    const tbody = rows.slice(1).map(r=>`<tr>${r.map(c=>`<td>${escapeHtml(String(c??''))}</td>`).join('')}</tr>`).join('');
+    const styles = `
+      <style>
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { font-family: Arial, sans-serif; color: #111; }
+        h1 { font-size: 16px; margin: 0 0 8px; font-weight: 700; text-align: left; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid #666; padding: 6px 8px; font-size: 11px; line-height: 1.15; }
+        thead th { background: #f3f4f6 !important; font-weight: 700; }
+        thead { display: table-header-group; }
+        .meta { font-size: 10px; color: #555; margin: 6px 0 12px; }
+        @page { size: A4 landscape; margin: 12mm; }
+      </style>`;
+    const ts = new Date().toLocaleString();
+    const host = location?.hostname || '';
+    win.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${escapeHtml(title)}</title>${styles}</head><body><h1>${escapeHtml(title)}</h1><div class='meta'>Generated on ${escapeHtml(ts)} ${host ? `• ${escapeHtml(host)}` : ''}</div><table>${thead}<tbody>${tbody}</tbody></table><script>window.onload=()=>{window.print();}</script></body></html>`);
+    win.document.close();
+  };
+
   const mainExport = useExport({
-    exportFunction: (format, style = null) =>
-      skService.exportSKOfficials(format, statusFilter, [], style, activeTerm?.termId),
-    onSuccess: () =>
-      showSKSuccessToast('exported', null, [
-        {
-          label: 'Export Another',
-          onClick: () => window.location.reload()
+    exportFunction: async (format) => {
+      if (!hasActiveTerm) throw new Error('No active term');
+      const dataset = skData;
+      if (!dataset || dataset.length === 0) throw new Error('No SK officials to export');
+      const ts = new Date().toISOString().replace(/[:T]/g,'-').split('.')[0];
+      if (format === 'pdf') {
+        const rows = buildSKCsvRows(dataset);
+        openPrintPdf(`SK Officials — ${activeTerm?.termName || ''}`.trim(), rows[0], rows);
+      } else if (format === 'excel' || format === 'xlsx') {
+        const rows = buildSKCsvRows(dataset);
+        const xml = buildExcelXml('SK Officials', rows);
+        downloadFile(new Blob([xml], { type: 'application/vnd.ms-excel' }), `sk-officials-${ts}.xls`);
+      } else {
+        const rows = buildSKCsvRows(dataset);
+        downloadCsv(`sk-officials-${ts}.csv`, rows);
+      }
+      
+      // Log export to backend for activity logs (fire and forget)
+      // Use JSON format to avoid file download, but pass actual format in query for correct logging
+      const actualFormat = format === 'xlsx' ? 'excel' : format;
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.append('format', 'json'); // Use JSON to avoid download
+        queryParams.append('logFormat', actualFormat); // Pass actual format for logging
+        if (activeTerm?.termId) {
+          queryParams.append('termId', activeTerm.termId);
         }
-      ]),
+        if (statusFilter !== 'all') {
+          queryParams.append('status', statusFilter);
+        }
+        
+        const apiModule = await import('../../services/api.js');
+        const api = apiModule.default;
+        api.get(`/sk-officials/export/csv?${queryParams.toString()}`).catch(err => {
+          console.error('Failed to log export activity:', err);
+        });
+      } catch (err) {
+        console.error('Failed to log export activity:', err);
+      }
+      
+      return { success: true };
+    },
+    onSuccess: () => showSKSuccessToast('exported', null, [{ label: 'Export Another', onClick: () => {} }]),
     onError: (error) => showErrorToast('Export failed', error.message)
   });
 
   const bulkExportHook = useExport({
-    exportFunction: (format, style = null) => {
-      if (selectedItems.length > 0) {
-        return skService.exportSKOfficials(format, statusFilter, selectedItems, style, activeTerm?.termId);
+    exportFunction: async (format) => {
+      if (!hasActiveTerm) throw new Error('No active term');
+      const selected = skData.filter(s => selectedItems.includes(s.skId));
+      if (selected.length === 0) throw new Error('No SK officials selected');
+      const ts = new Date().toISOString().replace(/[:T]/g,'-').split('.')[0];
+      if (format === 'pdf') {
+        const rows = buildSKCsvRows(selected);
+        openPrintPdf('Selected SK Officials', rows[0], rows);
+      } else if (format === 'excel' || format === 'xlsx') {
+        const rows = buildSKCsvRows(selected);
+        const xml = buildExcelXml('Selected SK Officials', rows);
+        downloadFile(new Blob([xml], { type: 'application/vnd.ms-excel' }), `sk-officials-selected-${ts}.xls`);
+      } else {
+        const rows = buildSKCsvRows(selected);
+        downloadCsv(`sk-officials-selected-${ts}.csv`, rows);
       }
-      return skService.exportSKOfficials(format, statusFilter, [], style, activeTerm?.termId);
-    },
-    onSuccess: () => {
-      const count = selectedItems.length > 0 ? selectedItems.length : 'all';
-      console.log('Bulk export completed for items:', selectedItems);
-      showSKSuccessToast('exported', null, [
-        {
-          label: `Exported ${count} SK officials`,
-          onClick: () => {}
-        },
-        {
-          label: 'Clear Selection',
-          onClick: () => setSelectedItems([])
+      
+      // Log export to backend for activity logs (fire and forget)
+      // Use JSON format to avoid file download, but pass actual format in query for correct logging
+      const actualFormat = format === 'xlsx' ? 'excel' : format;
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.append('format', 'json'); // Use JSON to avoid download
+        queryParams.append('logFormat', actualFormat); // Pass actual format for logging
+        queryParams.append('selectedIds', selectedItems.join(','));
+        if (activeTerm?.termId) {
+          queryParams.append('termId', activeTerm.termId);
         }
-      ]);
+        
+        const apiModule = await import('../../services/api.js');
+        const api = apiModule.default;
+        api.get(`/sk-officials/export/csv?${queryParams.toString()}`).catch(err => {
+          console.error('Failed to log export activity:', err);
+        });
+      } catch (err) {
+        console.error('Failed to log export activity:', err);
+      }
+      
+      return { success: true };
     },
-    onError: (error) => {
-      console.log('Bulk export failed for items:', selectedItems, 'Error:', error);
-      showErrorToast('Bulk export failed', error.message);
-    }
+    onSuccess: () => showSKSuccessToast('exported', null, [
+      { label: `Exported ${selectedItems.length} SK officials`, onClick: () => {} },
+      { label: 'Clear Selection', onClick: () => setSelectedItems([]) }
+    ]),
+    onError: (error) => showErrorToast('Bulk export failed', error.message)
   });
 
   // Sync modal state with existing state variables
@@ -1216,7 +1331,7 @@ const SKManagement = () => {
                 <div className="flex items-center space-x-3 flex-shrink-0">
                   {/* Export Button */}
                   <ExportButton
-                    formats={['csv', 'pdf']}
+                    formats={['csv', 'xlsx', 'pdf']}
                     onExport={hasActiveTerm ? mainExport.handleExport : undefined}
                     isExporting={mainExport.isExporting}
                     label="Export"
@@ -1300,7 +1415,7 @@ const SKManagement = () => {
             itemNamePlural="SK officials"
             onBulkAction={hasActiveTerm ? () => setShowBulkModal(true) : undefined}
             exportConfig={{
-              formats: ['csv', 'pdf'],
+              formats: ['csv', 'xlsx', 'pdf'],
               onExport: hasActiveTerm ? bulkExportHook.handleExport : undefined,
               isExporting: bulkExportHook.isExporting
             }}
@@ -1385,6 +1500,10 @@ const SKManagement = () => {
                 onSelectAll={hasActiveTerm ? handleSelectAll : undefined}
                 getActionMenuItems={hasActiveTerm ? getActionMenuItems : undefined}
                 onActionClick={hasActiveTerm ? handleActionClick : undefined}
+                onCardClick={(item) => {
+                  setSelectedStaffMember(item);
+                  setShowViewModal(true);
+                }}
                 viewMode={viewMode}
                 keyField="skId"
                 disabled={!hasActiveTerm}
@@ -1396,23 +1515,10 @@ const SKManagement = () => {
                   picture: 'profilePicture' 
                 },
                 title: (item) => `${item.firstName} ${item.lastName}`,
-                subtitle: (item) => (
-                  <div className="space-y-2">
-                    {/* Position */}
-                    <div className="flex items-center">
-                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                        {item.position}
-                      </span>
-                    </div>
-                    
-                    {/* Personal Email */}
-                    <div className="text-sm text-gray-600 truncate">
-                      {item.personalEmail}
-                    </div>
-                  </div>
-                ),
+                email: (item) => item.personalEmail,
                 status: (item) => item.isActive ? 'active' : 'deactivated',
                 date: 'createdAt',
+                position: (item) => item.position,
                 badge: (item) => ({
                   text: item.barangayName,
                   className: 'bg-gray-100 text-gray-700 border border-gray-200 font-medium'
@@ -1863,24 +1969,36 @@ const SKManagement = () => {
       </div>
 
       {/* Staff Details Modals */}
-      <ViewStaffModal
+      <TabbedDetailModal
         isOpen={showViewModal}
         onClose={() => {
           setShowViewModal(false);
           setSelectedStaffMember(null);
         }}
-        staffMember={selectedStaffMember}
+        data={selectedStaffMember || {}}
+        mode="view"
+        config={skDetailConfig}
       />
 
-      <EditStaffModal
+      <TabbedDetailModal
         isOpen={showEditModal}
         onClose={() => {
           setShowEditModal(false);
           setSelectedStaffMember(null);
         }}
-        staffMember={selectedStaffMember}
-        onSave={handleEditSave}
-        isSaving={isEditingSaving}
+        data={selectedStaffMember || {}}
+        mode="edit"
+        config={{
+          ...skDetailConfig,
+          onSave: async (form) => {
+            await handleEditSave(form);
+            return true;
+          },
+          onDiscard: () => {
+            setShowEditModal(false);
+            setSelectedStaffMember(null);
+          }
+        }}
       />
       
       {/* Universal Toast Container */}

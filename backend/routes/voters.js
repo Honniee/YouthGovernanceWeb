@@ -92,6 +92,13 @@ router.patch('/:id/restore',
 // === BULK OPERATIONS ROUTES ===
 // NOTE: Bulk routes must come BEFORE parameterized routes to avoid conflicts
 
+// Bulk status update (archive/restore)
+router.post('/bulk', 
+  requireRole(['admin', 'lydo_staff']),
+  bulkOperationLimiter,
+  voterController.bulkUpdateStatus
+);
+
 // Bulk import
 router.post('/bulk/import', 
   requireRole(['admin', 'lydo_staff']),

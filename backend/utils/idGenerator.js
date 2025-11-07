@@ -60,60 +60,21 @@ export const generateLYDOId = async () => {
 
 /**
  * Generates a unique notification ID for notifications
- * Format: NOT001, NOT002, NOT003, etc.
+ * Format: NOT{timestamp} - Uses timestamp to avoid race conditions
  * @returns {Promise<string>} The generated notification ID
  */
-// Cache to prevent race conditions
-let notificationIdCounter = null;
-let lastNotificationIdUpdate = 0;
-let generationLock = Promise.resolve(); // Mutex to prevent race conditions
-
 export const generateNotificationId = async () => {
-  // Use a mutex to ensure atomic ID generation
-  return generationLock = generationLock.then(async () => {
-    try {
-      const now = Date.now();
-      
-      // Refresh counter every 5 seconds or if not initialized
-      if (!notificationIdCounter || (now - lastNotificationIdUpdate) > 5000) {
-        const result = await query(
-          'SELECT notification_id FROM "Notifications" ORDER BY notification_id DESC LIMIT 1'
-        );
-        
-        if (result.rows.length > 0) {
-          const lastId = result.rows[0].notification_id;
-          const match = lastId.match(/NOT(\d+)/);
-          if (match && match[1]) {
-            const lastNumber = parseInt(match[1]);
-            if (!isNaN(lastNumber)) {
-              notificationIdCounter = lastNumber;
-            } else {
-              notificationIdCounter = 0;
-            }
-          } else {
-            notificationIdCounter = 0;
-          }
-        } else {
-          notificationIdCounter = 0;
-        }
-        
-        lastNotificationIdUpdate = now;
-      }
-      
-      // Increment counter atomically
-      notificationIdCounter++;
-      
-      const formattedNumber = String(notificationIdCounter).padStart(3, '0');
-      const newId = `NOT${formattedNumber}`;
-      
-      console.log(`🆔 Generated notification ID: ${newId} (counter: ${notificationIdCounter})`);
-      return newId;
-      
-    } catch (error) {
-      console.error('❌ Error generating notification ID:', error);
-      throw new Error('Failed to generate notification ID');
-    }
-  });
+  try {
+    const timestamp = Date.now();
+    const newId = `NOT${timestamp}`;
+    
+    console.log(`🆔 Generated notification ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating notification ID:', error);
+    throw new Error('Failed to generate notification ID');
+  }
 };
 
 /**
@@ -245,106 +206,51 @@ export const generateTermId = async () => {
 
 /**
  * Generates a unique youth ID for Youth_Profiling table
- * Format: YTH001, YTH002, YTH003, etc.
+ * Format: YTH{timestamp} - Uses timestamp to avoid race conditions
  * @returns {Promise<string>} The generated youth ID
  */
-let youthIdGenerationLock = Promise.resolve(); // Mutex to prevent race conditions
-
 export const generateYouthId = async () => {
-  return youthIdGenerationLock = youthIdGenerationLock.then(async () => {
-    try {
-      const result = await query(
-        'SELECT youth_id FROM "Youth_Profiling" ORDER BY youth_id DESC LIMIT 1'
-      );
-      
-      let nextNumber = 1;
-      
-      if (result.rows.length > 0) {
-        const lastId = result.rows[0].youth_id;
-        const match = lastId.match(/YTH(\d+)/);
-        if (match) {
-          nextNumber = parseInt(match[1]) + 1;
-        }
-      }
-      
-      return `YTH${nextNumber.toString().padStart(3, '0')}`;
-    } catch (error) {
-      console.error('Error generating youth ID:', error);
-      throw new Error('Failed to generate youth ID');
-    }
-  });
+  try {
+    const timestamp = Date.now();
+    const newId = `YTH${timestamp}`;
+    
+    console.log(`🆔 Generated new Youth ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating youth ID:', error);
+    throw new Error('Failed to generate youth ID');
+  }
 };
 
 /**
  * Generates a unique user ID for Users table
- * Format: USR001, USR002, USR003, etc.
+ * Format: USR{timestamp} - Uses timestamp to avoid race conditions
  * @returns {Promise<string>} The generated user ID
  */
-let userIdGenerationLock = Promise.resolve(); // Mutex to prevent race conditions
-
 export const generateUserId = async () => {
-  return userIdGenerationLock = userIdGenerationLock.then(async () => {
-    try {
-      const result = await query(
-        'SELECT user_id FROM "Users" ORDER BY user_id DESC LIMIT 1'
-      );
-      
-      let nextNumber = 1;
-      
-      if (result.rows.length > 0) {
-        const lastId = result.rows[0].user_id;
-        const match = lastId.match(/USR(\d+)/);
-        if (match && match[1]) {
-          const lastNumber = parseInt(match[1]);
-          if (!isNaN(lastNumber)) {
-            nextNumber = lastNumber + 1;
-          }
-        }
-      }
-      
-      const formattedNumber = String(nextNumber).padStart(3, '0');
-      const newId = `USR${formattedNumber}`;
-      
-      console.log(`🆔 Generated new User ID: ${newId}`);
-      return newId;
-      
-    } catch (error) {
-      console.error('❌ Error generating user ID:', error);
-      throw new Error('Failed to generate user ID');
-    }
-  });
+  try {
+    const timestamp = Date.now();
+    const newId = `USR${timestamp}`;
+    
+    console.log(`🆔 Generated new User ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating user ID:', error);
+    throw new Error('Failed to generate user ID');
+  }
 };
 
 /**
  * Generates a unique Activity Log ID
- * Format: ACT001, ACT002, ACT003, etc.
+ * Format: ACT{timestamp} - Uses timestamp to avoid race conditions
  * @returns {Promise<string>} The generated Activity Log ID
  */
 export const generateLogId = async (client = null) => {
   try {
-    const db = client || { query };
-    
-    // Get the latest log ID from the database
-    const result = await db.query(
-      'SELECT log_id FROM "Activity_Logs" WHERE log_id LIKE \'ACT%\' ORDER BY log_id DESC LIMIT 1'
-    );
-    
-    let nextNumber = 1;
-    
-    if (result.rows.length > 0) {
-      // Extract the number from the last ID (e.g., "ACT001" -> 1)
-      const lastId = result.rows[0].log_id;
-      const match = lastId.match(/ACT(\d+)/);
-      if (match && match[1]) {
-        const lastNumber = parseInt(match[1]);
-        if (!isNaN(lastNumber)) {
-          nextNumber = lastNumber + 1;
-        }
-      }
-    }
-    
-    const formattedNumber = String(nextNumber).padStart(3, '0');
-    const newId = `ACT${formattedNumber}`;
+    const timestamp = Date.now();
+    const newId = `ACT${timestamp}`;
     
     console.log(`🆔 Generated new Activity Log ID: ${newId}`);
     return newId;
@@ -468,6 +374,194 @@ export const generateAnnouncementId = async () => {
 };
 
 /**
+ * Generates a unique Response ID for survey responses
+ * Format: RES{timestamp} - Uses timestamp to avoid race conditions
+ * @returns {Promise<string>} The generated Response ID
+ */
+export const generateResponseId = async () => {
+  try {
+    const timestamp = Date.now();
+    const newId = `RES${timestamp}`;
+    
+    console.log(`🆔 Generated new Response ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating response ID:', error);
+    throw new Error('Failed to generate response ID');
+  }
+};
+
+/**
+ * Generate Queue ID using timestamp
+ * Format: QUE{timestamp} - Uses timestamp to avoid race conditions
+ */
+export const generateQueueId = async () => {
+  try {
+    const timestamp = Date.now();
+    const newId = `QUE${timestamp}`;
+    
+    console.log(`🆔 Generated new Queue ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating queue ID:', error);
+    throw new Error('Failed to generate queue ID');
+  }
+};
+
+/**
+ * Generates a unique Council Member ID
+ * Format: LYDCMEM001, LYDCMEM002, etc.
+ * @returns {Promise<string>} The generated Council Member ID
+ */
+export const generateCouncilMemberId = async () => {
+  try {
+    const result = await query(
+      'SELECT id FROM "LYDO_Council_Members" WHERE id LIKE \'LYDCMEM%\' ORDER BY id DESC LIMIT 1'
+    );
+    
+    let nextNumber = 1;
+    
+    if (result.rows.length > 0) {
+      const lastId = result.rows[0].id;
+      const match = lastId.match(/LYDCMEM(\d+)/);
+      if (match && match[1]) {
+        const lastNumber = parseInt(match[1]);
+        if (!isNaN(lastNumber)) {
+          nextNumber = lastNumber + 1;
+        }
+      }
+    }
+    
+    const formattedNumber = String(nextNumber).padStart(3, '0');
+    const newId = `LYDCMEM${formattedNumber}`;
+    
+    console.log(`🆔 Generated new Council Member ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating Council Member ID:', error);
+    throw new Error('Failed to generate Council Member ID');
+  }
+};
+
+/**
+ * Generates a unique Council Role ID
+ * Format: LYDCROL001, LYDCROL002, etc.
+ * @returns {Promise<string>} The generated Council Role ID
+ */
+export const generateCouncilRoleId = async () => {
+  try {
+    const result = await query(
+      'SELECT id FROM "LYDO_Council_Roles" WHERE id LIKE \'LYDCROL%\' ORDER BY id DESC LIMIT 1'
+    );
+    
+    let nextNumber = 1;
+    
+    if (result.rows.length > 0) {
+      const lastId = result.rows[0].id;
+      const match = lastId.match(/LYDCROL(\d+)/);
+      if (match && match[1]) {
+        const lastNumber = parseInt(match[1]);
+        if (!isNaN(lastNumber)) {
+          nextNumber = lastNumber + 1;
+        }
+      }
+    }
+    
+    const formattedNumber = String(nextNumber).padStart(3, '0');
+    const newId = `LYDCROL${formattedNumber}`;
+    
+    console.log(`🆔 Generated new Council Role ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating Council Role ID:', error);
+    throw new Error('Failed to generate Council Role ID');
+  }
+};
+
+/**
+ * Generates a unique Segment ID for Youth Segments
+ * Format: SEG{timestamp} - Uses timestamp to avoid race conditions
+ * @returns {Promise<string>} The generated Segment ID
+ */
+export const generateSegmentId = async () => {
+  try {
+    const timestamp = Date.now();
+    const newId = `SEG${timestamp}`;
+    
+    console.log(`🆔 Generated new Segment ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating segment ID:', error);
+    throw new Error('Failed to generate segment ID');
+  }
+};
+
+/**
+ * Generates a unique Assignment ID for Youth Cluster Assignments
+ * Format: ASG{timestamp} - Uses timestamp to avoid race conditions
+ * @returns {Promise<string>} The generated Assignment ID
+ */
+export const generateAssignmentId = async () => {
+  try {
+    const timestamp = Date.now();
+    // Add random suffix to handle multiple assignments in same millisecond
+    const random = Math.floor(Math.random() * 1000);
+    const newId = `ASG${timestamp}${random}`;
+    
+    console.log(`🆔 Generated new Assignment ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating assignment ID:', error);
+    throw new Error('Failed to generate assignment ID');
+  }
+};
+
+/**
+ * Generates a unique Recommendation ID for Program Recommendations
+ * Format: REC{timestamp} - Uses timestamp to avoid race conditions
+ * @returns {Promise<string>} The generated Recommendation ID
+ */
+export const generateRecommendationId = async () => {
+  try {
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1000);
+    const newId = `REC${timestamp}${random}`;
+    
+    console.log(`🆔 Generated new Recommendation ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating recommendation ID:', error);
+    throw new Error('Failed to generate recommendation ID');
+  }
+};
+
+/**
+ * Generates a unique Clustering Run ID
+ * Format: CLR{timestamp} - Uses timestamp to avoid race conditions
+ * @returns {Promise<string>} The generated Clustering Run ID
+ */
+export const generateClusteringRunId = async () => {
+  try {
+    const timestamp = Date.now();
+    const newId = `CLR${timestamp}`;
+    
+    console.log(`🆔 Generated new Clustering Run ID: ${newId}`);
+    return newId;
+    
+  } catch (error) {
+    console.error('❌ Error generating clustering run ID:', error);
+    throw new Error('Failed to generate clustering run ID');
+  }
+};
+
+/**
  * Generic ID generator function that routes to specific generators based on prefix
  * @param {string} prefix - The prefix for the ID (e.g., 'ANN', 'LYDO', 'SK', etc.)
  * @returns {Promise<string>} The generated ID
@@ -494,6 +588,22 @@ export const generateId = async (prefix) => {
       return generateVoterId();
     case 'NOT':
       return generateNotificationId();
+    case 'RES':
+      return generateResponseId();
+    case 'QUE':
+      return generateQueueId();
+    case 'LYDCMEM':
+      return generateCouncilMemberId();
+    case 'LYDCROL':
+      return generateCouncilRoleId();
+    case 'SEG':
+      return generateSegmentId();
+    case 'ASG':
+      return generateAssignmentId();
+    case 'REC':
+      return generateRecommendationId();
+    case 'CLR':
+      return generateClusteringRunId();
     default:
       throw new Error(`Unknown ID prefix: ${prefix}`);
   }

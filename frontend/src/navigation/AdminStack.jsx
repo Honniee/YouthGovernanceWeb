@@ -20,15 +20,22 @@ import SurveyBatches from '../pages/admin/SurveyBatch';
 import SurveyBatchReport from '../pages/admin/SurveyBatchReport';
 
 import Announcements from '../pages/admin/Announcements';
-import AnnouncementManagement from '../pages/admin/AnnouncementManagement';
-import AnnouncementForm from '../pages/admin/AnnouncementForm';
+import AnnouncementCreate from '../pages/admin/AnnouncementCreate';
+import AnnouncementEdit from '../pages/admin/AnnouncementEdit';
+import AnnouncementDetail from '../pages/admin/AnnouncementDetail';
+import AnnouncementsFeatured from '../pages/admin/AnnouncementsFeatured';
 
 import AuditLogs from '../pages/admin/ActivityLogs';
-import TermHistory from '../pages/admin/TermHistory';
+import ValidationLogs from '../pages/admin/ValidationLogs';
+import SystemNotice from '../pages/admin/SystemNotice';
+import LYDOCouncilAdmin from '../pages/admin/LYDOCouncil';
 import SystemHealth from '../pages/admin/SystemHealth';
 import AdminProfile from '../pages/admin/AdminProfile';
 import ChangePassword from '../pages/admin/ChangePassword';
 import Notifications from '../pages/admin/Notifications';
+import ValidationQueue from '../pages/admin/ValidationQueue';
+import ReportGenerator from '../pages/admin/ReportGenerator';
+import SurveyTracking from '../pages/admin/SurveyTracking';
 import PortalNotFound from '../components/porrtal/PortalNotFound';
 
 const AdminStack = () => {
@@ -44,18 +51,26 @@ const AdminStack = () => {
         
         <Route path="/sk-governance/terms" element={<SKTerms />} />
         <Route path="/sk-governance/term-report" element={<SKTermReport />} />
-        <Route path="/sk-governance/term-history" element={<TermHistory />} />
+        <Route path="/system/notice" element={<SystemNotice />} />
+        <Route path="/content/lydo-council" element={<LYDOCouncilAdmin />} />
 
         <Route path="/survey/voter-lists" element={<VoterListUpload />} />
         <Route path="/survey/batches" element={<SurveyBatches />} />
         <Route path="/survey/batches/batch-report" element={<SurveyBatchReport />} />
+        <Route path="/survey/validation" element={<ValidationQueue />} />
+        <Route path="/survey/tracking" element={<SurveyTracking />} />
+        
 
         <Route path="/announcements" element={<Announcements />} />
-        <Route path="/announcements/create" element={<AnnouncementForm />} />
-        <Route path="/announcements/edit/:id" element={<AnnouncementForm />} />
+        <Route path="/announcements/featured" element={<AnnouncementsFeatured />} />
+        <Route path="/announcements/create" element={<AnnouncementCreate />} />
+        <Route path="/announcements/:id" element={<AnnouncementDetail />} />
+        <Route path="/announcements/:id/edit" element={<AnnouncementEdit />} />
         
         <Route path="/system/audit-logs" element={<AuditLogs />} />
+        <Route path="/audit/validation" element={<ValidationLogs />} />
         <Route path="/system/health" element={<SystemHealth />} />
+        <Route path="/reports/generator" element={<ReportGenerator />} />
         <Route path="/profile" element={<AdminProfile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/notifications" element={<Notifications />} />

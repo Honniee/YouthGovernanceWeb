@@ -80,6 +80,7 @@ class SurveyBatchesService {
       if (params.limit) queryParams.append('limit', params.limit);
       if (params.status) queryParams.append('status', params.status);
       if (params.search) queryParams.append('search', params.search);
+      if (params.barangay) queryParams.append('barangay', params.barangay);
 
       const qs = queryParams.toString();
       const url = qs
@@ -488,6 +489,40 @@ class SurveyBatchesService {
 
     // Fallback network/unknown error
     return { success: false, error: error?.message || defaultMessage };
+  }
+
+  // =============================================================================
+  // EXPORT OPERATIONS
+  // =============================================================================
+
+  /**
+   * Log export activity (for activity logs)
+   * Since exports are done client-side, this endpoint just logs the activity
+   * @param {Object} params - Export parameters
+   * @param {string} params.format - Export format (csv, excel, pdf)
+   * @param {Array} params.selectedIds - Selected batch IDs (for bulk export)
+   * @param {number} params.count - Number of items exported
+   * @param {string} params.status - Status filter applied
+   * @returns {Promise<Object>} API response
+   */
+  async logExport(params = {}) {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params.format) queryParams.append('format', params.format === 'xlsx' ? 'excel' : params.format);
+      if (params.logFormat) queryParams.append('logFormat', params.logFormat);
+      if (params.selectedIds && params.selectedIds.length > 0) {
+        queryParams.append('selectedIds', params.selectedIds.join(','));
+      }
+      if (params.count) queryParams.append('count', params.count);
+      if (params.status) queryParams.append('status', params.status);
+
+      const response = await api.get(`/survey-batches/export?${queryParams.toString()}`);
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Error logging export:', error);
+      // Don't fail the export if logging fails
+      return { success: false, error: 'Export logging failed' };
+    }
   }
 
   // =============================================================================

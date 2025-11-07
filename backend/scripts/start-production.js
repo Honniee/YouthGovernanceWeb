@@ -69,9 +69,10 @@ function startHealthChecks() {
     clearInterval(healthCheckInterval);
   }
 
+  const port = process.env.PORT || 3001;
   healthCheckInterval = setInterval(async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/health', {
+      const response = await fetch(`http://localhost:${port}/api/health`, {
         timeout: config.healthCheckTimeout
       });
       

@@ -23,6 +23,7 @@ import {
   Send as SendIcon
 } from 'lucide-react';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
+import { HeaderMainContent } from '../../components/portal_main_content';
 
 const AnnouncementCreate = () => {
   const navigate = useNavigate();
@@ -383,47 +384,21 @@ const AnnouncementCreate = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header Section - Responsive Design */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
-          {/* Mobile/Tablet Layout - Inline */}
-          <div className="flex items-center justify-between lg:hidden">
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => navigate('/staff/announcements')}
-                className="inline-flex items-center p-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-3 h-3" />
-              </button>
-              <div className="h-6 w-px bg-gray-300"></div>
-              <h1 className="text-base sm:text-lg font-bold text-gray-900">
-                Create Announcement
-              </h1>
-            </div>
-          </div>
-
-          {/* Desktop Layout - Horizontal */}
-          <div className="hidden lg:flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/staff/announcements')}
-                className="inline-flex items-center p-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div className="h-8 w-px bg-gray-300"></div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">
-                  Create Announcement
-                </h1>
-                <p className="text-sm text-gray-600 mt-1">
-                  Compose a new announcement for the youth community.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Page Header */}
+      <HeaderMainContent
+        title="Create Announcement"
+        description="Compose a new announcement for the youth community."
+        leading={(
+          <button
+            onClick={() => navigate('/staff/announcements')}
+            aria-label="Back"
+            className="inline-flex items-center p-1 text-gray-700 text-base sm:text-sm sm:px-3 sm:py-2 sm:border sm:border-gray-300 sm:rounded-lg hover:bg-transparent sm:hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1.5 sm:mr-2" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        )}
+      />
 
       {/* Step Progress Indicator */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

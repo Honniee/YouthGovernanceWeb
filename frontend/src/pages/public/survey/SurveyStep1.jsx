@@ -729,14 +729,6 @@ const SurveyStep1 = () => {
               </div>
             </div>
 
-          {/* Demo Data Button */}
-          <button 
-            onClick={toggleDemoMode} 
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all ${isDemoMode ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
-          >
-            <FlaskConical className="w-4 h-4" />
-            {isDemoMode ? 'Using Demo Data' : 'Load Demo Data'}
-          </button>
         </div>
 
           <div className="space-y-6">

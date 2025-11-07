@@ -7,6 +7,8 @@ const router = express.Router();
 
 // Public routes (no authentication required)
 router.get('/active', skTermsController.getActiveTerm);
+router.get('/public/chairpersons-by-barangay', skTermsController.getPublicChairpersonsByBarangay);
+router.get('/public/officials-by-barangay', skTermsController.getPublicOfficialsByBarangay);
 
 // All other routes require authentication
 router.use(authenticateToken);
@@ -15,6 +17,7 @@ router.use(authenticateToken);
 router.get('/', skTermsController.getAllTerms);
 router.get('/history', skTermsController.getTermHistory);
 router.get('/statistics', skTermsController.getTermStatistics);
+router.get('/export', skTermsController.exportSKTerms);
 
 // === INDIVIDUAL TERM ROUTES ===
 router.get('/:id', skTermsController.getTermById);
@@ -23,6 +26,7 @@ router.put('/:id', requireRole(['admin']), skTermsController.updateTerm);
 router.delete('/:id', requireRole(['admin']), skTermsController.deleteTerm);
 
 // === TERM STATUS MANAGEMENT ===
+router.patch('/:id/status', requireRole(['admin']), skTermsController.updateTermStatus);
 router.patch('/:id/activate', requireRole(['admin']), skTermsController.activateTerm);
 router.patch('/:id/complete', requireRole(['admin']), skTermsController.completeTerm);
 router.patch('/:id/extend', requireRole(['admin']), skTermsController.extendTerm);

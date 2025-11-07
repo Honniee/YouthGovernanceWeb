@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -40,86 +40,112 @@ import {
   FileText,
   Download,
   Settings,
-  AlertTriangle
+  AlertTriangle,
+  Target,
+  TrendingUp,
+  Activity,
+  Zap,
+  BookOpen,
+  Heart,
+  ClipboardList
 } from 'lucide-react';
 import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, ActiveTermBanner } from '../../components/portal_main_content';
 import { extractTermStats } from '../../utils/termStats';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
-import skTermsService from '../../services/skTermsService.js';
-import { useActiveTerm } from '../../hooks/useActiveTerm.js';
-import skService from '../../services/skService.js';
+import skTermsService from '../../services/skTermsService';
+import { useActiveTerm } from '../../hooks/useActiveTerm';
+import { useRealtime } from '../../realtime/useRealtime';
 
-
-
-const SKTerms = () => {
+const SKTermsManagement = () => {
   const navigate = useNavigate();
 
-  // Helper function to format dates for HTML date inputs
-  const formatDateForInput = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toISOString().split('T')[0]; // Returns YYYY-MM-DD
-  };
-
-  // Helper function to get days remaining for active term
-  const getActiveTermDaysRemaining = (endDate) => {
-    if (!endDate) return null;
-    const end = new Date(endDate).getTime();
-    const today = new Date().setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
-    return diffDays;
-  };
-
-  // Helper function to check if term is overdue (end date passed but still active)
-  const isTermOverdue = (term) => {
-    if (term.status !== 'active') return false;
-    const end = new Date(term.endDate).getTime();
-    const today = new Date().setHours(0, 0, 0, 0);
-    return end < today;
-  };
-
-  // Helper function to get overdue days
-  const getOverdueDays = (endDate) => {
-    if (!endDate) return 0;
-    const end = new Date(endDate).getTime();
-    const today = new Date().setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((today - end) / (1000 * 60 * 60 * 24));
-    return Math.max(0, diffDays);
-  };
-
-  // Use our reusable tab state hook
+  // Tab state hook for status filtering
   const { activeTab, setActiveTab } = useTabState('all', async (tabId) => {
     setTabLoading(true);
     setStatusFilter(tabId);
-    setCurrentPage(1);
+    setCurrentPage(1); // Reset to first page when changing tabs
     
     try {
-      await loadTermsData(tabId);
+      // Add a minimum loading time to make the effect visible
+      const [dataResult] = await Promise.all([
+        loadTermData({ customStatus: tabId, customPage: 1 }), // Load data for the new tab
+        new Promise(resolve => setTimeout(resolve, 300)) // Minimum 300ms loading
+      ]);
     } finally {
       setTabLoading(false);
     }
   });
 
+  // UI state
   const [viewMode, setViewMode] = useState('grid');
   const [selectedItems, setSelectedItems] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  
+  // Helpers for announcement-style grid cards
+  const formatDate = (value) => {
+    if (!value) return '';
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+  const getStatusStyles = (status) => {
+    const s = (status || '').toString().toLowerCase();
+    switch (s) {
+      case 'active':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'upcoming':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'completed':
+      case 'inactive':
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+  const getTermFallbackImage = (status, title) => {
+    const s = (status || '').toString().toLowerCase();
+    let from = '#64748b', to = '#111827';
+    if (s === 'active') { from = '#10b981'; to = '#065f46'; }
+    else if (s === 'upcoming') { from = '#f59e0b'; to = '#92400e'; }
+    else if (s === 'completed' || s === 'inactive') { from = '#9ca3af'; to = '#374151'; }
+    const displayTitle = (title || '').toString().slice(0, 42);
+    const svg = `
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675' preserveAspectRatio='xMidYMid slice'>
+        <defs>
+          <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='${from}'/>
+            <stop offset='100%' stop-color='${to}'/>
+          </linearGradient>
+        </defs>
+        <rect width='1200' height='675' fill='url(#g)'/>
+        <g fill='rgba(255,255,255,0.25)'>
+          <circle cx='150' cy='120' r='90'/>
+          <circle cx='1050' cy='560' r='120'/>
+          <circle cx='950' cy='90' r='60'/>
+        </g>
+        ${displayTitle ? `
+        <text x='600' y='350' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-size='32' font-weight='bold' opacity='0.9'>
+          <tspan x='600' dy='0'>${displayTitle}</tspan>
+        </text>` : ''}
+      </svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  };
 
-  // Terms data state
-  const [termsData, setTermsData] = useState([]);
+  // SK Term data state
+  const [terms, setTerms] = useState([]);
   const [totalTerms, setTotalTerms] = useState(0);
-  const [termsStats, setTermsStats] = useState({
+  const [termStats, setTermStats] = useState({
     total: 0,
     active: 0,
-    completed: 0,
-    upcoming: 0
+    upcoming: 0,
+    completed: 0
   });
   
-  // Active term state using custom hook (like SKManagement)
+  // Active term state using custom hook
   const { activeTerm, isLoading: isLoadingActiveTerm, error: activeTermError, hasActiveTerm } = useActiveTerm();
   
   // Search and filter state
@@ -130,21 +156,40 @@ const SKTerms = () => {
   // Filter modal state
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filterValues, setFilterValues] = useState({
-    termName: '',
-    status: '',
     dateCreated: ''
   });
   const filterTriggerRef = React.useRef(null);
   
-  // Form state
+  // Form state for creating new terms
   const [formData, setFormData] = useState({
     termName: '',
     startDate: '',
     endDate: ''
   });
+
+  // Separate form state for editing existing terms
+  const [editFormData, setEditFormData] = useState({
+    termName: '',
+    startDate: '',
+    endDate: ''
+  });
+
+  // Helper: format any date-like value to yyyy-MM-dd for <input type="date">
+  const formatDateForInput = (value) => {
+    if (!value) return '';
+    const date = (value instanceof Date) ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
   
   // Collapse state for Add Term form
   const [formCollapsed, setFormCollapsed] = useState(true);
+  
+  // Form saving state
+  const [isSaving, setIsSaving] = useState(false);
   
   // Bulk operations state
   const [bulkAction, setBulkAction] = useState('');
@@ -153,483 +198,246 @@ const SKTerms = () => {
   // Term details modal state
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showExtensionModal, setShowExtensionModal] = useState(false);
+  const [showExtendModal, setShowExtendModal] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState(null);
   const [isEditingSaving, setIsEditingSaving] = useState(false);
-   
-     // Extension modal state
-  const [extensionData, setExtensionData] = useState({
-    newEndDate: '',
-    reason: ''
-  });
-
-  // Edit modal state
-  const [editData, setEditData] = useState({
-    termName: '',
-    startDate: '',
-    endDate: ''
-  });
-
-  // Completion options modal state
-  const [showCompletionOptionsModal, setShowCompletionOptionsModal] = useState(false);
-  const [completionTerm, setCompletionTerm] = useState(null);
+  const [extensionData, setExtensionData] = useState({ newEndDate: '' });
+  const [isExtending, setIsExtending] = useState(false);
   
   // Confirmation modal hook
   const confirmation = useConfirmation();
 
   // Modal state management using custom hooks
-  const sortModal = useSortModal('created_at', 'desc', (newSortBy, newSortOrder) => {
-    setSortBy(newSortBy);
-    setSortOrder(newSortOrder);
-    // Use overrides so the latest values are applied immediately
-    loadTermsData(activeTab, { sortBy: newSortBy, sortOrder: newSortOrder });
-  });
+  const sortModal = useSortModal(sortBy, sortOrder);
   const bulkModal = useBulkModal();
   
   // Pagination state management using custom hook
   const pagination = usePagination({
     initialPage: currentPage,
     initialItemsPerPage: itemsPerPage,
-    totalItems: totalTerms,
-    onPageChange: (page) => {
-      setCurrentPage(page);
-      loadTermsData(activeTab);
-    },
-    onItemsPerPageChange: (itemsPerPage) => {
-      setItemsPerPage(itemsPerPage);
-      setCurrentPage(1);
-      loadTermsData(activeTab);
+    totalItems: totalTerms || 0,
+    onPageChange: setCurrentPage,
+    onItemsPerPageChange: setItemsPerPage
+  });
+
+  // Sync modal state with existing state variables
+  useEffect(() => {
+    setSortBy(sortModal.sortBy);
+    setSortOrder(sortModal.sortOrder);
+  }, [sortModal.sortBy, sortModal.sortOrder]);
+
+  // Sync pagination state when totalTerms changes
+  useEffect(() => {
+    if (totalTerms > 0 && pagination.totalItems !== totalTerms) {
+      console.log('🔄 Syncing pagination with totalTerms:', { totalTerms, paginationTotal: pagination.totalItems });
     }
-  });
+  }, [totalTerms, pagination.totalItems]);
 
-  // Export state management using generic export hook
-  // ===== Export Helpers (match SKTermReport look-and-feel) =====
-  const buildTermCsvRows = (terms = []) => {
-    const rows = [];
-    rows.push(['Term Name', 'Start Date', 'End Date', 'Status', 'Filled', 'Vacant', 'Total', 'Fill Rate', 'Barangays']);
-    (terms || []).forEach((t) => {
-      const stats = extractTermStats(t) || {};
-      rows.push([
-        t.termName || '',
-        t.startDate ? new Date(t.startDate).toLocaleDateString() : '',
-        t.endDate ? new Date(t.endDate).toLocaleDateString() : '',
-        (t.status || '').toString(),
-        stats.filled ?? (t?.statistics?.capacity?.filledPositions ?? t?.filledPositions ?? ''),
-        stats.vacant ?? (t?.statistics?.capacity?.vacantPositions ?? t?.vacantPositions ?? ''),
-        stats.total ?? (t?.statistics?.capacity?.totalPositions ?? t?.officialsCount ?? ''),
-        stats.percent != null ? `${stats.percent}%` : '',
-        stats.barangays ?? ''
-      ]);
-    });
-    return rows;
-  };
+  // Reset to first page when filters change
+  useEffect(() => {
+    if (currentPage > 1) {
+      setCurrentPage(1);
+    }
+  }, [searchQuery, statusFilter, sortBy, sortOrder]);
 
-  const downloadCsv = (filename, rows) => {
-    const csv = rows
-      .map(r => r.map(field => {
-        const v = (field ?? '').toString();
-        const escaped = v.replace(/"/g, '""');
-        return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
-      }).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  };
-
-  const openTermsPrintPdf = (title, terms = []) => {
-    const win = window.open('', '_blank');
-    if (!win) return;
-    const styles = `
-      <style>
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        body { font-family: Arial, sans-serif; color: #111; }
-        h1 { font-size: 16px; margin: 0 0 8px; font-weight: 700; text-align: left; }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; page-break-inside: avoid; }
-        th, td { border: 1.2px solid #666; padding: 6px 8px; font-size: 11px; line-height: 1.15; }
-        thead th { background: #eaf2ff !important; font-weight: 700; }
-        thead { display: table-header-group; }
-        .name { width: 220px; }
-        .date { width: 110px; text-align: left; }
-        .status { width: 80px; text-transform: capitalize; text-align: center; }
-        .num { width: 60px; text-align: center; }
-        .rate { width: 70px; text-align: center; }
-        .brgy { width: 80px; text-align: center; }
-        @page { size: A4 landscape; margin: 12mm; }
-      </style>`;
-    const header = `
-      <thead>
-        <tr>
-          <th class="name">Term Name</th>
-          <th class="date">Start Date</th>
-          <th class="date">End Date</th>
-          <th class="status">Status</th>
-          <th class="num">Filled</th>
-          <th class="num">Vacant</th>
-          <th class="num">Total</th>
-          <th class="rate">Fill %</th>
-          <th class="brgy">Barangays</th>
-        </tr>
-      </thead>`;
-    const rows = (terms || []).map((t) => {
-      const s = extractTermStats(t) || {};
-      const filled = s.filled ?? (t?.statistics?.capacity?.filledPositions ?? t?.filledPositions ?? '');
-      const vacant = s.vacant ?? (t?.statistics?.capacity?.vacantPositions ?? t?.vacantPositions ?? '');
-      const total = s.total ?? (t?.statistics?.capacity?.totalPositions ?? t?.officialsCount ?? '');
-      const percent = s.percent != null ? `${s.percent}%` : '';
-      const barangays = s.barangays ?? '';
-      return `
-        <tr>
-          <td class="name">${(t.termName || '').toString()}</td>
-          <td class="date">${t.startDate ? new Date(t.startDate).toLocaleDateString() : ''}</td>
-          <td class="date">${t.endDate ? new Date(t.endDate).toLocaleDateString() : ''}</td>
-          <td class="status">${(t.status || '').toString()}</td>
-          <td class="num">${filled}</td>
-          <td class="num">${vacant}</td>
-          <td class="num">${total}</td>
-          <td class="rate">${percent}</td>
-          <td class="brgy">${barangays}</td>
-        </tr>`;
-    }).join('');
-
-    win.document.write(`
-      <html>
-        <head>
-          <title>${title}</title>
-          ${styles}
-        </head>
-        <body>
-          <h1>${title}</h1>
-          <table>
-            ${header}
-            <tbody>${rows}</tbody>
-          </table>
-        </body>
-      </html>
-    `);
-    win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 300);
-  };
-
-  // Excel (XLS via XML) export (matches SKTermReport approach)
-  const buildExcelXml = (terms = []) => {
-    const headerRow = `
-      <Row>
-        <Cell><Data ss:Type="String">Term Name</Data></Cell>
-        <Cell><Data ss:Type="String">Start Date</Data></Cell>
-        <Cell><Data ss:Type="String">End Date</Data></Cell>
-        <Cell><Data ss:Type="String">Status</Data></Cell>
-        <Cell><Data ss:Type="String">Filled</Data></Cell>
-        <Cell><Data ss:Type="String">Vacant</Data></Cell>
-        <Cell><Data ss:Type="String">Total</Data></Cell>
-        <Cell><Data ss:Type="String">Fill %</Data></Cell>
-        <Cell><Data ss:Type="String">Barangays</Data></Cell>
-      </Row>`;
-
-    const bodyRows = (terms || []).map(t => {
-      const s = extractTermStats(t) || {};
-      const filled = s.filled ?? (t?.statistics?.capacity?.filledPositions ?? t?.filledPositions ?? '');
-      const vacant = s.vacant ?? (t?.statistics?.capacity?.vacantPositions ?? t?.vacantPositions ?? '');
-      const total = s.total ?? (t?.statistics?.capacity?.totalPositions ?? t?.officialsCount ?? '');
-      const percent = s.percent != null ? `${s.percent}%` : '';
-      const barangays = s.barangays ?? '';
-      return `
-        <Row>
-          <Cell><Data ss:Type="String">${(t.termName || '').toString()}</Data></Cell>
-          <Cell><Data ss:Type="String">${t.startDate ? new Date(t.startDate).toLocaleDateString() : ''}</Data></Cell>
-          <Cell><Data ss:Type="String">${t.endDate ? new Date(t.endDate).toLocaleDateString() : ''}</Data></Cell>
-          <Cell><Data ss:Type="String">${(t.status || '').toString()}</Data></Cell>
-          <Cell><Data ss:Type="String">${filled}</Data></Cell>
-          <Cell><Data ss:Type="String">${vacant}</Data></Cell>
-          <Cell><Data ss:Type="String">${total}</Data></Cell>
-          <Cell><Data ss:Type="String">${percent}</Data></Cell>
-          <Cell><Data ss:Type="String">${barangays}</Data></Cell>
-        </Row>`;
-    }).join('');
-
-    return `<?xml version="1.0"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
-<Worksheet ss:Name="SK Terms">
-<Table>
-${headerRow}
-${bodyRows}
-</Table>
-</Worksheet>
-</Workbook>`;
-  };
-
-  const downloadExcel = (filename, xmlString) => {
-    const blob = new Blob([xmlString], { type: 'application/vnd.ms-excel' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename.endsWith('.xls') ? filename : `${filename}.xls`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  };
-
-  const mainExport = useExport({
-    exportFunction: async (format, style = null) => {
-      try {
-        // Mirror SKTermReport: hit backend to log activity/notifications
-        const resp = activeTerm?.termId ? await skService.exportTermDetailed(activeTerm.termId, 'json') : { success: false };
-        if (resp.success) showSuccessToast('Export logged', 'Your export was recorded successfully');
-
-        const response = await skTermsService.getSKTerms({
-          limit: 1000,
-          status: activeTab === 'all' ? undefined : activeTab,
-          sortBy: 'created_at',
-          sortOrder: 'desc'
-        });
-        if (!response.success) throw new Error(response.message || 'Failed to load terms');
-
-        const terms = response.data?.data?.terms || response.data?.data || [];
-        if (format === 'csv') {
-          const rows = buildTermCsvRows(terms);
-          downloadCsv('sk-terms.csv', rows);
-        } else if (format === 'pdf') {
-          openTermsPrintPdf('SK Terms', terms);
-        } else if (format === 'excel') {
-          const xml = buildExcelXml(terms);
-          downloadExcel('sk-terms.xls', xml);
-        }
-        return { success: true };
-      } catch (error) {
-        throw new Error(error.message || 'Failed to export terms data');
-      }
-    },
-    onSuccess: () => showSuccessToast('Export completed', 'Terms exported successfully'),
-    onError: (error) => showErrorToast('Export failed', error.message)
-  });
-
-  const bulkExportHook = useExport({
-    exportFunction: async (format, style = null) => {
-      try {
-        // Mirror SKTermReport for logging/notifications
-        const resp = activeTerm?.termId ? await skService.exportTermDetailed(activeTerm.termId, 'json') : { success: false };
-        if (resp.success) showSuccessToast('Export logged', 'Your export was recorded successfully');
-
-        const selectedTermsData = termsData.filter(term => selectedItems.includes(term.termId));
-        if (selectedTermsData.length === 0) {
-          throw new Error('No terms selected for export');
-        }
-
-        if (format === 'csv') {
-          const rows = buildTermCsvRows(selectedTermsData);
-          downloadCsv('sk-terms-selected.csv', rows);
-        } else if (format === 'pdf') {
-          openTermsPrintPdf('SK Terms (Selected)', selectedTermsData);
-        } else if (format === 'excel') {
-          const xml = buildExcelXml(selectedTermsData);
-          downloadExcel('sk-terms-selected.xls', xml);
-        }
-        return { success: true };
-      } catch (error) {
-        throw new Error(error.message || 'Failed to export selected terms');
-      }
-    },
-    onSuccess: () => showSuccessToast('Bulk export completed', 'Selected terms exported successfully'),
-    onError: (error) => showErrorToast('Bulk export failed', error.message)
-  });
-
-  // Load terms data from API
-  const loadTermsData = async (statusFilter = 'all', overrides = {}) => {
+  // Load SK term data (supports silent refresh)
+  const loadTermData = async (...args) => {
+    let customStatus = null, customPage = null, silent = false;
+    if (args.length > 0 && typeof args[0] === 'object' && args[0] !== null) {
+      ({ customStatus = null, customPage = null, silent = false } = args[0]);
+    } else {
+      customStatus = args[0] ?? null;
+      customPage = args[1] ?? null;
+    }
+    if (!silent) setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      // Load terms with filters for display
       const params = {
-        page: currentPage,
+        page: customPage || currentPage,
         limit: itemsPerPage,
-        q: searchQuery,
-        sortBy: overrides.sortBy || sortBy,
-        sortOrder: overrides.sortOrder || sortOrder
+        sortBy,
+        sortOrder,
+        q: searchQuery || undefined,
+        status: customStatus !== null ? (customStatus !== 'all' ? customStatus : undefined) : (statusFilter !== 'all' ? statusFilter : undefined)
       };
+
+      const response = await skTermsService.getSKTerms(params);
+      console.log('🔍 Frontend - API Response:', response);
       
-      if (statusFilter !== 'all') {
-        params.status = statusFilter;
-      }
-      
-      const termsResponse = await skTermsService.getSKTerms(params);
-      
-      if (termsResponse.success) {
-        let terms = termsResponse.data.data.terms || [];
-        // Apply local filters (e.g., dateCreated) immediately
-        const appliedFilters = overrides.filters || filterValues;
-        if (appliedFilters?.dateCreated) {
-          const cutoff = new Date(appliedFilters.dateCreated).setHours(0,0,0,0);
-          terms = terms.filter(t => {
-            const created = new Date(t.createdAt || t.created_at || t.created_at_ts || t.created_at_date).getTime();
-            return Number.isFinite(created) ? created >= cutoff : true;
-          });
-        }
-        setTermsData(terms);
-        setTotalTerms(terms.length);
+      if (response.success) {
+        const termData = response.data.data?.terms || response.data.data || [];
+        console.log('🔍 Frontend - Term Data:', termData);
+        console.log('🔍 Frontend - First Term:', termData[0]);
+        
+        setTerms(termData);
+        setTotalTerms(response.data.data?.pagination?.totalRecords || response.data.data?.pagination?.total || termData.length || 0);
       } else {
-        showErrorToast('Failed to load terms', termsResponse.message);
+        console.error('Failed to load terms:', response.message);
+        showErrorToast('Load Error', 'Failed to load SK terms: ' + response.message);
       }
+    } catch (error) {
+      console.error('Error loading terms:', error);
+      if (!silent) showErrorToast('Load Error', 'Error loading SK term data');
+    } finally {
+      if (!silent) setIsLoading(false);
+    }
+  };
+
+  // Load SK term statistics (supports silent refresh)
+  const loadTermStats = async (opts = { silent: false }) => {
+    try {
+      console.log('🔍 Loading term statistics...');
       
-      // Load complete dataset for stats calculation (always load all terms for accurate tab counts)
+      // Get all terms for stats calculation
       const statsParams = {
-        limit: 1000, // Get all terms for stats
+        limit: 1000,
         sortBy: 'created_at',
         sortOrder: 'desc'
       };
       
       const statsResponse = await skTermsService.getSKTerms(statsParams);
+      console.log('🔍 Term stats response:', statsResponse);
       
       if (statsResponse.success) {
-        const allTerms = statsResponse.data.data.terms || [];
+        const allTerms = statsResponse.data.data?.terms || statsResponse.data.data || [];
+        console.log('🔍 All terms data:', allTerms);
         
-        // Calculate stats from complete dataset
-        const stats = {
+        const mappedStats = {
           total: allTerms.length,
           active: allTerms.filter(t => t.status === 'active').length,
-          completed: allTerms.filter(t => t.status === 'completed').length,
-          upcoming: allTerms.filter(t => t.status === 'upcoming').length
+          upcoming: allTerms.filter(t => t.status === 'upcoming').length,
+          completed: allTerms.filter(t => t.status === 'completed').length
         };
-        setTermsStats(stats);
-      }
-      
-      // Active term is now handled by useActiveTerm hook
-      // No need to manually load it here
-      
-    } catch (error) {
-      console.error('Error loading terms data:', error);
-      showErrorToast('Failed to load terms', 'An error occurred while loading terms data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Load data on component mount and check for overdue terms
-  useEffect(() => {
-    const initializeData = async () => {
-      console.log('🔄 Initializing SK Terms page...');
-      
-      // First load the data
-      await loadTermsData();
-      
-      // Wait a bit for the data to be set
-      setTimeout(async () => {
-        console.log('🔍 Checking for overdue terms...');
-        console.log('Current terms data:', termsData);
-        
-        // Then check if there are any overdue terms and update them automatically
-        const overdueTerms = termsData.filter(isTermOverdue);
-        console.log('Overdue terms found:', overdueTerms);
-        
-        if (overdueTerms.length > 0) {
-          console.log(`🔄 Found ${overdueTerms.length} overdue terms, updating automatically...`);
-          try {
-            const response = await skTermsService.triggerManualStatusUpdate();
-            console.log('Manual status update response:', response);
-            
-            if (response.success) {
-              console.log('✅ Automatic term status update completed');
-              // Reload data to show updated statuses
-              await loadTermsData();
+        console.log('🔍 Mapped stats:', mappedStats);
+        setTermStats(mappedStats);
             } else {
-              console.log('❌ Automatic update failed:', response.message);
+        console.error('Failed to load term stats:', statsResponse.message);
             }
           } catch (error) {
-            console.error('❌ Automatic update error:', error);
-          }
-        } else {
-          console.log('✅ No overdue terms found');
-        }
-      }, 1000); // Wait 1 second for data to load
-    };
-    
-    initializeData();
-  }, []);
-
-  // Set initial loading to false after data loads
-  useEffect(() => {
-    if (termsData.length > 0 || !isInitialLoading) {
-      setIsInitialLoading(false);
+      console.error('Error loading term stats:', error);
     }
-  }, [termsData, isInitialLoading]);
+  };
 
-  // Reload terms data without refreshing active term (for completion operations)
-  const reloadTermsDataWithoutActiveTerm = async (statusFilter = 'all') => {
+  // Memoize loadTermData to prevent infinite re-renders
+  const memoizedLoadTermData = React.useCallback(loadTermData, [
+    currentPage, 
+    itemsPerPage, 
+    sortBy, 
+    sortOrder, 
+    searchQuery, 
+    statusFilter
+  ]);
+
+  // Load data on component mount and when dependencies change
+  const isInitialMount = React.useRef(true);
+  const lastLoadParams = React.useRef(null);
+  const overdueCheckDoneRef = React.useRef(false);
+
+  // Auto-complete helper: complete active terms whose end date has passed
+  const completeOverdueActiveTerms = async () => {
     try {
-      setIsLoading(true);
-      
-      // Load terms with filters for display
-      const params = {
-        page: currentPage,
-        limit: itemsPerPage,
-        q: searchQuery,
-        sortBy: sortBy,
-        sortOrder: sortOrder
-      };
-      
-      if (statusFilter !== 'all') {
-        params.status = statusFilter;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const overdue = (terms || []).filter(t => {
+        const status = (t.status || '').toString().toLowerCase();
+        if (status !== 'active' || !t.endDate) return false;
+        const end = new Date(t.endDate);
+        end.setHours(0, 0, 0, 0);
+        return end < today;
+      });
+
+      if (overdue.length === 0) return;
+
+      const ok = await (confirmation.showConfirmation
+        ? confirmation.showConfirmation({
+            title: 'Complete overdue SK terms?',
+            message: `There ${overdue.length === 1 ? 'is' : 'are'} ${overdue.length} active term${overdue.length === 1 ? '' : 's'} past the end date. Complete now? This will set the end date to today and disable officials' access.`,
+            confirmText: 'Complete Now',
+            cancelText: 'Later',
+            variant: 'warning'
+          })
+        : Promise.resolve(false));
+      if (!ok) return;
+
+      confirmation.setLoading && confirmation.setLoading(true);
+      for (const t of overdue) {
+        try {
+          await skTermsService.completeSKTerm(t.termId, false);
+        } catch (e) {
+          // Continue with the rest even if one fails
+          console.error('Failed to complete overdue term', t.termId, e);
+        }
       }
-      
-      const termsResponse = await skTermsService.getSKTerms(params);
-      
-      if (termsResponse.success) {
-        const terms = termsResponse.data.data.terms || [];
-        setTermsData(terms);
-        setTotalTerms(termsResponse.data.data.pagination?.totalRecords || terms.length);
-      } else {
-        showErrorToast('Failed to load terms', termsResponse.message);
-      }
-      
-      // Load complete dataset for stats calculation (always load all terms for accurate tab counts)
-      const statsParams = {
-        limit: 1000, // Get all terms for stats
-        sortBy: 'created_at',
-        sortOrder: 'desc'
-      };
-      
-      const statsResponse = await skTermsService.getSKTerms(statsParams);
-      
-      if (statsResponse.success) {
-        const allTerms = statsResponse.data.data.terms || [];
-        
-        // Calculate stats from complete dataset
-        const stats = {
-          total: allTerms.length,
-          active: allTerms.filter(t => t.status === 'active').length,
-          completed: allTerms.filter(t => t.status === 'completed').length,
-          upcoming: allTerms.filter(t => t.status === 'upcoming').length
-        };
-        setTermsStats(stats);
-      }
-      
-      // Active term is now handled by useActiveTerm hook
-      // No need to manually clear it
-      
-    } catch (error) {
-      console.error('Error reloading terms data:', error);
-      showErrorToast('Failed to reload terms', 'An error occurred while reloading terms data');
+      await loadTermData();
+      await loadTermStats();
+      showSuccessToast && showSuccessToast('Completed', `${overdue.length} term${overdue.length === 1 ? '' : 's'} marked as completed`);
+    } catch (err) {
+      console.error('Auto-complete overdue terms failed:', err);
+      showErrorToast && showErrorToast('Auto-complete failed', 'Could not complete overdue terms');
     } finally {
-      setIsLoading(false);
+      confirmation.hideConfirmation && confirmation.hideConfirmation();
     }
   };
+  
+  useEffect(() => {
+    // Create param signature for comparison
+    const currentParams = `${currentPage}-${itemsPerPage}-${sortBy}-${sortOrder}-${searchQuery}-${statusFilter}`;
+    
+    const isFirstLoad = isInitialMount.current;
+    // Skip if same parameters (prevents duplicate calls), but NOT on the very first load
+    if (!isFirstLoad && lastLoadParams.current === currentParams) {
+      return;
+    }
+    
+    lastLoadParams.current = currentParams;
+    
+    const timeoutId = setTimeout(async () => {
+      if (isFirstLoad) {
+        // Load both data and stats on initial mount
+        await memoizedLoadTermData();
+        await loadTermStats();
+        isInitialMount.current = false;
+      } else {
+        // Only reload data on subsequent changes
+        await memoizedLoadTermData();
+      }
+    }, 300); // Longer delay to avoid rapid requests
 
-  // Filter terms by status (for local filtering if needed)
-  const filterTermsByStatus = (terms, status) => {
-    if (status === 'all') return terms;
-    return terms.filter(term => term.status === status);
-  };
+    return () => clearTimeout(timeoutId);
+  }, [memoizedLoadTermData, loadTermStats]);
+
+  // Realtime: refresh list on SK term events (silent refresh)
+  useRealtime('skTerm:activated', () => {
+    loadTermData({ customStatus: statusFilter, customPage: currentPage, silent: true });
+    loadTermStats({ silent: true });
+  });
+  useRealtime('skTerm:completed', () => {
+    loadTermData({ customStatus: statusFilter, customPage: currentPage, silent: true });
+    loadTermStats({ silent: true });
+  });
+  useRealtime('skTerm:extended', () => {
+    loadTermData({ customStatus: statusFilter, customPage: currentPage, silent: true });
+    loadTermStats({ silent: true });
+  });
+
+  // After terms load the first time, check for overdue active terms once
+  useEffect(() => {
+    if (isInitialMount.current) return; // wait until initial load finished
+    if (overdueCheckDoneRef.current) return;
+    if (!terms || terms.length === 0) return;
+    overdueCheckDoneRef.current = true;
+    completeOverdueActiveTerms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terms]);
+
+  // Reset current page if it's out of bounds
+  useEffect(() => {
+    if (totalTerms > 0) {
+      const maxPage = Math.ceil(totalTerms / itemsPerPage);
+      if (currentPage > maxPage) {
+        setCurrentPage(1);
+      }
+    }
+  }, [totalTerms, itemsPerPage, currentPage]);
 
   // Check if any filters are active
   const hasActiveFilters = Object.values(filterValues).some(value => {
@@ -644,14 +452,12 @@ ${bodyRows}
 
   const handleFilterApply = (appliedValues) => {
     setFilterValues(appliedValues);
-    setCurrentPage(1); // Reset to first page when filtering
-    loadTermsData(activeTab, { filters: appliedValues });
+    console.log('Filters applied:', appliedValues);
   };
 
   const handleFilterClear = (clearedValues) => {
     setFilterValues(clearedValues);
-    setCurrentPage(1);
-    loadTermsData(activeTab, { filters: clearedValues });
+    console.log('Filters cleared');
   };
 
   // Get action menu items for a term
@@ -659,8 +465,8 @@ ${bodyRows}
     const items = [
       {
         id: 'report',
-        label: 'Open Term Report',
-        icon: <FileText className="w-4 h-4" />,
+        label: 'View Term Report',
+        icon: <BarChart3 className="w-4 h-4" />,
         action: 'report'
       },
       {
@@ -690,7 +496,6 @@ ${bodyRows}
           action: 'complete'
         });
         break;
-        
       case 'completed':
         items.push({
           id: 'extend',
@@ -708,48 +513,64 @@ ${bodyRows}
     setSelectedTerm(item);
     
     switch (action) {
+      case 'report':
+        // Navigate to term report page
+        navigate(`/admin/sk-governance/term-report?termId=${item.termId}`);
+        break;
       case 'edit':
-        {
-          // Populate edit form with current term data
-          const formattedStartDate = formatDateForInput(item.startDate);
-          const formattedEndDate = formatDateForInput(item.endDate);
-          
-          console.log('🔧 Edit term data:', {
-            original: {
-              termName: item.termName,
-              startDate: item.startDate,
-              endDate: item.endDate
-            },
-            formatted: {
-              termName: item.termName,
-              startDate: formattedStartDate,
-              endDate: formattedEndDate
-            }
-          });
-          
-          setEditData({
-            termName: item.termName,
-            startDate: formattedStartDate,
-            endDate: formattedEndDate
+        setEditFormData({
+          termName: item.termName || '',
+          startDate: formatDateForInput(item.startDate),
+          endDate: formatDateForInput(item.endDate)
           });
         setShowEditModal(true);
-        }
         break;
-      case 'report':
-        navigate(`/admin/sk-governance/term-report?termId=${item.termId}`);
+      case 'extend':
+        {
+          if ((item.status || '').toString().toLowerCase() !== 'completed') {
+            showErrorToast('Invalid action', 'Only completed terms can be extended');
+            break;
+          }
+          setShowExtendModal(true);
+        }
         break;
       case 'activate':
         {
-          const confirmed = await confirmation.confirmActivate(item.termName);
-          if (confirmed) {
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          const start = new Date(item.startDate);
+          start.setHours(0,0,0,0);
+
+          // If start date is in the future, treat Activate as Force Activate with reason
+          const shouldForce = start > today;
+          let confirmed = false;
+          if (shouldForce) {
+            confirmed = await confirmation.showConfirmation({
+              title: 'Force Activate Confirmation',
+              message: `This term has a future start date (${new Date(item.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}).\n\nActivating now will set the start date to today and make the term immediately active. Do you want to proceed?`,
+              confirmText: 'Force Activate',
+              cancelText: 'Cancel',
+              variant: 'warning'
+            });
+          } else {
+            confirmed = await confirmation.confirmActivate(item.termName);
+          }
+          if (!confirmed) break;
+          
             confirmation.setLoading(true);
             try {
-              console.log('🔧 Attempting to activate term:', item.termId, item.termName);
-              const response = await skTermsService.activateSKTerm(item.termId);
+            console.log('🔧 Attempting to activate term:', item.termId, item.termName, shouldForce ? '(force)' : '(normal)');
+            let response;
+            if (shouldForce) {
+              response = await skTermsService.updateTermStatus(item.termId, 'active', 'force-activate');
+            } else {
+              response = await skTermsService.activateSKTerm(item.termId);
+            }
               
               if (response.success) {
-            showSuccessToast('Term activated', `${item.termName} has been activated successfully`);
-                await loadTermsData(activeTab); // Reload data
+              showSuccessToast('Term activated', `${item.termName} has been activated successfully${shouldForce ? ' (start date adjusted)' : ''}`);
+              await loadTermData(); // Reload data
+              await loadTermStats(); // Reload stats
               } else {
                 console.error('❌ Activation failed:', response);
                 let errorMessage = response.message || 'Unknown error occurred';
@@ -797,24 +618,43 @@ ${bodyRows}
               showErrorToast('Activation failed', errorMessage);
             } finally {
             confirmation.hideConfirmation();
-            }
           }
         }
         break;
       case 'complete':
         {
-          // Show completion options modal instead of direct completion
-          setCompletionTerm(item);
-          setShowCompletionOptionsModal(true);
+          const confirmed = await confirmation.showConfirmation({
+            title: 'Complete SK Term',
+            message: `Complete ${item.termName}? This will set the end date to today and disable all officials' account access.`,
+            confirmText: 'Complete Now',
+            cancelText: 'Cancel',
+            variant: 'warning'
+          });
+          if (confirmed) {
+            confirmation.setLoading(true);
+            try {
+              // Complete term: set end_date to today (like closing a batch)
+              const completeResponse = await skTermsService.completeSKTerm(item.termId, false);
+              if (completeResponse.success) {
+                showSuccessToast('Term completed', `${item.termName} has been completed successfully`);
+                await loadTermData(); // Reload data
+                await loadTermStats(); // Reload stats
+              } else {
+                showErrorToast('Completion failed', completeResponse.message || completeResponse.error || 'Failed to complete term');
+              }
+            } catch (error) {
+              showErrorToast('Completion failed', 'Failed to complete SK term');
+            } finally {
+              confirmation.hideConfirmation();
+            }
+          }
         }
-        break;
-      case 'extend':
-        setShowExtensionModal(true);
         break;
     }
   };
 
   const handleSelectItem = (id) => {
+    console.log('🔍 handleSelectItem called with id:', id, 'current selectedItems:', selectedItems);
     setSelectedItems(prev => 
       prev.includes(id) 
         ? prev.filter(item => item !== id)
@@ -823,36 +663,18 @@ ${bodyRows}
   };
 
   const handleSelectAll = () => {
-    setSelectedItems(selectedItems.length === termsData.length ? [] : termsData.map(item => item.termId));
+    const allTermIds = terms.map(item => item.termId).filter(Boolean);
+    console.log('🔍 handleSelectAll - allTermIds:', allTermIds, 'current selectedItems:', selectedItems);
+    setSelectedItems(selectedItems.length === allTermIds.length ? [] : allTermIds);
   };
 
+  // Handle search query changes
   const handleSearchChange = (newQuery) => {
     setSearchQuery(newQuery);
-    setCurrentPage(1);
-    // Debounce search to avoid too many API calls
-    const timeoutId = setTimeout(() => {
-      loadTermsData(activeTab);
-    }, 500);
-    return () => clearTimeout(timeoutId);
+    setCurrentPage(1); // Reset to first page when searching
   };
 
-  // Handle manual status update trigger
-  const handleManualStatusUpdate = async () => {
-    try {
-      const response = await skTermsService.triggerManualStatusUpdate();
-      if (response.success) {
-        showSuccessToast('Status update triggered', 'Term statuses have been updated automatically');
-        // Reload data to reflect changes
-        await loadTermsData(activeTab);
-      } else {
-        showErrorToast('Status update failed', response.message || 'Failed to update term statuses');
-      }
-    } catch (error) {
-      console.error('Manual status update error:', error);
-      showErrorToast('Status update failed', 'An error occurred while updating term statuses');
-    }
-  };
-
+  // Form handlers
   const handleFormChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -861,47 +683,20 @@ ${bodyRows}
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validate form data
-    const validation = skTermsService.validateTermData(formData);
-    if (!validation.isValid) {
-      showErrorToast('Validation failed', validation.errors.join(', '));
+    // Basic validation
+    if (!formData.termName || !formData.startDate || !formData.endDate) {
+      showErrorToast('Validation failed', 'Please fill in all required fields');
       return;
     }
     
+    setIsSaving(true);
     try {
-      setIsEditingSaving(true);
-      
-      console.log('📝 Creating term with data:', formData);
+      // Call API to create term
       const response = await skTermsService.createSKTerm(formData);
-      console.log('📝 Create term response:', response);
+      console.log('🔍 Create Term Response:', response);
       
       if (response.success) {
-        // Enhanced success with Universal Toast (similar to StaffManagement)
-        const { data } = response;
-      
-      showSuccessToast('Term created', `${formData.termName} has been created successfully`, [
-        {
-          label: "View Term",
-          onClick: () => {
-              // Find the created term and show details
-              const createdTerm = {
-                termId: data.termId,
-                termName: data.termName,
-                startDate: data.startDate,
-                endDate: data.endDate,
-                status: data.status
-              };
-            },
-            variant: 'primary'
-        },
-          {
-            label: "Create Another",
-            onClick: () => {
-              // Keep form open for another creation
-              setFormCollapsed(false);
-            }
-          }
-        ]);
+        showSuccessToast('Term created', `${formData.termName} has been created successfully`);
       
       // Reset form
       setFormData({
@@ -912,10 +707,11 @@ ${bodyRows}
         setFormCollapsed(true);
         
         // Reload data
-        await loadTermsData(activeTab);
+        await loadTermData();
+        await loadTermStats();
       } else {
         // Enhanced error handling with specific validation errors
-        let errorMessage = response.message;
+        let errorMessage = response.message || 'Unknown error occurred';
         
         // If there are specific validation errors, show them
         if (response.errors && Array.isArray(response.errors)) {
@@ -940,9 +736,10 @@ ${bodyRows}
         }
         
         showErrorToast('Term Creation Failed', errorMessage);
+        console.error('🔍 API Error Response:', response);
       }
     } catch (error) {
-      console.error('Error creating term:', error);
+      console.error('🔍 Error creating term:', error);
       
       // Enhanced error message for network/technical errors
       let errorMessage = 'Failed to create term';
@@ -950,98 +747,444 @@ ${bodyRows}
         errorMessage = error.message;
       } else if (error.response && error.response.data && error.response.data.message) {
         errorMessage = error.response.data.message;
+        
+        // Also check for errors array in response
+        if (error.response.data.errors && Array.isArray(error.response.data.errors)) {
+          if (error.response.data.errors.length === 1) {
+            errorMessage = error.response.data.errors[0];
+          } else if (error.response.data.errors.length === 2) {
+            errorMessage = `${error.response.data.errors[0]} and ${error.response.data.errors[1].toLowerCase()}`;
+          } else {
+            errorMessage = `Please fix ${error.response.data.errors.length} issues: ${error.response.data.errors.slice(0, 2).join(', ')}${error.response.data.errors.length > 2 ? ' and more...' : ''}`;
+          }
+        }
       }
       
       showErrorToast('Creation Failed', errorMessage);
     } finally {
-      setIsEditingSaving(false);
+      setIsSaving(false);
     }
   };
 
-  // Helpers for card UI
-  const getProgressPercent = (item) => extractTermStats(item)?.percent ?? 0;
-  const getFilledVsTotal = (item) => {
-    const s = extractTermStats(item);
-    return s ? { filled: s.filled, total: s.total, vacant: s.vacant } : { filled: 0, total: 0, vacant: 0 };
+  // Helper functions for statistics
+  const getTermStatistics = (item) => {
+    const stats = extractTermStats(item) || {};
+    return {
+      totalOfficials: stats.total || 0,
+      filledPositions: stats.filled || 0,
+      vacantPositions: stats.vacant || 0,
+      fillPercent: stats.percent || 0,
+      barangays: stats.barangays || null
+    };
   };
-  const getBarangaysCount = (item) => extractTermStats(item)?.barangays ?? null;
 
   // Get term display fields for DataTable
   const getTermDisplayFields = () => ({
-    title: (item) => (
+    title: (item) => {
+      return (
       <div className="flex items-center space-x-2">
-        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-100 text-blue-600">
+          <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex-shrink-0">
           <Calendar className="w-4 h-4" />
         </span>
-        <span className="font-medium text-gray-900">{item.termName}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 min-w-0">
+                <span className="font-medium text-gray-900 text-sm sm:text-base truncate">{item.termName}</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 flex-shrink-0">
+                  {item.termId}
+                </span>
       </div>
-    ),
+            </div>
+          </div>
+        </div>
+      );
+    },
     subtitle: (item) => {
-      const { filled, total, vacant } = getFilledVsTotal(item);
-      const percent = getProgressPercent(item);
-      const barangays = getBarangaysCount(item);
-      return (
-      <div className="space-y-2">
-        {/* Date Range */}
-        <div className="flex items-center text-sm text-gray-600">
-          <Calendar className="w-3 h-3 mr-1" />
-          {new Date(item.startDate).toLocaleDateString()} - {new Date(item.endDate).toLocaleDateString()}
-          {(() => {
-            const days = getActiveTermDaysRemaining(item.endDate);
-            const isOverdue = isTermOverdue(item);
-            const overdueDays = getOverdueDays(item.endDate);
-            
-            if (isOverdue) {
+      const stats = getTermStatistics(item);
+      
+      // Calculate days remaining if active
+      let daysRemaining = null;
+      let isOverdue = false;
+      
+      if (item.status === 'active' && item.endDate) {
+        try {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          
+          const endDate = new Date(item.endDate);
+          endDate.setHours(0, 0, 0, 0);
+          
+          const timeDiff = endDate.getTime() - today.getTime();
+          daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
+          isOverdue = daysRemaining < 0;
+        } catch (error) {
+          console.error('Error calculating days remaining:', error);
+        }
+      }
+      
               return (
-                <span className="ml-2 text-xs text-red-600 font-medium">
-                  ⚠️ Overdue by {overdueDays} day{overdueDays !== 1 ? 's' : ''}
+        <div className="space-y-1.5 sm:space-y-2">
+          {/* Date Range - Responsive format */}
+          <div className="flex items-center text-xs sm:text-sm text-gray-600">
+            <Calendar className="w-3 h-3 mr-1 flex-shrink-0" />
+            <div className="truncate">
+              {/* Mobile format */}
+              <span className="sm:hidden">
+                {new Date(item.startDate).toLocaleDateString('en-US', { 
+                  year: '2-digit', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })} - {new Date(item.endDate).toLocaleDateString('en-US', { 
+                  year: '2-digit', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })}
                 </span>
-              );
-            } else if (days !== null) {
-              return (
-                <span className="ml-2 text-xs text-gray-500">
-                  {days > 0 ? `• Ends in ${days} day${days !== 1 ? 's' : ''}` : days === 0 ? '• Ends today' : `• Ended ${Math.abs(days)} day${Math.abs(days) !== 1 ? 's' : ''} ago`}
+              {/* Desktop format */}
+              <span className="hidden sm:inline">
+                {new Date(item.startDate).toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })} - {new Date(item.endDate).toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })}
                 </span>
-              );
-            }
-            return null;
-          })()}
+            </div>
         </div>
         
-        {/* Quick stats chips */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-              {filled}/{total} Positions
+          {/* Statistics - Mobile-friendly layout */}
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-1 sm:gap-2">
+            {/* Fill Rate - Most Important (Always First) */}
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200 w-fit">
+              <TrendingUp className="w-3 h-3 mr-1 flex-shrink-0" />
+              <span className="truncate">{stats.fillPercent}% Filled</span>
             </span>
-          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-              {percent}% Filled
+            
+            {/* Total Positions */}
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 w-fit">
+              <Users className="w-3 h-3 mr-1 flex-shrink-0" />
+              <span className="truncate">{stats.filledPositions}/{stats.totalOfficials} Positions</span>
           </span>
-            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${vacant > 0 ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-              {vacant} Vacant
+            
+            {/* Filled Positions - Always show */}
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit">
+              <CheckCircle className="w-3 h-3 mr-1 flex-shrink-0" />
+              <span className="truncate">{stats.filledPositions} Filled</span>
             </span>
-            {typeof barangays === 'number' && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200">
-                {barangays} Barangays
+            
+            {/* Vacant Positions - Always show */}
+            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border w-fit ${
+              stats.vacantPositions > 0 
+                ? 'bg-orange-50 text-orange-700 border-orange-200' 
+                : 'bg-gray-50 text-gray-700 border-gray-200'
+            }`}>
+              <AlertCircle className="w-3 h-3 mr-1 flex-shrink-0" />
+              <span className="truncate">{stats.vacantPositions} Vacant</span>
+            </span>
+            
+            {/* Barangays Count - If available */}
+            {stats.barangays !== null && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 w-fit">
+                <Target className="w-3 h-3 mr-1 flex-shrink-0" />
+                <span className="truncate">{stats.barangays} Barangays</span>
             </span>
           )}
-        </div>
-        
-        {/* Progress bar */}
-        <div className="w-full bg-gray-200 rounded-full h-1.5">
-          <div
-            className="bg-green-500 h-1.5 rounded-full transition-all duration-300"
-              style={{ width: `${percent}%` }}
-          ></div>
+            
+            {/* Days Remaining - Only for active terms */}
+            {item.status === 'active' && daysRemaining !== null && (
+              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border w-fit ${
+                daysRemaining > 0 
+                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200' 
+                  : 'bg-red-50 text-red-700 border-red-200'
+              }`}>
+                <Clock className="w-3 h-3 mr-1 flex-shrink-0" />
+                <span className="truncate">
+                  {daysRemaining > 0 
+                    ? `${daysRemaining} days left` 
+                    : daysRemaining === 0 
+                      ? 'Ends today' 
+                      : `${Math.abs(daysRemaining)} days overdue`
+                  }
+                </span>
+              </span>
+            )}
+            
+            {/* Overdue Indicator - Only for overdue active terms */}
+            {item.status === 'active' && isOverdue && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200 w-fit">
+                <AlertTriangle className="w-3 h-3 mr-1 flex-shrink-0" />
+                <span className="truncate">Overdue</span>
+              </span>
+            )}
         </div>
       </div>
       );
     },
-    status: (item) => item.status,
+    status: (item) => {
+      const s = (item.status || '').toString().toLowerCase();
+      return s === 'inactive' ? 'completed' : s;
+    },
     date: 'createdAt',
-    badge: (item) => ({
-      text: `${(item?.statistics?.capacity?.totalPositions ?? item?.officialsCount ?? 0)} Capacity`,
-      className: 'bg-blue-100 text-blue-700 border border-blue-200'
-    })
+    badge: null // Remove badge to avoid duplicate display
+  });
+
+  // Export helper functions
+  const buildTermCsvRows = (terms = []) => {
+    const rows = [];
+    rows.push(['Term ID', 'Term Name', 'Start Date', 'End Date', 'Status', 'Total Officials', 'Filled', 'Vacant', 'Fill Rate', 'Created At']);
+    (terms || []).forEach((t) => {
+      const stats = getTermStatistics(t);
+      rows.push([
+        t.termId || '',
+        t.termName || '',
+        t.startDate ? new Date(t.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '',
+        t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '',
+        (t.status || '').toString(),
+        stats.totalOfficials,
+        stats.filledPositions,
+        stats.vacantPositions,
+        `${stats.fillPercent}%`,
+        t.createdAt ? new Date(t.createdAt).toLocaleDateString() : ''
+      ]);
+    });
+    return rows;
+  };
+
+  const downloadCsv = (filename, rows) => {
+    const csv = rows
+      .map(r => r.map(field => {
+        const v = (field ?? '').toString();
+        const escaped = v.replace(/"/g, '""');
+        return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
+      }).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Excel (XLS via XML) export
+  const buildTermExcelXml = (terms = []) => {
+    const headerRow = `
+      <Row>
+        <Cell><Data ss:Type="String">Term ID</Data></Cell>
+        <Cell><Data ss:Type="String">Term Name</Data></Cell>
+        <Cell><Data ss:Type="String">Start Date</Data></Cell>
+        <Cell><Data ss:Type="String">End Date</Data></Cell>
+        <Cell><Data ss:Type="String">Status</Data></Cell>
+        <Cell><Data ss:Type="String">Total Officials</Data></Cell>
+        <Cell><Data ss:Type="String">Filled</Data></Cell>
+        <Cell><Data ss:Type="String">Vacant</Data></Cell>
+        <Cell><Data ss:Type="String">Fill Rate</Data></Cell>
+        <Cell><Data ss:Type="String">Created At</Data></Cell>
+      </Row>`;
+
+    const bodyRows = (terms || []).map((t) => {
+      const stats = getTermStatistics(t);
+      return `
+        <Row>
+          <Cell><Data ss:Type="String">${(t.termId || '').toString()}</Data></Cell>
+          <Cell><Data ss:Type="String">${(t.termName || '').toString()}</Data></Cell>
+          <Cell><Data ss:Type="String">${t.startDate ? new Date(t.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''}</Data></Cell>
+          <Cell><Data ss:Type="String">${t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''}</Data></Cell>
+          <Cell><Data ss:Type="String">${((t.status || '').toString())}</Data></Cell>
+          <Cell><Data ss:Type="Number">${stats.totalOfficials}</Data></Cell>
+          <Cell><Data ss:Type="Number">${stats.filledPositions}</Data></Cell>
+          <Cell><Data ss:Type="Number">${stats.vacantPositions}</Data></Cell>
+          <Cell><Data ss:Type="String">${stats.fillPercent}%</Data></Cell>
+          <Cell><Data ss:Type="String">${t.createdAt ? new Date(t.createdAt).toLocaleDateString() : ''}</Data></Cell>
+        </Row>`;
+    }).join('');
+
+    return `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+<Worksheet ss:Name="SK Terms">
+<Table>
+${headerRow}
+${bodyRows}
+</Table>
+</Worksheet>
+</Workbook>`;
+  };
+
+  const downloadExcel = (filename, xmlString) => {
+    const blob = new Blob([xmlString], { type: 'application/vnd.ms-excel' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.endsWith('.xls') ? filename : `${filename}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // PDF export via print-friendly window
+  const openPrintPdf = (title, terms = []) => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const styles = `
+      <style>
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { font-family: Arial, sans-serif; color: #111; }
+        h1 { font-size: 16px; margin: 0 0 8px; font-weight: 700; text-align: left; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid #666; padding: 6px 8px; font-size: 11px; line-height: 1.15; }
+        thead th { background: #f3f4f6 !important; font-weight: 700; }
+        thead { display: table-header-group; }
+        @page { size: A4 landscape; margin: 12mm; }
+      </style>`;
+    const header = `
+      <thead>
+        <tr>
+          <th>Term ID</th>
+          <th>Term Name</th>
+          <th>Status</th>
+          <th>Start Date</th>
+          <th>End Date</th>
+          <th>Total</th>
+          <th>Filled</th>
+          <th>Vacant</th>
+          <th>Fill Rate</th>
+        </tr>
+      </thead>`;
+    const rows = (terms || []).map((t) => {
+      const stats = getTermStatistics(t);
+      return `
+        <tr>
+          <td>${t.termId || ''}</td>
+          <td>${t.termName || ''}</td>
+          <td>${t.status || ''}</td>
+          <td>${t.startDate ? new Date(t.startDate).toLocaleDateString() : ''}</td>
+          <td>${t.endDate ? new Date(t.endDate).toLocaleDateString() : ''}</td>
+          <td>${stats.totalOfficials}</td>
+          <td>${stats.filledPositions}</td>
+          <td>${stats.vacantPositions}</td>
+          <td>${stats.fillPercent}%</td>
+        </tr>`;
+    }).join('');
+    win.document.write(`
+      <html>
+        <head>
+          <title>${title}</title>
+          ${styles}
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <table>
+            ${header}
+            <tbody>${rows}</tbody>
+          </table>
+        </body>
+      </html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 300);
+  };
+
+  const mainExport = useExport({
+    exportFunction: async (format, style = null) => {
+      try {
+        const filteredTerms = statusFilter === 'all' ? terms : terms.filter(t => t.status === statusFilter);
+        
+        if (format === 'csv') {
+          const rows = buildTermCsvRows(filteredTerms);
+          downloadCsv('sk-terms.csv', rows);
+        } else if (format === 'excel') {
+          const xml = buildTermExcelXml(filteredTerms);
+          downloadExcel('sk-terms.xls', xml);
+        } else if (format === 'pdf') {
+          openPrintPdf('SK Terms', filteredTerms);
+        }
+        
+        // Log export to backend for activity logs (fire and forget)
+        // Use JSON format to avoid file download, but pass actual format in query for correct logging
+        const actualFormat = format === 'xlsx' ? 'excel' : format;
+        try {
+          const queryParams = new URLSearchParams();
+          queryParams.append('format', 'json'); // Use JSON to avoid download
+          queryParams.append('logFormat', actualFormat); // Pass actual format for logging
+          queryParams.append('count', filteredTerms.length.toString()); // Pass actual filtered count
+          if (statusFilter !== 'all') {
+            queryParams.append('tab', statusFilter); // Pass tab info for logging
+          }
+          
+          const apiModule = await import('../../services/api.js');
+          const api = apiModule.default;
+          api.get(`/sk-terms/export?${queryParams.toString()}`).catch(err => {
+            console.error('Failed to log export activity:', err);
+          });
+        } catch (err) {
+          console.error('Failed to log export activity:', err);
+        }
+        
+        return { success: true };
+      } catch (error) {
+        throw new Error(error.message || 'Failed to export terms data');
+      }
+    },
+    onSuccess: () => showSuccessToast('Export completed', 'Terms exported successfully'),
+    onError: (error) => showErrorToast('Export failed', error.message)
+  });
+
+  const bulkExportHook = useExport({
+    exportFunction: async (format, style = null) => {
+      try {
+        const selectedTermsData = terms.filter(term => selectedItems.includes(term.termId));
+        if (selectedTermsData.length === 0) {
+          throw new Error('No terms selected for export');
+        }
+
+        if (format === 'csv') {
+          const rows = buildTermCsvRows(selectedTermsData);
+          downloadCsv('sk-terms-selected.csv', rows);
+        } else if (format === 'excel') {
+          const xml = buildTermExcelXml(selectedTermsData);
+          downloadExcel('sk-terms-selected.xls', xml);
+        } else if (format === 'pdf') {
+          openPrintPdf('SK Terms (Selected)', selectedTermsData);
+        }
+        
+        // Log export to backend for activity logs (fire and forget)
+        // Use JSON format to avoid file download, but pass actual format in query for correct logging
+        const actualFormat = format === 'xlsx' ? 'excel' : format;
+        try {
+          const queryParams = new URLSearchParams();
+          queryParams.append('format', 'json'); // Use JSON to avoid download
+          queryParams.append('logFormat', actualFormat); // Pass actual format for logging
+          queryParams.append('count', selectedTermsData.length.toString()); // Number of exported terms
+          queryParams.append('selectedIds', selectedItems.join(',')); // Selected term IDs
+          queryParams.append('exportType', 'bulk'); // Indicate this is a bulk export
+          
+          const apiModule = await import('../../services/api.js');
+          const api = apiModule.default;
+          api.get(`/sk-terms/export?${queryParams.toString()}`).catch(err => {
+            console.error('Failed to log export activity:', err);
+          });
+        } catch (err) {
+          console.error('Failed to log export activity:', err);
+        }
+        
+        return { success: true };
+      } catch (error) {
+        throw new Error(error.message || 'Failed to export selected terms');
+      }
+    },
+    onSuccess: () => showSuccessToast('Bulk export completed', 'Selected terms exported successfully'),
+    onError: (error) => showErrorToast('Bulk export failed', error.message)
   });
 
   return (
@@ -1052,8 +1195,7 @@ ${bodyRows}
         description="Create, manage, and track SK terms and their lifecycle"
       />
 
-
-
+      {/* Active Term Banner */}
             <ActiveTermBanner
         activeTerm={activeTerm}
         hasActiveTerm={hasActiveTerm}
@@ -1063,46 +1205,12 @@ ${bodyRows}
         variant="terms"
       />
 
-      {/* Manual Status Update Button - Show if there are overdue terms */}
-      {(() => {
-        const overdueTerms = termsData.filter(isTermOverdue);
-        if (overdueTerms.length > 0) {
-          return (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <AlertTriangle className="w-5 h-5 text-orange-600 mr-3" />
-            <div>
-                    <h3 className="text-sm font-medium text-orange-800">
-                      {overdueTerms.length} term{overdueTerms.length > 1 ? 's' : ''} overdue
-                    </h3>
-                    <p className="text-sm text-orange-700">
-                      {overdueTerms.map(term => `${term.termName} (${getOverdueDays(term.endDate)} days)`).join(', ')}
-                    </p>
-            </div>
-              </div>
-                <button
-                  onClick={handleManualStatusUpdate}
-                  className="inline-flex items-center px-3 py-2 border border-orange-300 text-orange-700 text-sm font-medium rounded-lg hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors"
-                >
-                  <RotateCcw className="w-4 h-4 mr-2" />
-                  Update Status
-                </button>
-              </div>
-            </div>
-          );
-        }
-        return null;
-      })()}
-
-
-
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Left Column - Terms List */}
         <div className="xl:col-span-2">
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            {/* Tabs - Using Reusable Tab Components */}
+            {/* Tabs */}
             <TabContainer
               activeTab={activeTab}
               onTabChange={setActiveTab}
@@ -1113,32 +1221,31 @@ ${bodyRows}
                 id="all" 
                 label="All Terms" 
                 shortLabel="All"
-                count={termsStats.total} 
+                count={termStats.total} 
                 color="blue"
               />
               <Tab 
                 id="active" 
                 label="Active" 
-                count={termsStats.active} 
+                count={termStats.active} 
                 color="green"
               />
               <Tab 
                 id="upcoming" 
                 label="Upcoming" 
-                count={termsStats.upcoming} 
+                count={termStats.upcoming} 
                 color="yellow"
               />
               <Tab 
                 id="completed" 
                 label="Completed" 
-                count={termsStats.completed} 
+                count={termStats.completed} 
                 color="gray"
               />
             </TabContainer>
 
             {/* Controls */}
             <div className="px-5 py-4 border-t border-gray-100">
-              {/* Left/Right Layout with Single Row */}
               <div className="flex items-center justify-between gap-4">
                 {/* Left Controls */}
                 <div className="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
@@ -1173,7 +1280,6 @@ ${bodyRows}
                       <span className="hidden sm:inline">Filter</span>
                       <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1" />
                       
-                      {/* Filter Indicator */}
                       {hasActiveFilters && (
                         <div className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full border border-blue-200">
                           {Object.values(filterValues).filter(v => v && v !== '' && (!Array.isArray(v) || v.length > 0)).length}
@@ -1195,7 +1301,6 @@ ${bodyRows}
                       <span className="hidden sm:inline">Sort</span>
                       <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1" />
                       
-                      {/* Sort Indicator */}
                       {!sortModal.isDefaultSort && (
                         <div className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full border border-blue-200">
                           {sortModal.sortOrder === 'asc' ? '↑' : '↓'}
@@ -1209,13 +1314,14 @@ ${bodyRows}
                 <div className="flex items-center space-x-3 flex-shrink-0">
                   {/* Export Button */}
                   <ExportButton
-                    formats={['csv', 'xlsx', 'pdf']}
+                    formats={['csv','xlsx','pdf']}
                     onExport={(format) => mainExport.handleExport(format === 'xlsx' ? 'excel' : format)}
                     isExporting={mainExport.isExporting}
                     label="Export"
                     size="md"
                     position="auto"
                     responsive={true}
+                    customFormats={{ pdf: { label: 'Export as PDF', icon: <FileText className="w-4 h-4" />, description: 'Portable document format', styles: [] } }}
                   />
 
                   {/* View Mode Toggle */}
@@ -1254,9 +1360,8 @@ ${bodyRows}
                   { value: 'term_name', label: 'Term Name' },
                   { value: 'start_date', label: 'Start Date' },
                   { value: 'end_date', label: 'End Date' },
-                  { value: 'status', label: 'Status' },
                   { value: 'created_at', label: 'Date Created' },
-                  { value: 'statistics_total_officials', label: 'Total Officials' }
+                  { value: 'status', label: 'Status' }
                 ]}
                 sortBy={sortModal.sortBy}
                 sortOrder={sortModal.sortOrder}
@@ -1294,53 +1399,168 @@ ${bodyRows}
               selectedCount={selectedItems.length}
               itemName="term"
               itemNamePlural="terms"
-              onBulkAction={() => bulkModal.showModal()}
               exportConfig={{
                 formats: ['csv', 'xlsx', 'pdf'],
                 onExport: (format) => bulkExportHook.handleExport(format === 'xlsx' ? 'excel' : format),
                 isExporting: bulkExportHook.isExporting,
-                // Keep PDF simple (no style submenu) to match top Export button feel
                 customFormats: { pdf: { label: 'Export as PDF', icon: <FileText className="w-4 h-4" />, description: 'Portable document format', styles: [] } }
               }}
               primaryColor="blue"
             />
 
             {/* Content Area */}
-            {(tabLoading || isInitialLoading) ? (
+            {(tabLoading || isLoading) ? (
               <LoadingSpinner 
                 variant="spinner"
-                message="Loading terms data..." 
+                message="Loading SK terms..." 
                 size="md"
                 color="blue"
                 height="h-64"
               />
             ) : (
-              <DataTable
-                data={termsData}
-                selectedItems={selectedItems}
-                onSelectItem={handleSelectItem}
-                onSelectAll={handleSelectAll}
-                getActionMenuItems={getActionMenuItems}
-                onActionClick={handleActionClick}
-                viewMode={viewMode}
-                keyField="termId"
-                displayFields={getTermDisplayFields()}
-                selectAllLabel="Select All Terms"
-                emptyMessage="No terms found"
-                                 styling={{
-                   gridCols: 'grid-cols-1 lg:grid-cols-2',
-                  cardHover: 'hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50 hover:scale-[1.02]',
-                  listHover: 'hover:bg-blue-50/30 hover:border-l-4 hover:border-l-blue-400',
-                  theme: 'blue'
-                 }}
-              />
+              <>
+                {viewMode === 'grid' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
+                    {(terms || []).length === 0 ? (
+                      <div className="col-span-full">
+                        <div className="flex flex-col items-center justify-center text-center border border-dashed border-gray-300 rounded-2xl p-10 bg-gray-50/60">
+                          <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mb-3">
+                            <Calendar className="w-7 h-7" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-1">No SK terms</h3>
+                          <p className="text-gray-600 mb-4">Try adjusting filters or create a new term.</p>
+                          <button
+                            type="button"
+                            onClick={() => { setFormCollapsed(false); setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50); }}
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <Plus className="w-4 h-4 mr-2" /> Create Term
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      terms.map((item) => {
+                        const stats = getTermStatistics(item);
+                        const status = (item.status || '').toString().toLowerCase() === 'inactive' ? 'completed' : (item.status || '').toString();
+                        // Days remaining for active
+                        let daysRemaining = null;
+                        if (status === 'active' && item.endDate) {
+                          try {
+                            const today = new Date(); today.setHours(0,0,0,0);
+                            const end = new Date(item.endDate); end.setHours(0,0,0,0);
+                            daysRemaining = Math.ceil((end.getTime() - today.getTime()) / (1000*3600*24));
+                          } catch {}
+                        }
+                        return (
+                          <div key={item.termId} className="group relative h-full">
+                            {/* Glow */}
+                            <div className="absolute -inset-2 rounded-2xl bg-gradient-to-br from-blue-300/20 via-indigo-200/20 to-purple-300/20 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
+                            {/* Card */}
+                            <div className="relative rounded-2xl overflow-hidden shadow-sm transition-all duration-200 group-hover:shadow-lg h-full flex flex-col cursor-pointer bg-white ring-1 ring-gray-200" onClick={() => navigate(`/admin/sk-governance/term-report?termId=${item.termId}`)}>
+                              {/* Action Menu */}
+                              <div className="absolute top-3 right-3 z-20">
+                                <ActionMenu
+                                  items={getActionMenuItems(item)}
+                                  onAction={(action) => handleActionClick(action, item)}
+                                  trigger={
+                                    <button aria-label="Open actions" onClick={(e) => e.stopPropagation()} className="p-1.5 text-gray-600 hover:text-gray-800 hover:bg-white/90 backdrop-blur-sm rounded-lg transition-colors shadow-sm border border-white/20">
+                                      <MoreHorizontal className="w-4 h-4" />
+                                    </button>
+                                  }
+                                />
+                              </div>
+                              {/* Image header */}
+                              <div className="relative overflow-hidden flex-shrink-0 aspect-[16/9]">
+                                <img src={getTermFallbackImage(status, item.termName)} alt={item.termName} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" decoding="async" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent" />
+                              </div>
+                              {/* Content */}
+                              <div className="flex flex-col flex-1 p-6">
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <h3 className="font-semibold text-gray-900 line-clamp-2 text-lg">{item.termName}</h3>
+                                      {status === 'active' && daysRemaining !== null && (
+                                        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[11px] font-medium border whitespace-nowrap ${daysRemaining > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                          {daysRemaining > 0 ? `${daysRemaining} days left` : daysRemaining === 0 ? 'Ends today' : `${Math.abs(daysRemaining)} days overdue`}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-3">
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusStyles(status)}`}>
+                                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                                    </span>
+                                  </div>
+                                </div>
+                                {/* Dates under title with calendar and label */}
+                                <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                                  <Calendar className="w-4 h-4 text-blue-500" />
+                                  <span className="text-gray-500">Date range:</span>
+                                  <span>{formatDate(item.startDate)} - {formatDate(item.endDate)}</span>
+                                </div>
+                                {/* Metrics strip (same data, new layout) */}
+                                <div className="mb-4 bg-gray-50 rounded-xl px-4 py-3 grid grid-cols-4 gap-2 text-center">
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{stats.totalOfficials}</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Total</div>
+                                  </div>
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{stats.filledPositions}</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Filled</div>
+                                  </div>
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{stats.vacantPositions}</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Vacant</div>
+                                  </div>
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{stats.fillPercent}%</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Fill Rate</div>
+                                  </div>
+                                </div>
+                                <div className="flex-1" />
+                                {/* Footer */}
+                                <div className="flex items-center justify-between pt-4 border-t border-gray-100 mt-auto text-xs text-gray-500">
+                                  <span>Created: {formatDate(item.createdAt)}</span>
+                                  <span>Updated: {formatDate(item.updatedAt)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : (
+                  <DataTable
+                    data={terms}
+                    selectedItems={selectedItems}
+                    onSelectItem={handleSelectItem}
+                    onSelectAll={handleSelectAll}
+                    getActionMenuItems={getActionMenuItems}
+                    onActionClick={handleActionClick}
+                    viewMode={viewMode}
+                    keyField="termId"
+                    displayFields={getTermDisplayFields()}
+                    selectAllLabel="Select All Terms"
+                    emptyMessage="No SK terms found"
+                    styling={{
+                      gridCols: 'grid-cols-1 lg:grid-cols-2',
+                      cardHover: 'hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50 hover:scale-[1.02]',
+                      listHover: 'hover:bg-blue-50/30 hover:border-l-4 hover:border-l-blue-400',
+                      theme: 'blue'
+                    }}
+                  />
+                )}
+              </>
             )}
 
-            {/* Pagination */}
+            {/* Bottom Pagination - Always visible when data is loaded */}
             {!tabLoading && (
               <Pagination
+                key={`pagination-${totalTerms}-${itemsPerPage}`}
                 currentPage={currentPage}
-                totalItems={totalTerms}
+                totalItems={Math.max(totalTerms || 0, terms?.length || 0)}
                 itemsPerPage={itemsPerPage}
                 onPageChange={pagination.handlePageChange}
                 onItemsPerPageChange={pagination.handleItemsPerPageChange}
@@ -1359,8 +1579,8 @@ ${bodyRows}
         {/* Right Column - Add New Term Form */}
         <div className="xl:col-span-1">
           <CollapsibleForm
-            title="Create New Term"
-            description="Create a new SK term with start and end dates"
+            title="Create New SK Term"
+            description="Create a new SK term for official management"
             icon={<Plus className="w-5 h-5" />}
             defaultCollapsed={formCollapsed}
             onToggle={setFormCollapsed}
@@ -1385,10 +1605,14 @@ ${bodyRows}
                       onChange={handleFormChange}
                       required
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
-                    placeholder="2025-2027 SK Term"
+                    placeholder="e.g., 2025-2027 SK Term"
                     />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Note: Only one SK term can be active at a time
+                  </p>
                   </div>
 
+                <div className="grid grid-cols-1 gap-3">
                   <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Start Date *</label>
                     <input
@@ -1412,8 +1636,7 @@ ${bodyRows}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                     />
                   </div>
-
-
+                </div>
                     </div>
 
               {/* Form Actions */}
@@ -1431,11 +1654,11 @@ ${bodyRows}
                 </button>
                 <button
                   type="submit"
-                  disabled={isEditingSaving}
+                  disabled={isSaving}
                   className="flex-1 inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-200 transition-all duration-200 disabled:opacity-50"
                 >
                   <Save className="w-4 h-4 mr-2" />
-                  {isEditingSaving ? 'Creating...' : 'Create Term'}
+                  {isSaving ? 'Creating...' : 'Create Term'}
                 </button>
                 </div>
             </form>
@@ -1451,12 +1674,12 @@ ${bodyRows}
             <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <Calendar className="w-5 h-5 text-blue-600" />
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-100 text-blue-600">
+                    <Calendar className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-gray-900">{selectedTerm.termName}</h3>
-                    <p className="text-sm text-gray-600">Term Details</p>
+                    <p className="text-sm text-gray-600">SK Term Details</p>
                   </div>
                 </div>
                 <button
@@ -1470,273 +1693,130 @@ ${bodyRows}
 
             {/* Content */}
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-              {/* Basic Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div className="space-y-4">
-                  <h4 className="font-semibold text-gray-900">Basic Information</h4>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Term Name</label>
-                    <p className="mt-1 text-sm text-gray-900">{selectedTerm.termName}</p>
+              {/* Basic Information Section */}
+              <div className="mb-8">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <Calendar className="w-5 h-5 mr-2 text-blue-600" />
+                  Basic Information
+                </h4>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Term Name</label>
+                      <p className="text-lg font-semibold text-gray-900">{selectedTerm.termName}</p>
                   </div>
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Date Range</label>
-                    <p className="mt-1 text-sm text-gray-900">
-                      {new Date(selectedTerm.startDate).toLocaleDateString()} - {new Date(selectedTerm.endDate).toLocaleDateString()}
-                    </p>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+                      <p className="text-sm text-gray-900">
+                        {new Date(selectedTerm.startDate).toLocaleDateString('en-US', { 
+                          year: 'numeric', 
+                          month: 'short', 
+                          day: 'numeric' 
+                        })} - {new Date(selectedTerm.endDate).toLocaleDateString('en-US', { 
+                          year: 'numeric', 
+                          month: 'short', 
+                          day: 'numeric' 
+                        })}
+                      </p>
+                    </div>
                   </div>
                   
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                     <div className="mt-1">
                       <Status status={selectedTerm.status} />
-                      {selectedTerm.isCurrent && (
-                        <span className="ml-2 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
-                          Current Term
-                        </span>
-                      )}
                     </div>
                   </div>
-                  
-
                 </div>
+                    </div>
+                    </div>
+                    
+              {/* Statistics Section */}
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <TrendingUp className="w-5 h-5 mr-2 text-green-600" />
+                  Term Statistics
+                </h4>
                 
-                <div className="space-y-4">
-                  <h4 className="font-semibold text-gray-900">Statistics</h4>
-                  
-                  {(() => {
-                    const stats = extractTermStats(selectedTerm);
-                    return (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                          <div className="text-2xl font-bold text-blue-800">{stats?.total || 0}</div>
-                          <div className="text-sm text-blue-600">Total Positions</div>
+                {/* Primary Statistics - Key Metrics */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-3xl font-bold text-blue-800">{getTermStatistics(selectedTerm).totalOfficials}</div>
+                        <div className="text-sm font-medium text-blue-600">Total Positions</div>
                     </div>
-                    
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                          <div className="text-2xl font-bold text-green-800">{stats?.filled || 0}</div>
-                          <div className="text-sm text-green-600">Filled Positions</div>
-                    </div>
-                    
-                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                          <div className="text-2xl font-bold text-orange-800">{stats?.vacant || 0}</div>
-                          <div className="text-sm text-orange-600">Vacant Positions</div>
-                    </div>
-                    
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                          <div className="text-2xl font-bold text-purple-800">{stats?.percent || 0}%</div>
-                          <div className="text-sm text-purple-600">Fill Rate</div>
-                    </div>
+                      <div className="w-12 h-12 bg-blue-200 rounded-full flex items-center justify-center">
+                        <Users className="w-6 h-6 text-blue-700" />
                   </div>
-                    );
-                  })()}
                 </div>
               </div>
               
-              {/* Position Breakdown */}
-              <div className="mb-6">
-                <h4 className="font-semibold text-gray-900 mb-4">Position Breakdown</h4>
-                {(() => {
-                  const stats = extractTermStats(selectedTerm);
-                  
-                  if (!stats) {
-                    return (
-                      <div className="text-center py-8 text-gray-500">
-                        <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                        <p>No position data available for this term</p>
-                      </div>
-                    );
-                  }
-                  
-                  const positions = [
-                    {
-                      name: 'SK Chairperson',
-                      filled: stats.byPosition?.chairpersons || 0,
-                      total: stats.capacityByPosition?.chairpersons || 0,
-                      color: 'yellow',
-                      icon: <User className="w-4 h-4 text-yellow-600" />
-                    },
-                    {
-                      name: 'SK Secretary',
-                      filled: stats.byPosition?.secretaries || 0,
-                      total: stats.capacityByPosition?.secretaries || 0,
-                      color: 'blue',
-                      icon: <FileText className="w-4 h-4 text-blue-600" />
-                    },
-                    {
-                      name: 'SK Treasurer',
-                      filled: stats.byPosition?.treasurers || 0,
-                      total: stats.capacityByPosition?.treasurers || 0,
-                      color: 'green',
-                      icon: <BarChart3 className="w-4 h-4 text-green-600" />
-                    },
-                    {
-                      name: 'SK Councilor',
-                      filled: stats.byPosition?.councilors || 0,
-                      total: stats.capacityByPosition?.councilors || 0,
-                      color: 'purple',
-                      icon: <Users className="w-4 h-4 text-purple-600" />
-                    }
-                  ];
-                  
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      {positions.map((position) => (
-                        <div key={position.name} className={`bg-${position.color}-50 border border-${position.color}-200 rounded-lg p-4`}>
+                  <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-xl p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                              <div className="text-lg font-semibold text-gray-800">{position.filled}</div>
-                              <div className="text-sm text-gray-600">{position.name}</div>
-                              <div className="text-xs text-gray-500 mt-1">
-                                {position.filled} of {position.total} filled
+                        <div className="text-3xl font-bold text-green-800">{getTermStatistics(selectedTerm).filledPositions}</div>
+                        <div className="text-sm font-medium text-green-600">Filled Positions</div>
                       </div>
+                      <div className="w-12 h-12 bg-green-200 rounded-full flex items-center justify-center">
+                        <CheckCircle className="w-6 h-6 text-green-700" />
                     </div>
-                            <div className={`w-8 h-8 bg-${position.color}-100 rounded-lg flex items-center justify-center`}>
-                              {position.icon}
                   </div>
                       </div>
+                    
+                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-3xl font-bold text-purple-800">
+                          {getTermStatistics(selectedTerm).fillPercent}%
                     </div>
-                      ))}
+                        <div className="text-sm font-medium text-purple-600">Fill Rate</div>
                   </div>
-                  );
-                })()}
+                      <div className="w-12 h-12 bg-purple-200 rounded-full flex items-center justify-center">
+                        <Target className="w-6 h-6 text-purple-700" />
               </div>
             </div>
+                </div>
+          </div>
 
+                {/* Secondary Statistics - Detailed Breakdown */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 text-center">
+                    <div className="text-2xl font-bold text-orange-800">{getTermStatistics(selectedTerm).vacantPositions}</div>
+                    <div className="text-sm text-orange-600">Vacant</div>
+            </div>
+            
+                  {getTermStatistics(selectedTerm).barangays !== null && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                      <div className="text-2xl font-bold text-gray-800">{getTermStatistics(selectedTerm).barangays}</div>
+                      <div className="text-sm text-gray-600">Barangays</div>
+                </div>
+                  )}
+              </div>
+              </div>
+            </div>
+            
             {/* Footer */}
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
                     <button
                 onClick={() => setShowViewModal(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
+              >
                 Close
                     </button>
-                  <button
-                onClick={() => {
-                  setShowViewModal(false);
-                  // Populate edit form with current term data
-                  setEditData({
-                    termName: selectedTerm.termName,
-                    startDate: formatDateForInput(selectedTerm.startDate),
-                    endDate: formatDateForInput(selectedTerm.endDate)
-                  });
-                  setShowEditModal(true);
-                }}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Edit Term
-                  </button>
-                </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Term Extension Modal */}
-      {showExtensionModal && selectedTerm && createPortal(
-        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setShowExtensionModal(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Extend Term</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                Extend the end date for {selectedTerm.termName}
-              </p>
-            </div>
-            
-            <div className="px-6 py-4 space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">Current Term Information</h4>
-                <div className="text-sm text-blue-700">
-                  <p><strong>Term:</strong> {selectedTerm.termName}</p>
-                  <p><strong>Current End Date:</strong> {new Date(selectedTerm.endDate).toLocaleDateString()}</p>
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  New End Date *
-                </label>
-                <input
-                  type="date"
-                  value={extensionData.newEndDate}
-                  onChange={(e) => setExtensionData(prev => ({ ...prev, newEndDate: e.target.value }))}
-                  min={selectedTerm.endDate}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  New end date must be after current end date
-                </p>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Reason (Optional)
-                </label>
-                <textarea
-                  value={extensionData.reason}
-                  onChange={(e) => setExtensionData(prev => ({ ...prev, reason: e.target.value }))}
-                  placeholder="Why is this term being extended?"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  rows="3"
-                />
-              </div>
-            </div>
-            
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
-                    <button
-                onClick={() => {
-                  setShowExtensionModal(false);
-                  setExtensionData({ newEndDate: '', reason: '' });
-                }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Cancel
-                    </button>
-                    <button
-                onClick={async () => {
-                  if (!extensionData.newEndDate) {
-                    showErrorToast('Validation failed', 'New end date is required');
-                    return;
-                  }
-                  
-                  try {
-                    const response = await skTermsService.extendSKTerm(
-                      selectedTerm.termId, 
-                      extensionData.newEndDate, 
-                      extensionData.reason
-                    );
-                    
-                                         if (response.success) {
-                  showSuccessToast('Term extended', `${selectedTerm.termName} has been extended successfully`);
-                  setShowExtensionModal(false);
-                       setExtensionData({ newEndDate: '', reason: '' });
-                       
-                       // Reload data and refresh active term since extension makes it active again
-                       await loadTermsData(activeTab);
-                     } else {
-                      showErrorToast('Extension failed', response.message || 'Failed to extend term');
-                    }
-                  } catch (error) {
-                    console.error('Extension error:', error);
-                    showErrorToast('Extension failed', 'An error occurred while extending the term');
-                  }
-                }}
-                disabled={!extensionData.newEndDate}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                Extend Term
-                    </button>
             </div>
           </div>
         </div>,
         document.body
       )}
 
-      {/* Term Edit Modal */}
+      {/* Edit Term Modal */}
       {showEditModal && selectedTerm && createPortal(
-        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setShowEditModal(false)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 bg-black/30 backdrop-blur-sm" onClick={() => setShowEditModal(false)}>
+          <div className="relative bg-white rounded-xl shadow-2xl border border-gray-200/60 max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
               <div className="flex items-center justify-between">
@@ -1745,7 +1825,7 @@ ${bodyRows}
                     <Edit className="w-5 h-5 text-blue-600" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900">Edit Term</h3>
+                    <h3 className="text-lg font-bold text-gray-900">Edit SK Term</h3>
                     <p className="text-sm text-gray-600">Update details for {selectedTerm.termName}</p>
                   </div>
                 </div>
@@ -1791,101 +1871,53 @@ ${bodyRows}
                   <h4 className="font-semibold text-gray-900">Edit Term Details</h4>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Term Name *
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Term Name *</label>
                     <input
                       type="text"
-                      value={editData.termName}
-                      onChange={(e) => setEditData(prev => ({ ...prev, termName: e.target.value }))}
-                      placeholder="Enter term name (minimum 5 characters)"
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
-                        editData.termName && editData.termName.length < 5 
-                          ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
-                          : 'border-gray-300'
-                      }`}
-                    />
-                    {editData.termName && editData.termName.length < 5 && (
-                      <p className="mt-1 text-sm text-red-600">
-                        Term name must be at least 5 characters long
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Start Date *
-                    </label>
-                    <input
-                      type="date"
-                      value={editData.startDate}
-                      onChange={(e) => setEditData(prev => ({ ...prev, startDate: e.target.value }))}
+                      value={editFormData.termName}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, termName: e.target.value }))}
+                      placeholder="Enter term name"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                     />
                   </div>
                   
+                  <div className="grid grid-cols-1 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      End Date *
-                    </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Start Date *</label>
                     <input
                       type="date"
-                      value={editData.endDate}
-                      onChange={(e) => setEditData(prev => ({ ...prev, endDate: e.target.value }))}
+                        value={editFormData.startDate}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                     />
+                  </div>
+                  <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">End Date *</label>
+                    <input
+                      type="date"
+                        value={editFormData.endDate}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    />
+                    </div>
                   </div>
                 </div>
 
-                {/* Preview Changes */}
+                {/* Preview */}
                 <div className="space-y-4">
                   <h4 className="font-semibold text-gray-900">Preview Changes</h4>
-                  
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                     <div className="space-y-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700">New Term Name</label>
-                        <p className="mt-1 text-sm text-gray-900 font-medium">{editData.termName || selectedTerm.termName}</p>
+                        <p className="mt-1 text-sm text-gray-900 font-medium">{editFormData.termName || selectedTerm.termName}</p>
                       </div>
-                      
                       <div>
                         <label className="block text-sm font-medium text-gray-700">New Date Range</label>
                         <p className="mt-1 text-sm text-gray-900">
-                          {editData.startDate ? new Date(editData.startDate).toLocaleDateString() : 'Not set'} - {editData.endDate ? new Date(editData.endDate).toLocaleDateString() : 'Not set'}
+                          {(editFormData.startDate ? new Date(editFormData.startDate) : new Date(selectedTerm.startDate)).toLocaleDateString()} - {(editFormData.endDate ? new Date(editFormData.endDate) : new Date(selectedTerm.endDate)).toLocaleDateString()}
                         </p>
                       </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Duration</label>
-                        <p className="mt-1 text-sm text-gray-900">
-                          {editData.startDate && editData.endDate ? 
-                            `${Math.ceil((new Date(editData.endDate) - new Date(editData.startDate)) / (1000 * 60 * 60 * 24))} days` : 
-                            'Not set'
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Validation Status */}
-                  <div className={`border rounded-lg p-4 ${!editData.termName || !editData.startDate || !editData.endDate || (editData.termName && editData.termName.length < 5) ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-                    <div className="flex items-center space-x-2">
-                      {!editData.termName || !editData.startDate || !editData.endDate ? (
-                        <>
-                          <AlertCircle className="w-4 h-4 text-red-500" />
-                          <span className="text-sm font-medium text-red-700">Please fill in all required fields</span>
-                        </>
-                      ) : editData.termName && editData.termName.length < 5 ? (
-                        <>
-                          <AlertCircle className="w-4 h-4 text-red-500" />
-                          <span className="text-sm font-medium text-red-700">Term name must be at least 5 characters</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span className="text-sm font-medium text-green-700">All fields are valid</span>
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -1895,119 +1927,43 @@ ${bodyRows}
             {/* Footer */}
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
               <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditData({ termName: '', startDate: '', endDate: '' });
-                }}
+                onClick={() => { setShowEditModal(false); }}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={async () => {
-                  if (!editData.termName || !editData.startDate || !editData.endDate) {
-                    showErrorToast('Validation failed', 'All fields are required');
+                  if (!editFormData.termName || !editFormData.startDate || !editFormData.endDate) {
+                    showErrorToast('Validation failed', 'Term name, start date, and end date are required');
                     return;
                   }
-                  
                   try {
                     setIsEditingSaving(true);
-                    
-                    console.log('🔧 Updating term with data:', {
-                      termId: selectedTerm.termId,
-                      editData: editData,
-                      selectedTerm: selectedTerm
-                    });
-                    
-                    // Try direct API call for debugging
-                    let response;
-                    try {
-                      response = await skTermsService.updateSKTerm(selectedTerm.termId, editData);
-                    } catch (directError) {
-                      console.log('🔧 Direct error caught:', directError);
-                      console.log('🔧 Direct error response:', directError.response);
-                      console.log('🔧 Direct error data:', directError.response?.data);
-                      
-                      // Try to extract error details directly
-                      const errorData = directError.response?.data;
-                      if (errorData) {
-                        response = {
-                          success: false,
-                          message: errorData.message || 'Update failed',
-                          details: errorData.errors || [],
-                          suggestions: errorData.suggestions || null
-                        };
-                      } else {
-                        response = {
-                          success: false,
-                          message: 'Update failed',
-                          details: [],
-                          suggestions: null
-                        };
-                      }
-                    }
-                    
-                    console.log('🔧 Frontend received response:', response);
-                    console.log('🔧 Response type:', typeof response);
-                    console.log('🔧 Response keys:', Object.keys(response));
-                    
-                    if (response.success) {
-                      showSuccessToast('Term updated', `${selectedTerm.termName} has been updated successfully`);
+                    const payload = {
+                      termName: editFormData.termName,
+                      startDate: editFormData.startDate,
+                      endDate: editFormData.endDate
+                    };
+                    const resp = await skTermsService.updateSKTerm(selectedTerm.termId, payload);
+                    if (resp.success) {
+                      showSuccessToast('Term updated', `${editFormData.termName} has been updated successfully`);
                       setShowEditModal(false);
-                      setEditData({ termName: '', startDate: '', endDate: '' });
-                      
-                      // Reload data
-                      await loadTermsData(activeTab);
+                      await loadTermData();
+                      await loadTermStats();
                     } else {
-                      console.error('❌ Update failed:', response);
-                      console.log('🔍 Response structure:', {
-                        message: response.message,
-                        details: response.details,
-                        suggestions: response.suggestions,
-                        status: response.status
-                      });
-                      console.log('🔍 Full response object:', JSON.stringify(response, null, 2));
-                      
-                      // Build error message
-                      let errorMessage = 'Term update failed';
-                      
-                      console.log('🔍 Checking response.details:', response.details);
-                      console.log('🔍 Checking response.errors:', response.errors);
-                      console.log('🔍 Checking response.message:', response.message);
-                      
-                      // Add specific validation errors
-                      if (response.details && Array.isArray(response.details) && response.details.length > 0) {
-                        errorMessage = response.details.join('. ');
-                        console.log('🔍 Using response.details:', errorMessage);
-                      } else if (response.errors && Array.isArray(response.errors) && response.errors.length > 0) {
-                        errorMessage = response.errors.join('. ');
-                        console.log('🔍 Using response.errors:', errorMessage);
-                      } else if (response.message && response.message !== 'Validation failed') {
-                        errorMessage = response.message;
-                        console.log('🔍 Using response.message:', errorMessage);
-                      } else {
-                        console.log('🔍 No specific error found, using default message');
-                      }
-                      
-                      // Add suggestions if available
-                      if (response.suggestions && response.suggestions.dates && response.suggestions.dates.length > 0) {
-                        errorMessage += `\n\n💡 Suggested date ranges:\n• ${response.suggestions.dates.slice(0, 2).join('\n• ')}`;
-                      }
-                      
-                      // Temporary debug: show what we have
-                      console.log('🔍 Final error message:', errorMessage);
-                      console.log('🔍 Error message length:', errorMessage.length);
-                      
-                      showErrorToast('Term Update Failed', errorMessage);
+                      const details = resp.message || resp.error || 'Failed to update term';
+                      showErrorToast('Update failed', details);
                     }
                   } catch (error) {
                     console.error('Update error:', error);
-                    showErrorToast('Update failed', 'An error occurred while updating the term');
+                    const details = error?.response?.data?.message || error?.message || 'An error occurred while updating the term';
+                    showErrorToast('Update failed', details);
                   } finally {
                     setIsEditingSaving(false);
                   }
                 }}
-                disabled={!editData.termName || !editData.startDate || !editData.endDate || (editData.termName && editData.termName.length < 5) || isEditingSaving}
+                disabled={isEditingSaving}
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {isEditingSaving ? 'Updating...' : 'Update Term'}
@@ -2018,240 +1974,93 @@ ${bodyRows}
         document.body
       )}
 
-            {/* Bulk Operations Modal */}
-      <BulkModal
-        isOpen={bulkModal.isOpen}
-        onClose={bulkModal.hideModal}
-        title="Bulk Operations"
-        description={`${selectedItems.length} term${selectedItems.length > 1 ? 's' : ''} selected`}
-        actions={[
-          { value: 'activate', label: 'Activate Terms' },
-           { value: 'complete', label: 'Complete Terms' }
-        ]}
-        selectedAction={bulkAction}
-        onActionChange={setBulkAction}
-        onExecute={async () => {
-          try {
-            setIsBulkProcessing(true);
-            
-            // Execute bulk operations
-            const promises = selectedItems.map(async (termId) => {
-              const term = termsData.find(t => t.termId === termId);
-              if (!term) return;
-              
-              switch (bulkAction) {
-                case 'activate':
-                  if (term.status === 'upcoming') {
-                    return skTermsService.activateSKTerm(termId);
-                  }
-                  break;
-                case 'complete':
-                  if (term.status === 'active') {
-                    return skTermsService.completeSKTerm(termId);
-                  }
-                  break;
-              }
-            });
-            
-            await Promise.all(promises);
-            
-          showSuccessToast('Bulk operation completed', `${bulkAction} operation completed successfully`);
-            await loadTermsData(activeTab); // Reload data
-            setSelectedItems([]); // Clear selection
-            
-          } catch (error) {
-            showErrorToast('Bulk operation failed', 'An error occurred during bulk operation');
-          } finally {
-            setIsBulkProcessing(false);
-          bulkModal.hideModal();
-          setBulkAction('');
-          }
-        }}
-        isProcessing={isBulkProcessing}
-      />
-
-      {/* Completion Options Modal */}
-      {showCompletionOptionsModal && completionTerm && createPortal(
-        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setShowCompletionOptionsModal(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Complete Term</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                Choose how to complete {completionTerm.termName}
-              </p>
+      {/* Term Extension Modal */}
+      {showExtendModal && selectedTerm && createPortal(
+        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 bg-black/30 backdrop-blur-sm" onClick={() => setShowExtendModal(false)}>
+          <div className="relative bg-white rounded-xl shadow-2xl border border-gray-200/60 max-w-md w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Header - match other modals */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Clock className="w-5 h-5 text-blue-600" />
             </div>
-            
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Extend SK Term</h3>
+                    <p className="text-sm text-gray-600">Extend the end date for {selectedTerm.termName}</p>
+                </div>
+              </div>
+                <button
+                  onClick={() => setShowExtendModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                    </div>
+                      </div>
             <div className="px-6 py-4 space-y-4">
-              {/* Current Term Info */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h4 className="font-medium text-blue-900 mb-2">Current Term Information</h4>
                 <div className="text-sm text-blue-700">
-                  <p><strong>Term:</strong> {completionTerm.termName}</p>
-                  <p><strong>End Date:</strong> {new Date(completionTerm.endDate).toLocaleDateString()}</p>
-                  <p><strong>Status:</strong> <span className="capitalize">{completionTerm.status}</span></p>
-                </div>
-              </div>
-              
-              {/* Completion Options */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-gray-900">Choose Completion Type:</h4>
-                
-                {/* Regular Completion */}
-                <button
-                  onClick={async () => {
-                    setShowCompletionOptionsModal(false);
-                    const confirmed = await confirmation.confirmComplete(completionTerm.termName);
-                    if (confirmed) {
-                      confirmation.setLoading(true);
-                      try {
-                        console.log('🔧 Attempting to complete term:', completionTerm.termId, completionTerm.termName);
-                        const response = await skTermsService.completeSKTerm(completionTerm.termId, false);
-                        
-                        if (response.success) {
-                          showSuccessToast('Term completed', `${completionTerm.termName} has been marked as completed`);
-                          await reloadTermsDataWithoutActiveTerm();
-                        } else {
-                          console.error('❌ Completion failed:', response);
-                          let errorMessage = response.message || 'Unknown error occurred';
-                          
-                          // Handle specific error details
-                          if (response.details && Array.isArray(response.details)) {
-                            errorMessage = response.details.join(', ');
-                          } else if (response.details) {
-                            errorMessage = typeof response.details === 'string' ? response.details : JSON.stringify(response.details);
-                          }
-                          
-                          showErrorToast('Completion failed', errorMessage);
-                        }
-                      } catch (error) {
-                        console.error('❌ Exception during completion:', error);
-                        let errorMessage = 'An error occurred while completing the term';
-                        
-                        if (error.response) {
-                          const { data, status } = error.response;
-                          console.error('❌ HTTP Error:', status, data);
-                          
-                          if (data && data.message) {
-                            errorMessage = data.message;
-                          } else if (data && data.errors) {
-                            errorMessage = Array.isArray(data.errors) ? data.errors.join(', ') : JSON.stringify(data.errors);
-                          } else {
-                            errorMessage = `HTTP ${status}: ${data || 'Unknown error'}`;
-                          }
-                        } else if (error.request) {
-                          errorMessage = 'Network error. Please check your connection.';
-                        } else {
-                          errorMessage = error.message || errorMessage;
-                        }
-                        
-                        showErrorToast('Completion failed', errorMessage);
-                      } finally {
-                        confirmation.hideConfirmation();
-                      }
-                    }
-                  }}
-                  className="w-full p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 text-left"
-                >
-                  <div className="flex items-start space-x-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Pause className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h5 className="font-medium text-gray-900">Regular Completion</h5>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Complete the term normally. Keeps the original end date and follows standard completion process.
-                      </p>
-                      <div className="mt-2 text-xs text-gray-500">
-                        • Maintains original end date<br/>
-                        • Standard completion process<br/>
-                        • Officials lose account access
-                      </div>
+                  <p><strong>Term:</strong> {selectedTerm.termName}</p>
+                  <p><strong>Current End Date:</strong> {new Date(selectedTerm.endDate).toLocaleDateString()}</p>
                     </div>
                   </div>
-                </button>
-                
-                {/* Force Completion */}
-                <button
-                  onClick={async () => {
-                    setShowCompletionOptionsModal(false);
-                    const confirmed = await confirmation.confirmForceComplete(completionTerm.termName);
-                    if (confirmed) {
-                      confirmation.setLoading(true);
-                      try {
-                        console.log('🔧 Attempting to force complete term:', completionTerm.termId, completionTerm.termName);
-                        const response = await skTermsService.completeSKTerm(completionTerm.termId, true);
-                        
-                        if (response.success) {
-                          showSuccessToast('Term force completed', `${completionTerm.termName} has been force completed successfully`);
-                          await reloadTermsDataWithoutActiveTerm();
-                        } else {
-                          console.error('❌ Force completion failed:', response);
-                          let errorMessage = response.message || 'Unknown error occurred';
-                          
-                          // Handle specific error details
-                          if (response.details && Array.isArray(response.details)) {
-                            errorMessage = response.details.join(', ');
-                          } else if (response.details) {
-                            errorMessage = typeof response.details === 'string' ? response.details : JSON.stringify(response.details);
-                          }
-                          
-                          showErrorToast('Force completion failed', errorMessage);
-                        }
-                      } catch (error) {
-                        console.error('❌ Exception during force completion:', error);
-                        let errorMessage = 'An error occurred while force completing the term';
-                        
-                        if (error.response) {
-                          const { data, status } = error.response;
-                          console.error('❌ HTTP Error:', status, data);
-                          
-                          if (data && data.message) {
-                            errorMessage = data.message;
-                          } else if (data && data.errors) {
-                            errorMessage = Array.isArray(data.errors) ? data.errors.join(', ') : JSON.stringify(data.errors);
-                          } else {
-                            errorMessage = `HTTP ${status}: ${data || 'Unknown error'}`;
-                          }
-                        } else if (error.request) {
-                          errorMessage = 'Network error. Please check your connection.';
-                        } else {
-                          errorMessage = error.message || errorMessage;
-                        }
-                        
-                        showErrorToast('Force completion failed', errorMessage);
-                      } finally {
-                        confirmation.hideConfirmation();
-                      }
-                    }
-                  }}
-                  className="w-full p-4 border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 transition-all duration-200 text-left"
-                >
-                  <div className="flex items-start space-x-3">
-                    <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AlertTriangle className="w-4 h-4 text-red-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h5 className="font-medium text-gray-900">Force Completion</h5>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Immediately end the term and update the end date to today. All officials lose account access immediately.
-                      </p>
-                      <div className="mt-2 text-xs text-red-600">
-                        ⚠️ Updates end date to today<br/>
-                        ⚠️ Immediate account access removal<br/>
-                        ⚠️ Cannot be undone
-                      </div>
-                    </div>
-                  </div>
-                </button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">New End Date *</label>
+                <input
+                  type="date"
+                  value={extensionData?.newEndDate || ''}
+                  onChange={(e) => setExtensionData(prev => ({ ...(prev||{}), newEndDate: e.target.value }))}
+                  min={formatDateForInput(selectedTerm.endDate)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">New end date must be after current end date</p>
               </div>
             </div>
-            
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
               <button
-                onClick={() => setShowCompletionOptionsModal(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                onClick={() => { setShowExtendModal(false); setExtensionData({ newEndDate: '' }); }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel
+                </button>
+              <button
+                onClick={async () => {
+                  if (!extensionData?.newEndDate) {
+                    showErrorToast('Validation failed', 'New end date is required');
+                    return;
+                  }
+                  try {
+                    setIsExtending(true);
+                    const resp = await skTermsService.extendSKTerm(selectedTerm.termId, extensionData.newEndDate);
+                    if (resp.success) {
+                      showSuccessToast('Term extended', `${selectedTerm.termName} has been extended successfully`);
+                      setShowExtendModal(false);
+                      setExtensionData({ newEndDate: '' });
+                      await loadTermData();
+                      await loadTermStats();
+                        } else {
+                      showErrorToast('Extension failed', resp.message || resp.error || 'Failed to extend term');
+                        }
+                      } catch (error) {
+                    console.error('Extension error:', error);
+                    showErrorToast('Extension failed', error?.message || 'An error occurred while extending the term');
+                  } finally {
+                    setIsExtending(false);
+                  }
+                }}
+                disabled={!extensionData?.newEndDate || isExtending}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed inline-flex items-center"
+              >
+                {isExtending ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  'Extend Term'
+                )}
               </button>
             </div>
           </div>
@@ -2268,4 +2077,5 @@ ${bodyRows}
   );
 };
 
-export default SKTerms;
+export default SKTermsManagement;
+

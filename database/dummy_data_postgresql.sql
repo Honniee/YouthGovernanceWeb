@@ -425,6 +425,25 @@ INSERT INTO "Announcements" (announcement_id, title, content, summary, category,
 'Annual youth festival planning in progress', 
 'event', 'draft', NULL, NULL, NULL, FALSE, FALSE, NULL, 'USR001', '2024-04-05 10:00:00');
 
+-- Seed data for LYDO Council
+-- This file creates initial council roles and members for testing
+-- NOTE: SK Chairperson and Vice Chairperson are fetched from SK_Officials table separately
+
+-- Insert council roles (excluding Chairperson and Vice Chairperson as they come from SK)
+INSERT INTO "LYDO_Council_Roles" (id, role_name, role_description, created_by) VALUES
+('LYDCROL001', 'Education Representative', 'Sector representative focusing on Education and youth learning initiatives', 'ADMIN001'),
+('LYDCROL002', 'Health Representative', 'Sector representative focusing on Health and wellness programs', 'ADMIN001'),
+('LYDCROL003', 'Governance Representative', 'Sector representative focusing on Governance and youth participation in government', 'ADMIN001'),
+('LYDCROL004', 'Social Inclusion & Equity Representative', 'Sector representative focusing on Social Inclusion and Equity for all youth', 'ADMIN001'),
+('LYDCROL005', 'Global Mobility Representative', 'Sector representative focusing on Global Mobility and international exchanges', 'ADMIN001'),
+('LYDCROL006', 'Environment Protection Representative', 'Sector representative focusing on Environmental protection and sustainability', 'ADMIN001'),
+('LYDCROL007', 'Active Citizenship Representative', 'Sector representative focusing on Active Citizenship and civic engagement', 'ADMIN001'),
+('LYDCROL008', 'Peacebuilding & Security Representative', 'Sector representative focusing on Peacebuilding and Security initiatives', 'ADMIN001'),
+('LYDCROL009', 'Economic Empowerment Representative', 'Sector representative focusing on Economic Empowerment and entrepreneurship', 'ADMIN001'),
+('LYDCROL010', 'Agriculture Representative', 'Sector representative focusing on Agriculture and sustainable farming', 'ADMIN001')
+ON CONFLICT (id) DO NOTHING;
+
+
 -- ===========================================
 -- UPDATE SK TERMS STATISTICS
 -- ===========================================

@@ -25,10 +25,11 @@ import {
   Upload,
   ChevronUp
 } from 'lucide-react';
-import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, FilterButton, SortButton, SortModal, Pagination, useSortModal, usePagination, Avatar, Status, ExportButton, useStaffExport, useBulkExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, ViewStaffModal, EditStaffModal } from '../../components/portal_main_content';
+import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, FilterButton, SortButton, SortModal, Pagination, useSortModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, TabbedDetailModal } from '../../components/portal_main_content';
 import { ToastContainer, showStaffSuccessToast, showErrorToast, ConfirmationModal } from '../../components/universal';
 import useConfirmation from '../../hooks/useConfirmation';
 import staffService from '../../services/staffService.js';
+import { staffDetailConfig } from '../../components/portal_main_content/tabbedModalConfigs.jsx';
 
 const StaffManagement = () => {
   // Use our reusable tab state hook
@@ -227,35 +228,180 @@ const StaffManagement = () => {
   const confirmation = useConfirmation();
 
   // Export state management using custom hooks - Enhanced with Universal Toast
-  const mainExport = useStaffExport({
-    staffService,
-    statusFilter,
-    onSuccess: () => showStaffSuccessToast('exported', null, [
-      {
-        label: "Export Another",
-        onClick: () => window.location.reload() // Simple refresh for now
+  // Client-side export helpers (CSV, Excel XML, PDF)
+  const escapeCsv = (v) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  };
+  const downloadFile = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = filename; document.body.appendChild(link);
+    link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
+  };
+  const downloadExcel = (filename, xmlString) => {
+    const blob = new Blob([xmlString], { type: 'application/vnd.ms-excel' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.endsWith('.xls') ? filename : `${filename}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+  const buildStaffCsvRows = (list) => {
+    const headers = ['LYDO ID', 'Name', 'Email', 'Status'];
+    const rows = list.map(s => [
+      s.lydoId || '',
+      `${s.firstName || ''} ${s.lastName || ''}`.trim(),
+      s.personalEmail || '',
+      (s.isActive && !s.deactivated) ? 'Active' : 'Deactivated'
+    ]);
+    return [headers, ...rows];
+  };
+  const downloadCsv = (filename, rows) => {
+    const csv = rows.map(r => r.map(escapeCsv).join(',')).join('\n');
+    downloadFile(new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' }), filename);
+  };
+  const buildExcelXml = (sheetName, rows) => {
+    const rowXml = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${String(c??'')}</Data></Cell>`).join('')}</Row>`).join('');
+    return `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+<Worksheet ss:Name="${sheetName}">
+<Table>
+${rowXml}
+</Table>
+</Worksheet>
+</Workbook>`;
+  };
+  const escapeHtml = (s) => String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const openPrintPdf = (title, headers, rows) => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const thead = `<thead><tr>${headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>`;
+    const tbody = rows.slice(1).map(r=>`<tr>${r.map(c=>`<td>${escapeHtml(String(c??''))}</td>`).join('')}</tr>`).join('');
+    const styles = `
+      <style>
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { font-family: Arial, sans-serif; color: #111; }
+        h1 { font-size: 16px; margin: 0 0 8px; font-weight: 700; text-align: left; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid #666; padding: 6px 8px; font-size: 11px; line-height: 1.15; }
+        thead th { background: #f3f4f6 !important; font-weight: 700; }
+        thead { display: table-header-group; }
+        .meta { font-size: 10px; color: #555; margin: 6px 0 12px; }
+        @page { size: A4 landscape; margin: 12mm; }
+      </style>`;
+    const ts = new Date().toLocaleString();
+    const host = location?.hostname || '';
+    win.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${escapeHtml(title)}</title>${styles}</head><body><h1>${escapeHtml(title)}</h1><div class='meta'>Generated on ${escapeHtml(ts)} ${host ? `• ${escapeHtml(host)}` : ''}</div><table>${thead}<tbody>${tbody}</tbody></table><script>window.onload=()=>{window.print();}</script></body></html>`);
+    win.document.close();
+  };
+
+  const mainExport = useExport({
+    exportFunction: async (format, style = null) => {
+      try {
+        const filteredStaff = statusFilter === 'all' ? staffData : staffData.filter(s => (s.isActive && !s.deactivated ? 'active' : 'deactivated') === statusFilter);
+        if (format === 'csv') {
+          const rows = buildStaffCsvRows(filteredStaff);
+          downloadCsv('staff.csv', rows);
+        } else if (format === 'excel') {
+          const rows = buildStaffCsvRows(filteredStaff);
+          const xml = buildExcelXml('Staff', rows);
+          downloadExcel('staff.xls', xml);
+        } else if (format === 'pdf') {
+          const rows = buildStaffCsvRows(filteredStaff);
+          openPrintPdf('LYDO Staff', rows[0], rows.slice(1));
+        }
+        
+        // Log export to backend for activity logs (fire and forget)
+        // Use JSON format to avoid file download, but pass actual format in query for correct logging
+        const status = statusFilter === 'all' ? 'all' : statusFilter;
+        const actualFormat = format; // Keep track of actual format exported
+        try {
+          const queryParams = new URLSearchParams();
+          queryParams.append('format', 'json'); // Use JSON to avoid download
+          queryParams.append('logFormat', actualFormat); // Pass actual format for logging
+          if (status !== 'all') {
+            queryParams.append('status', status);
+          }
+          
+          const apiModule = await import('../../services/api.js');
+          const api = apiModule.default;
+          api.get(`/staff/export?${queryParams.toString()}`).catch(err => {
+            console.error('Failed to log export activity:', err);
+          });
+        } catch (err) {
+          console.error('Failed to log export activity:', err);
+        }
+        
+        return { success: true };
+      } catch (error) {
+        throw new Error(error.message || 'Failed to export staff data');
       }
+    },
+    onSuccess: () => showStaffSuccessToast('exported', null, [
+      { label: "Export Another", onClick: () => {} }
     ]),
     onError: (error) => showErrorToast('Export Failed', error.message)
   });
 
-  const bulkExportHook = useBulkExport({
-    staffService,
-    selectedItems,
-    statusFilter,
-    onSuccess: () => {
-      console.log('Bulk export completed for selected items:', selectedItems);
-      showStaffSuccessToast('exported', null, [
-        {
-          label: `Exported ${selectedItems.length} staff members`,
-          onClick: () => {} // Just for display
+  const bulkExportHook = useExport({
+    exportFunction: async (format, style = null) => {
+      try {
+        const selectedStaffData = staffData.filter(staff => selectedItems.includes(staff.lydoId));
+        if (selectedStaffData.length === 0) {
+          throw new Error('No staff selected for export');
         }
-      ]);
+
+        if (format === 'csv') {
+          const rows = buildStaffCsvRows(selectedStaffData);
+          downloadCsv('staff-selected.csv', rows);
+        } else if (format === 'excel') {
+          const rows = buildStaffCsvRows(selectedStaffData);
+          const xml = buildExcelXml('Selected Staff', rows);
+          downloadExcel('staff-selected.xls', xml);
+        } else if (format === 'pdf') {
+          const rows = buildStaffCsvRows(selectedStaffData);
+          openPrintPdf('Selected Staff', rows[0], rows.slice(1));
+        }
+        
+        // Log export to backend for activity logs (fire and forget)
+        // Use JSON format to avoid file download, but pass actual format in query for correct logging
+        try {
+          const queryParams = new URLSearchParams();
+          queryParams.append('format', 'json'); // Use JSON to avoid download
+          queryParams.append('logFormat', format); // Pass actual format for logging
+          queryParams.append('selectedIds', selectedItems.join(','));
+          
+          const apiModule = await import('../../services/api.js');
+          const api = apiModule.default;
+          api.get(`/staff/export?${queryParams.toString()}`).catch(err => {
+            console.error('Failed to log export activity:', err);
+          });
+        } catch (err) {
+          console.error('Failed to log export activity:', err);
+        }
+        
+        return { success: true };
+      } catch (error) {
+        throw new Error(error.message || 'Failed to export selected staff');
+      }
     },
-    onError: (error) => {
-      console.log('Bulk export failed for selected items:', selectedItems, 'Error:', error);
-      showErrorToast('Bulk Export Failed', error.message);
-    }
+    onSuccess: () => showStaffSuccessToast('exported', null, [
+      { label: `Exported ${selectedItems.length} staff members`, onClick: () => {} }
+    ]),
+    onError: (error) => showErrorToast('Bulk Export Failed', error.message)
   });
 
   // Sync modal state with existing state variables
@@ -774,8 +920,8 @@ const StaffManagement = () => {
                 <div className="flex items-center space-x-3 flex-shrink-0">
                   {/* Export Button */}
                   <ExportButton
-                    formats={['csv', 'pdf']}
-                    onExport={mainExport.handleExport}
+                    formats={['csv', 'xlsx', 'pdf']}
+                    onExport={(format) => mainExport.handleExport(format === 'xlsx' ? 'excel' : format)}
                     isExporting={mainExport.isExporting}
                     label="Export"
                     size="md"
@@ -838,8 +984,8 @@ const StaffManagement = () => {
             itemNamePlural="staff members"
             onBulkAction={() => setShowBulkModal(true)}
             exportConfig={{
-              formats: ['csv', 'pdf'],
-              onExport: bulkExportHook.handleExport,
+              formats: ['csv', 'xlsx', 'pdf'],
+              onExport: (format) => bulkExportHook.handleExport(format === 'xlsx' ? 'excel' : format),
               isExporting: bulkExportHook.isExporting
             }}
             primaryColor="green"
@@ -913,6 +1059,10 @@ const StaffManagement = () => {
               onSelectAll={handleSelectAll}
               getActionMenuItems={getActionMenuItems}
               onActionClick={handleActionClick}
+            onCardClick={(item) => {
+              setSelectedStaffMember(item);
+              setShowViewModal(true);
+            }}
               viewMode={viewMode}
               keyField="lydoId"
               displayFields={{
@@ -930,8 +1080,8 @@ const StaffManagement = () => {
               selectAllLabel="Select All Staff Members"
               emptyMessage="No staff members found"
               styling={{
-                gridCols: 'grid-cols-1 lg:grid-cols-2',
-                cardHover: 'hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50 hover:scale-[1.02]',
+                gridCols: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                cardHover: 'hover:border-gray-300 hover:shadow-lg',
                 listHover: 'hover:bg-blue-50/30 hover:border-l-4 hover:border-l-blue-400',
                 theme: 'blue'
               }}
@@ -1155,25 +1305,36 @@ const StaffManagement = () => {
           </div>
         </div>
 
-      {/* Staff Details Modals */}
-      <ViewStaffModal
+      <TabbedDetailModal
         isOpen={showViewModal}
         onClose={() => {
           setShowViewModal(false);
           setSelectedStaffMember(null);
         }}
-        staffMember={selectedStaffMember}
+        data={selectedStaffMember || {}}
+        mode="view"
+        config={staffDetailConfig}
       />
 
-      <EditStaffModal
+      <TabbedDetailModal
         isOpen={showEditModal}
         onClose={() => {
           setShowEditModal(false);
           setSelectedStaffMember(null);
         }}
-        staffMember={selectedStaffMember}
-        onSave={handleEditSave}
-        isSaving={isEditingSaving}
+        data={selectedStaffMember || {}}
+        mode="edit"
+        config={{
+          ...staffDetailConfig,
+          onSave: async (form) => {
+            await handleEditSave(form);
+            return true;
+          },
+          onDiscard: () => {
+            setShowEditModal(false);
+            setSelectedStaffMember(null);
+          }
+        }}
       />
 
       {/* Universal Toast Notifications - Safe Addition */}

@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SearchBar, SortModal, useSortModal, Pagination } from '../../components/portal_main_content';
+import { HeaderMainContent, SearchBar, SortModal, useSortModal, Pagination } from '../../components/portal_main_content';
 import { Calendar, User, Tag, Eye, ArrowUpDown, ChevronDown, ArrowLeft, Star, Pin } from 'lucide-react';
 import { getAnnouncements } from '../../services/announcementsService';
+import { useRealtime } from '../../realtime/useRealtime';
 
 // Helpers (mirroring Announcements.jsx)
 const getStatusStyles = (status) => {
@@ -149,77 +150,53 @@ const AnnouncementsFeatured = () => {
   const [itemsPerPage, setItemsPerPage] = useState(9);
   const [totalItems, setTotalItems] = useState(0);
 
+  const loadFeatured = async (opts = { silent: false }) => {
+    const { silent } = opts || { silent: false };
+    try {
+      if (!silent) { setLoading(true); setError(null); }
+      const params = {
+        page: currentPage,
+        limit: itemsPerPage,
+        is_featured: true,
+        search: searchQuery || undefined,
+        sortBy: sortBy === 'publishAt' ? 'published_at' : sortBy,
+        sortOrder: (sortOrder || 'desc').toUpperCase()
+      };
+      const res = await getAnnouncements(params);
+      setItems(res.data || []);
+      setTotalItems(res.pagination?.total || (res.data?.length || 0));
+    } catch (e) {
+      if (!silent) setError(e.message || 'Failed to load featured events');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
   // Fetch featured announcements from API
-  useEffect(() => {
-    const fetchFeatured = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const params = {
-          page: currentPage,
-          limit: itemsPerPage,
-          is_featured: true,
-          search: searchQuery || undefined,
-          sortBy: sortBy === 'publishAt' ? 'published_at' : sortBy,
-          sortOrder: (sortOrder || 'desc').toUpperCase()
-        };
-        const res = await getAnnouncements(params);
-        setItems(res.data || []);
-        setTotalItems(res.pagination?.total || (res.data?.length || 0));
-      } catch (e) {
-        setError(e.message || 'Failed to load featured events');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchFeatured();
-  }, [currentPage, itemsPerPage, searchQuery, sortBy, sortOrder]);
+  useEffect(() => { loadFeatured({ silent: false }); }, [currentPage, itemsPerPage, searchQuery, sortBy, sortOrder]);
+
+  // Realtime: silently refresh
+  useRealtime('announcement:changed', () => { loadFeatured({ silent: true }); });
 
   const hasActiveFilters = false; // author/tag filters removed (not supported by API currently)
 
   return (
     <div className="space-y-6">
-      {/* Header Section - match AnnouncementCreate.jsx style */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
-          {/* Mobile/Tablet Layout - Inline */}
-          <div className="flex items-center justify-between lg:hidden">
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => navigate('/staff/announcements')}
-                className="inline-flex items-center p-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-3 h-3" />
-              </button>
-              <div className="h-6 w-px bg-gray-300"></div>
-              <h1 className="text-base sm:text-lg font-bold text-gray-900">
-                Featured Events
-              </h1>
-            </div>
-          </div>
-
-          {/* Desktop Layout - Horizontal */}
-          <div className="hidden lg:flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/staff/announcements')}
-                className="inline-flex items-center p-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div className="h-8 w-px bg-gray-300"></div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">
-                  Featured Events
-                </h1>
-                <p className="text-sm text-gray-600 mt-1">
-                  Highlighted events curated by LYDO.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Page Header */}
+      <HeaderMainContent
+        title="Featured Events"
+        description="Highlighted events curated by LYDO."
+        leading={(
+          <button
+            onClick={() => navigate('/staff/announcements')}
+            aria-label="Back"
+            className="inline-flex items-center p-1 text-gray-700 text-base sm:text-sm sm:px-3 sm:py-2 sm:border sm:border-gray-300 sm:rounded-lg hover:bg-transparent sm:hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1.5 sm:mr-2" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        )}
+      />
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {/* Controls */}

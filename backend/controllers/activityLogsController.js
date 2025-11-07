@@ -76,9 +76,24 @@ const getActivityLogs = async (req, res) => {
     const countResult = await query(countQuery, queryParams);
     const total = parseInt(countResult.rows[0].total);
 
-    // Main query
+    // Main query - Convert timestamp to Asia/Manila timezone
     const logsQuery = `
-      SELECT * FROM "Activity_Logs"
+      SELECT 
+        log_id,
+        user_id,
+        user_type,
+        action,
+        resource_type,
+        resource_id,
+        resource_name,
+        details,
+        category,
+        success,
+        error_message,
+        message,
+        -- Return timestamp as-is, handle timezone in JavaScript
+        created_at
+      FROM "Activity_Logs"
       ${whereClause}
       ORDER BY created_at DESC
       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
@@ -89,22 +104,53 @@ const getActivityLogs = async (req, res) => {
 
     const totalPages = Math.ceil(total / validatedLimit);
 
+    // Format timestamps: Timestamps are stored in Asia/Manila timezone
+    // Convert PostgreSQL format to ISO string with timezone
+    const formattedItems = result.rows.map(log => {
+      let timestamp = log.created_at;
+      if (timestamp) {
+        try {
+          const timestampStr = String(timestamp).trim();
+          // Parse PostgreSQL TIMESTAMP format: "YYYY-MM-DD HH:MM:SS"
+          const match = timestampStr.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})(\.\d+)?$/);
+          if (match) {
+            // Convert to ISO format with Asia/Manila timezone: "YYYY-MM-DDTHH:MM:SS+08:00"
+            const [, year, month, day, hour, minute, second, millisecond] = match;
+            timestamp = `${year}-${month}-${day}T${hour}:${minute}:${second}${millisecond || ''}+08:00`;
+          } else {
+            // Try parsing as Date if already in different format
+            const date = new Date(timestampStr);
+            if (!isNaN(date.getTime())) {
+              timestamp = date.toISOString();
+            } else {
+              timestamp = null;
+            }
+          }
+        } catch (error) {
+          console.error('Error formatting timestamp:', error, timestamp);
+          timestamp = null;
+        }
+      }
+      
+      return {
+        logId: log.log_id,
+        userId: log.user_id,
+        userType: log.user_type,
+        action: log.action,
+        resource: log.resource_type,
+        resourceId: log.resource_id,
+        details: log.resource_name || log.details,
+        timestamp: timestamp,
+        status: log.success ? 'success' : 'failed',
+        ipAddress: null, // Not stored in current schema
+        userAgent: null // Not stored in current schema
+      };
+    });
+
     res.json({
       success: true,
       data: {
-        items: result.rows.map(log => ({
-          logId: log.log_id,
-          userId: log.user_id,
-          userType: log.user_type,
-          action: log.action,
-          resource: log.resource_type,
-          resourceId: log.resource_id,
-          details: log.resource_name || log.details,
-          timestamp: log.created_at,
-          status: log.success ? 'success' : 'failed',
-          ipAddress: null, // Not stored in current schema
-          userAgent: null // Not stored in current schema
-        })),
+        items: formattedItems,
         total,
         totalPages
       }

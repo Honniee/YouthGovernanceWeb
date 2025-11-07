@@ -7,9 +7,9 @@ import logger from '../utils/logger.js';
  * @access Public
  */
 export const getHomePageStatistics = async (req, res) => {
-  const client = await getClient();
-  
+  let client = null;
   try {
+    client = await getClient();
     // Get all statistics in parallel for better performance
     const [
       activeYouthCount,
@@ -45,7 +45,7 @@ export const getHomePageStatistics = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 };
 

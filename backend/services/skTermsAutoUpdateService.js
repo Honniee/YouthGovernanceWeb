@@ -3,6 +3,7 @@ import notificationService from './notificationService.js';
 import universalAuditService from './universalAuditService.js';
 import universalNotificationService from './universalNotificationService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import { emitToAdmins, emitToRole } from './realtime.js';
 
 /**
  * Automatic SK Terms Status Update Service
@@ -49,10 +50,12 @@ class SKTermsAutoUpdateService {
       console.log(`✅ Activated ${changes.activated.length} terms`);
       
       // 2. Update active terms to completed (end_date = today)
+      // Also set is_current = false to prevent it from being selected as active
       const completeResult = await client.query(`
         UPDATE "SK_Terms" 
         SET 
           status = 'completed',
+          is_current = false,
           completion_type = 'automatic',
           completed_at = CURRENT_TIMESTAMP,
           completed_by = NULL,
@@ -67,6 +70,18 @@ class SKTermsAutoUpdateService {
       
       changes.completed = completeResult.rows;
       console.log(`✅ Completed ${changes.completed.length} terms`);
+
+      // Emit realtime events for status changes
+      try {
+        for (const term of changes.activated) {
+          emitToAdmins('skTerm:activated', { termId: term.term_id, termName: term.term_name, startDate: term.start_date, endDate: term.end_date, at: new Date().toISOString(), by: 'SYSTEM' });
+          emitToRole('staff', 'skTerm:activated', { termId: term.term_id, termName: term.term_name, startDate: term.start_date, endDate: term.end_date, at: new Date().toISOString(), by: 'SYSTEM' });
+        }
+        for (const term of changes.completed) {
+          emitToAdmins('skTerm:completed', { termId: term.term_id, termName: term.term_name, startDate: term.start_date, endDate: term.end_date, at: new Date().toISOString(), by: 'SYSTEM', completionType: 'automatic' });
+          emitToRole('staff', 'skTerm:completed', { termId: term.term_id, termName: term.term_name, startDate: term.start_date, endDate: term.end_date, at: new Date().toISOString(), by: 'SYSTEM', completionType: 'automatic' });
+        }
+      } catch (_) {}
       
       // 3. Update account access for officials in completed terms
       if (changes.completed.length > 0) {

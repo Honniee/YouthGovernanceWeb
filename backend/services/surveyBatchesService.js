@@ -574,7 +574,8 @@ class SurveyBatchesService {
         page = 1,
         limit = 10,
         search,
-        status
+        status,
+        barangay
       } = options;
 
       // Build the base query with joins to get youth profile data
@@ -621,6 +622,14 @@ class SurveyBatchesService {
 
       const queryParams = [batchId];
       let paramCount = 1;
+
+      // Add barangay filter (by name or ID)
+      if (barangay) {
+        paramCount++;
+        // Match by barangay_name (case-insensitive) or barangay_id
+        query += ` AND (LOWER(b.barangay_name) = LOWER($${paramCount}) OR ksr.barangay_id = $${paramCount})`;
+        queryParams.push(barangay);
+      }
 
       // Add search filter
       if (search) {
@@ -679,6 +688,13 @@ class SurveyBatchesService {
       
       const countParams = [batchId];
       let countParamCount = 1;
+
+      // Add barangay filter to count query (same as main query)
+      if (barangay) {
+        countParamCount++;
+        countQuery += ` AND (LOWER(b.barangay_name) = LOWER($${countParamCount}) OR ksr.barangay_id = $${countParamCount})`;
+        countParams.push(barangay);
+      }
 
       if (search) {
         countParamCount++;

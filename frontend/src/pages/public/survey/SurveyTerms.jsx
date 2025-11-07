@@ -143,6 +143,9 @@ const SurveyTerms = () => {
   const [expandedSections, setExpandedSections] = useState({});
   const [sessionInitialized, setSessionInitialized] = useState(false);
   const [showProfileForm, setShowProfileForm] = useState(false);
+  
+  // Scroll position preservation
+  const scrollPositionRef = useRef(null);
 
   // Get terms data from survey session or localStorage
   const getTermsData = () => {
@@ -206,6 +209,22 @@ const SurveyTerms = () => {
       setViewedSections(formData.viewedSections);
     }
   }, [formData]);
+
+  // Restore scroll position after state updates that might cause re-render
+  useEffect(() => {
+    if (scrollPositionRef.current !== null) {
+      // Use double requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo({
+            top: scrollPositionRef.current,
+            behavior: 'auto'
+          });
+          scrollPositionRef.current = null; // Reset after restoring
+        });
+      });
+    }
+  }, [expandedSections, acceptedSections, viewedSections]);
 
   // Debug logging
   useEffect(() => {
@@ -389,19 +408,26 @@ const SurveyTerms = () => {
     onToggleExpand, 
     onToggleAccept 
   }) => {
-    const handleAcceptClick = () => {
-      if (!isViewed) {
-        alert("Please read this section before accepting it.");
-        return;
-      }
-      onToggleAccept();
+  const handleAcceptClick = (e) => {
+    e.preventDefault();
+    e.currentTarget.blur(); // Remove focus to prevent scroll issues
+    if (!isViewed) {
+      alert("Please read this section before accepting it.");
+      return;
+    }
+    onToggleAccept();
   };
 
   return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
         {/* Section Header */}
         <button
-          onClick={onToggleExpand}
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.currentTarget.blur(); // Remove focus to prevent scroll issues
+            onToggleExpand();
+          }}
           className="w-full p-6 flex items-center justify-between hover:bg-gray-50 transition-colors rounded-t-xl"
         >
           <div className="flex items-center flex-1">
@@ -453,6 +479,7 @@ const SurveyTerms = () => {
         {/* Acceptance Checkbox */}
         <div className="px-6 pb-6 border-t border-gray-100">
           <button
+            type="button"
             onClick={handleAcceptClick}
             disabled={!isViewed}
             className={`flex items-center w-full pt-4 transition-colors ${
@@ -487,6 +514,9 @@ const SurveyTerms = () => {
   };
 
   const toggleSection = (sectionId) => {
+    // Save current scroll position before state update
+    scrollPositionRef.current = window.pageYOffset || document.documentElement.scrollTop;
+    
     setExpandedSections(prev => ({
       ...prev,
       [sectionId]: !prev[sectionId]
@@ -510,9 +540,13 @@ const SurveyTerms = () => {
       localStorage.setItem('kk_survey_terms_temp', JSON.stringify(termsData));
       console.log('✅ Section marked as viewed:', sectionId);
     }
+    
   };
 
   const toggleAcceptance = async (sectionId) => {
+    // Save current scroll position before state update
+    scrollPositionRef.current = window.pageYOffset || document.documentElement.scrollTop;
+    
     const newAcceptedSections = {
       ...acceptedSections,
       [sectionId]: !acceptedSections[sectionId]
@@ -637,15 +671,6 @@ const SurveyTerms = () => {
             <p className="text-lg text-gray-600 mb-4 max-w-2xl mx-auto">
               Please read and accept all terms before proceeding with the KK Survey
             </p>
-            <div className="flex justify-center mb-2">
-              <button
-                onClick={demoAcceptAll}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-              >
-                Demo: Accept All Terms
-              </button>
-            </div>
-            
                 </div>
                 
           {/* Legal Sections */}

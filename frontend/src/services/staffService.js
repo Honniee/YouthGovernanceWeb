@@ -139,7 +139,7 @@ class StaffService {
       });
 
       if (format === 'csv' || format === 'pdf') {
-        // Handle file download
+        // Handle file download (backend handles the download headers)
         const contentType = format === 'csv' ? 'text/csv' : 'application/pdf';
         const extension = format === 'csv' ? 'csv' : 'pdf';
         const blob = new Blob([response.data], { type: contentType });
@@ -152,7 +152,8 @@ class StaffService {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
 
-        return { success: true, message: 'Export completed successfully' };
+        // Return success - backend has already created the audit log
+        return { success: true, message: 'Export completed successfully', data: response.data };
       } else {
         // Handle JSON response
         return { success: true, data: response.data };

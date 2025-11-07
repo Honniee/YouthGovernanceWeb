@@ -2,7 +2,7 @@ import { query, getClient } from '../config/database.js';
 import { generateVoterId } from '../utils/idGenerator.js';
 import { validateVoterCreation, validateVoterUpdate, validateBulkImport, checkVoterExists } from '../utils/voterValidation.js';
 import { handleError } from '../services/errorService.js';
-import universalAuditService from '../services/universalAuditService.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import universalNotificationService from '../services/universalNotificationService.js';
 import { parseCSVFile, parseExcelFile } from '../utils/fileParser.js';
 
@@ -23,7 +23,8 @@ const getVoters = async (req, res) => {
       gender = '',
       ageRange = '',
       dateCreated = '',
-      status = 'active'
+      status = 'active',
+      hasParticipated = '' // New filter: 'true', 'false', or '' for all
     } = req.query;
 
     const offset = (page - 1) * limit;
@@ -94,21 +95,61 @@ const getVoters = async (req, res) => {
     const countResult = await query(countQuery, queryParams);
     const total = parseInt(countResult.rows[0].total);
 
-    // Get paginated data
+    // Get paginated data with participation status
+    // Match voters with youth profiles by name + birth_date + gender, then check if they have survey responses
     const dataQuery = `
       SELECT 
-        voter_id,
-        first_name,
-        last_name,
-        middle_name,
-        suffix,
-        birth_date,
-        gender,
-        is_active,
-        created_at,
-        updated_at,
-        created_by
-      FROM "Voters_List"
+        v.voter_id,
+        v.first_name,
+        v.last_name,
+        v.middle_name,
+        v.suffix,
+        v.birth_date,
+        v.gender,
+        v.is_active,
+        v.created_at,
+        v.updated_at,
+        v.created_by,
+        -- Check if voter has participated (has survey responses)
+        CASE 
+          WHEN EXISTS (
+            SELECT 1 
+            FROM "Youth_Profiling" yp
+            INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
+            WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
+              AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
+              AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
+              AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
+              AND yp.birth_date = v.birth_date
+              AND yp.gender = v.gender
+          ) THEN true
+          ELSE false
+        END as has_participated,
+        -- Get count of survey responses
+        (
+          SELECT COUNT(*)
+          FROM "Youth_Profiling" yp
+          INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
+          WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
+            AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
+            AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
+            AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
+            AND yp.birth_date = v.birth_date
+            AND yp.gender = v.gender
+        ) as survey_count,
+        -- Get first survey date
+        (
+          SELECT MIN(ksr.created_at)
+          FROM "Youth_Profiling" yp
+          INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
+          WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
+            AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
+            AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
+            AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
+            AND yp.birth_date = v.birth_date
+            AND yp.gender = v.gender
+        ) as first_survey_date
+      FROM "Voters_List" v
       WHERE ${whereClause}
       ORDER BY ${validSortBy} ${validSortOrder}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -117,27 +158,61 @@ const getVoters = async (req, res) => {
     
     const dataResult = await query(dataQuery, queryParams);
 
-    // Calculate statistics
+    // Filter by participation status if specified
+    let filteredData = dataResult.rows;
+    if (hasParticipated === 'true') {
+      filteredData = filteredData.filter(v => v.has_participated === true);
+    } else if (hasParticipated === 'false') {
+      filteredData = filteredData.filter(v => v.has_participated === false);
+    }
+
+    // Calculate statistics including participation stats
     const statsQuery = `
+      WITH voter_participation AS (
+        SELECT 
+          v.voter_id,
+          CASE 
+            WHEN EXISTS (
+              SELECT 1 
+              FROM "Youth_Profiling" yp
+              INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
+              WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
+                AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
+                AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
+                AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
+                AND yp.birth_date = v.birth_date
+                AND yp.gender = v.gender
+            ) THEN true
+            ELSE false
+          END as has_participated
+        FROM "Voters_List" v
+      )
       SELECT 
         COUNT(*) as total,
-        COUNT(CASE WHEN is_active = true THEN 1 END) as active,
-        COUNT(CASE WHEN is_active = false THEN 1 END) as archived
-      FROM "Voters_List"
+        COUNT(CASE WHEN v.is_active = true THEN 1 END) as active,
+        COUNT(CASE WHEN v.is_active = false THEN 1 END) as archived,
+        COUNT(CASE WHEN vp.has_participated = true THEN 1 END) as has_participated_count,
+        COUNT(CASE WHEN vp.has_participated = false THEN 1 END) as not_participated_count
+      FROM "Voters_List" v
+      LEFT JOIN voter_participation vp ON v.voter_id = vp.voter_id
     `;
     const statsResult = await query(statsQuery);
     const stats = statsResult.rows[0];
 
     res.json({
       success: true,
-      data: dataResult.rows,
+      data: filteredData,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total,
-        totalPages: Math.ceil(total / limit)
+        total: hasParticipated ? filteredData.length : total,
+        totalPages: Math.ceil((hasParticipated ? filteredData.length : total) / limit)
       },
-      stats
+      stats: {
+        ...stats,
+        has_participated_count: parseInt(stats.has_participated_count) || 0,
+        not_participated_count: parseInt(stats.not_participated_count) || 0
+      }
     });
 
   } catch (error) {
@@ -265,13 +340,33 @@ const createVoter = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Create audit log
-    await universalAuditService.logCreation(
-      'voters',
-      newVoter.voter_id,
-      newVoter,
-      universalAuditService.createUserContext(req)
-    );
+    // Get voter name for logging
+    const voterName = `${newVoter.last_name}, ${newVoter.first_name}`;
+
+    // Log activity
+    try {
+      await createAuditLog({
+        userId: lydoId || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Create',
+        resource: '/api/voters',
+        resourceId: newVoter.voter_id,
+        resourceName: voterName,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          voterId: newVoter.voter_id,
+          voterName: voterName,
+          gender: newVoter.gender
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+    } catch (logError) {
+      console.error('❌ Failed to log activity for voter creation:', logError);
+      // Don't fail the request if logging fails
+    }
 
     // Send notification to admins
     setTimeout(async () => {
@@ -282,10 +377,13 @@ const createVoter = async (req, res) => {
           {
             entityData: {
               voterId: newVoter.voter_id,
-              voterName: `${newVoter.last_name}, ${newVoter.first_name}`,
-              createdBy: userId
+              voterName: voterName,
+              createdBy: createdBy
             },
-            user: universalAuditService.createUserContext(req)
+            user: {
+              id: lydoId,
+              userType: req.user?.userType || req.user?.user_type || 'admin'
+            }
           }
         );
       } catch (notifError) {
@@ -376,14 +474,50 @@ const updateVoter = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Create audit log
-    await universalAuditService.logUpdate(
-      'voters',
-      updatedVoter.voter_id,
-      oldVoter,
-      updatedVoter,
-      universalAuditService.createUserContext(req)
-    );
+    // Get voter name for logging
+    const voterName = `${updatedVoter.last_name}, ${updatedVoter.first_name}`;
+
+    // Get user_id from Users table for logging (similar to staff/youth management)
+    let createdBy = userId;
+    if (userId) {
+      try {
+        const userQuery = await query(
+          'SELECT user_id FROM "Users" WHERE lydo_id = $1 LIMIT 1',
+          [userId]
+        );
+        if (userQuery.rows.length > 0) {
+          createdBy = userQuery.rows[0].user_id;
+        }
+      } catch (userError) {
+        console.error('Failed to lookup user_id:', userError);
+        // Fall back to lydo_id
+      }
+    }
+
+    // Log activity
+    try {
+      await createAuditLog({
+        userId: createdBy || req.user?.id || req.user?.user_id || userId || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Update',
+        resource: '/api/voters',
+        resourceId: updatedVoter.voter_id,
+        resourceName: voterName,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          voterId: updatedVoter.voter_id,
+          voterName: voterName
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+      console.log('✅ Voter update audit log created');
+    } catch (logError) {
+      console.error('❌ Failed to log activity for voter update:', logError);
+      // Don't fail the request if logging fails
+    }
 
     // Send notification to admins
     setTimeout(async () => {
@@ -394,10 +528,13 @@ const updateVoter = async (req, res) => {
           {
             entityData: {
               voterId: updatedVoter.voter_id,
-              voterName: `${updatedVoter.last_name}, ${updatedVoter.first_name}`,
+              voterName: voterName,
               updatedBy: userId
             },
-            user: universalAuditService.createUserContext(req)
+            user: {
+              id: userId,
+              userType: req.user?.userType || req.user?.user_type || 'admin'
+            }
           }
         );
       } catch (notifError) {
@@ -462,14 +599,33 @@ const deleteVoter = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Create audit log
-    await universalAuditService.logStatusChange(
-      'voters',
-      deletedVoter.voter_id,
-      'active',
-      'archived',
-      universalAuditService.createUserContext(req)
-    );
+    // Get voter name for logging
+    const voterName = `${deletedVoter.last_name}, ${deletedVoter.first_name}`;
+
+    // Log activity
+    try {
+      await createAuditLog({
+        userId: userId || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Archive',
+        resource: '/api/voters',
+        resourceId: deletedVoter.voter_id,
+        resourceName: voterName,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          voterId: deletedVoter.voter_id,
+          voterName: voterName,
+          newStatus: 'archived'
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+    } catch (logError) {
+      console.error('❌ Failed to log activity for voter archive:', logError);
+      // Don't fail the request if logging fails
+    }
 
     // Send notification to admins
     setTimeout(async () => {
@@ -480,12 +636,15 @@ const deleteVoter = async (req, res) => {
           {
             entityData: {
               voterId: deletedVoter.voter_id,
-              voterName: `${deletedVoter.last_name}, ${deletedVoter.first_name}`,
+              voterName: voterName,
               oldStatus: 'active',
               newStatus: 'archived',
               archivedBy: userId
             },
-            user: universalAuditService.createUserContext(req)
+            user: {
+              id: userId,
+              userType: req.user?.userType || req.user?.user_type || 'admin'
+            }
           }
         );
       } catch (notifError) {
@@ -558,14 +717,33 @@ const restoreVoter = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Create audit log
-    await universalAuditService.logStatusChange(
-      'voters',
-      restoredVoter.voter_id,
-      'archived',
-      'active',
-      universalAuditService.createUserContext(req)
-    );
+    // Get voter name for logging
+    const voterName = `${restoredVoter.last_name}, ${restoredVoter.first_name}`;
+
+    // Log activity
+    try {
+      await createAuditLog({
+        userId: userId || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Restore',
+        resource: '/api/voters',
+        resourceId: restoredVoter.voter_id,
+        resourceName: voterName,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          voterId: restoredVoter.voter_id,
+          voterName: voterName,
+          newStatus: 'active'
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+    } catch (logError) {
+      console.error('❌ Failed to log activity for voter restore:', logError);
+      // Don't fail the request if logging fails
+    }
 
     // Send notification to admins
     setTimeout(async () => {
@@ -576,12 +754,15 @@ const restoreVoter = async (req, res) => {
           {
             entityData: {
               voterId: restoredVoter.voter_id,
-              voterName: `${restoredVoter.last_name}, ${restoredVoter.first_name}`,
+              voterName: voterName,
               oldStatus: 'archived',
               newStatus: 'active',
               restoredBy: userId
             },
-            user: universalAuditService.createUserContext(req)
+            user: {
+              id: userId,
+              userType: req.user?.userType || req.user?.user_type || 'admin'
+            }
           }
         );
       } catch (notifError) {
@@ -605,6 +786,107 @@ const restoreVoter = async (req, res) => {
 };
 
 // === BULK OPERATIONS ===
+
+/**
+ * Bulk update voter status (archive/restore)
+ * POST /api/voters/bulk
+ */
+const bulkUpdateStatus = async (req, res) => {
+  const client = await getClient();
+  
+  try {
+    const { ids, action } = req.body || {};
+    
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid request: ids must be a non-empty array' 
+      });
+    }
+    
+    if (!['archive', 'restore'].includes(action)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid action: must be "archive" or "restore"' 
+      });
+    }
+
+    await client.query('BEGIN');
+    
+    let updateSQL;
+    const results = [];
+    const errors = [];
+    
+    if (action === 'archive') {
+      updateSQL = `UPDATE "Voters_List" SET is_active = FALSE, updated_at = NOW() WHERE voter_id = $1 AND is_active = TRUE RETURNING voter_id, first_name, last_name, is_active`;
+    } else if (action === 'restore') {
+      updateSQL = `UPDATE "Voters_List" SET is_active = TRUE, updated_at = NOW() WHERE voter_id = $1 AND is_active = FALSE RETURNING voter_id, first_name, last_name, is_active`;
+    }
+
+    for (const id of ids) {
+      try {
+        const result = await client.query(updateSQL, [id]);
+        if (result.rows.length > 0) {
+          const row = result.rows[0];
+          results.push({
+            voter_id: row.voter_id,
+            name: `${row.first_name} ${row.last_name}`,
+            is_active: row.is_active
+          });
+        }
+      } catch (err) {
+        console.error(`❌ Failed to ${action} voter ${id}:`, err);
+        errors.push({ id, error: err.message });
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // Log bulk operation activity
+    const bulkAction = action.charAt(0).toUpperCase() + action.slice(1); // Capitalize first letter
+    const resourceName = `Voter Bulk ${bulkAction} - ${results.length} ${results.length === 1 ? 'voter' : 'voters'}`;
+    
+    try {
+      await createAuditLog({
+        userId: req.user?.id || req.user?.lydo_id || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: `Bulk ${bulkAction}`,
+        resource: '/api/voters/bulk',
+        resourceId: null,
+        resourceName: resourceName,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          totalItems: ids.length,
+          successCount: results.length,
+          errorCount: errors.length,
+          action: action
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: errors.length === 0 ? 'success' : (results.length > 0 ? 'partial' : 'error')
+      });
+    } catch (logError) {
+      console.error('❌ Failed to log activity for bulk operation:', logError);
+      // Don't fail the request if logging fails
+    }
+
+    return res.json({
+      success: true,
+      message: `Bulk ${action} completed`,
+      processed: results.length,
+      errors: errors.length > 0 ? errors : undefined,
+      voters: results
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error in bulk status update:', error);
+    handleError(res, error, 'Failed to process bulk status update');
+  } finally {
+    client.release();
+  }
+};
 
 /**
  * Bulk import voters from CSV/Excel file
@@ -730,14 +1012,7 @@ const bulkImportVoters = async (req, res) => {
         const result = await client.query(insertQuery, insertParams);
         const newVoter = result.rows[0];
 
-        // Create audit log for each voter
-        await universalAuditService.logCreation(
-          'voters',
-          newVoter.voter_id,
-          newVoter,
-          universalAuditService.createUserContext(req)
-        );
-
+        // Don't log individual voters - we'll log the bulk operation at the end
         results.successful++;
 
       } catch (error) {
@@ -753,6 +1028,32 @@ const bulkImportVoters = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Log bulk import activity
+    try {
+      await createAuditLog({
+        userId: userId || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Bulk Import',
+        resource: '/api/voters/bulk/import',
+        resourceId: null,
+        resourceName: `Voter Bulk Import - ${results.successful} ${results.successful === 1 ? 'voter' : 'voters'}`,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          totalItems: results.total,
+          successCount: results.successful,
+          errorCount: results.failed,
+          fileName: file.originalname
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: results.failed === 0 ? 'success' : (results.successful > 0 ? 'partial' : 'error')
+      });
+    } catch (logError) {
+      console.error('❌ Failed to log activity for bulk import:', logError);
+      // Don't fail the request if logging fails
+    }
+
     // Send bulk import completion notification
     setTimeout(async () => {
       try {
@@ -766,7 +1067,10 @@ const bulkImportVoters = async (req, res) => {
               failedImports: results.failed,
               importedBy: userId
             },
-            user: universalAuditService.createUserContext(req)
+            user: {
+              id: userId,
+              userType: req.user?.userType || req.user?.user_type || 'admin'
+            }
           }
         );
       } catch (notifError) {
@@ -857,9 +1161,9 @@ const validateBulkImportFile = async (req, res) => {
  */
 const exportVoters = async (req, res) => {
   try {
-    const { format = 'csv', status = 'active' } = req.query;
+    const { format = 'csv', status = 'active', selectedIds } = req.query;
     
-    console.log('🔍 Export request:', { format, status });
+    console.log('🔍 Export request:', { format, status, selectedIds });
 
     // Build WHERE clause
     let whereConditions = ['1=1'];
@@ -869,6 +1173,17 @@ const exportVoters = async (req, res) => {
       whereConditions.push(`is_active = true`);
     } else if (status === 'archived') {
       whereConditions.push(`is_active = false`);
+    }
+
+    // Handle selected IDs for bulk export
+    if (selectedIds) {
+      const idsArray = Array.isArray(selectedIds) ? selectedIds : selectedIds.split(',');
+      const sanitizedIds = idsArray.map(id => String(id).trim()).filter(id => id.length > 0);
+      if (sanitizedIds.length > 0) {
+        const placeholders = sanitizedIds.map((_, index) => `$${queryParams.length + index + 1}`).join(',');
+        whereConditions.push(`voter_id IN (${placeholders})`);
+        queryParams.push(...sanitizedIds);
+      }
     }
 
     const whereClause = whereConditions.join(' AND ');
@@ -897,6 +1212,37 @@ const exportVoters = async (req, res) => {
     const voters = result.rows;
     
     console.log('🔍 Query result:', { rowCount: voters.length, voters: voters.slice(0, 2) });
+
+    // Determine export type and format
+    const actualFormat = format === 'xlsx' ? 'xlsx' : format;
+    const exportType = selectedIds ? 'selected' : status;
+    const count = voters.length;
+    const action = selectedIds ? 'Bulk Export' : 'Export';
+
+    // Log export activity
+    try {
+      await createAuditLog({
+        userId: req.user?.id || req.user?.lydo_id || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: action,
+        resource: '/api/voters/export',
+        resourceId: null,
+        resourceName: `Voter Export - ${actualFormat.toUpperCase()} (${count} ${count === 1 ? 'voter' : 'voters'})`,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          format: actualFormat,
+          count: count,
+          exportType: exportType
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+    } catch (logError) {
+      console.error('❌ Failed to log activity for voter export:', logError);
+      // Don't fail the request if logging fails
+    }
 
     if (format === 'csv') {
       // Generate CSV
@@ -996,9 +1342,9 @@ export default {
   updateVoter,
   deleteVoter,
   restoreVoter,
+  bulkUpdateStatus,
   bulkImportVoters,
   validateBulkImportFile,
   exportVoters,
   getBulkImportTemplate
 };
-

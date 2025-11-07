@@ -58,7 +58,6 @@ const ActiveSurveyBanner = ({
     const daysRemaining = getActiveSurveyDaysRemaining(activeSurvey.endDate || activeSurvey.end_date);
     const totalResponses = activeSurvey.statisticsTotalResponses || activeSurvey.statistics_total_responses || 0;
     const totalYouths = activeSurvey.statisticsTotalYouths || activeSurvey.statistics_total_youths || 0;
-    const responseRate = totalYouths > 0 ? Math.round((totalResponses / totalYouths) * 100) : 0;
 
     return (
       <div className="relative bg-blue-50 border border-blue-200 rounded-lg shadow-sm">
@@ -117,22 +116,7 @@ const ActiveSurveyBanner = ({
                       </span>
                     </p>
                   </div>
-                  <div className="w-px h-4 bg-gray-300"></div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-gray-500 text-xs font-medium">Response Rate</span>
-                    <span className="text-blue-600 text-sm font-semibold">{responseRate}%</span>
-                    <div className="w-16 bg-gray-200 rounded-full h-1.5">
-                      <div 
-                        className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-                        style={{ width: `${responseRate}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                  <div className="w-px h-4 bg-gray-300"></div>
-                  <div className="flex items-center space-x-1">
-                    <BarChart3 className="w-3 h-3 text-gray-500" />
-                    <p className="text-gray-500 text-sm">{totalYouths.toLocaleString()} Target</p>
-                  </div>
+                  {/* Removed response rate and target display */}
                 </div>
               </div>
             </div>
@@ -145,7 +129,7 @@ const ActiveSurveyBanner = ({
                   className="inline-flex items-center px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
                 >
                   <Eye className="w-4 h-4 mr-2" />
-                  View Survey
+                  Survey Report
                 </button>
               )}
             </div>
@@ -206,15 +190,11 @@ const ActiveSurveyBanner = ({
               </div>
             )}
             
-            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center justify-between pt-2">
               <div className="flex items-center space-x-3">
                 <div className="text-center">
                   <div className="text-sm font-bold text-gray-900">{totalResponses.toLocaleString()}</div>
                   <div className="text-xs text-gray-500">Responses</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-sm font-bold text-gray-900">{responseRate}%</div>
-                  <div className="text-xs text-gray-500">Rate</div>
                 </div>
               </div>
               
@@ -225,7 +205,7 @@ const ActiveSurveyBanner = ({
                     className="inline-flex items-center px-2 py-1 border border-blue-300 text-blue-700 text-xs font-medium rounded hover:bg-blue-50 transition-colors"
                   >
                     <Eye className="w-3 h-3 mr-1" />
-                    View
+                    Survey Report
                   </button>
                 )}
                 <button

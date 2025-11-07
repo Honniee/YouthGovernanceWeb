@@ -89,6 +89,21 @@ class VoterService {
     }
   }
 
+  /**
+   * Bulk update voter status (archive/restore)
+   * @param {Array<string>} ids - Array of voter IDs
+   * @param {string} action - Action to perform ('archive' or 'restore')
+   * @returns {Promise<Object>} Bulk operation results
+   */
+  async bulkUpdateStatus(ids, action) {
+    try {
+      const response = await api.post('/voters/bulk', { ids, action });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
   // === BULK OPERATIONS ===
 
   /**
@@ -185,13 +200,19 @@ class VoterService {
    * Export voters
    * @param {string} format - Export format (csv, xlsx, pdf)
    * @param {string} status - Filter by status (active, archived, all)
+   * @param {string} selectedIds - Comma-separated list of selected voter IDs (for bulk export)
    * @returns {Promise<Object>} Export data or file download
    */
-  async exportVoters(format = 'csv', status = 'active') {
+  async exportVoters(format = 'csv', status = 'active', selectedIds = null) {
     try {
-      console.log('🔍 Exporting voters:', { format, status });
+      console.log('🔍 Exporting voters:', { format, status, selectedIds });
       
-      const response = await api.get(`/voters/export?format=${format}&status=${status}`, {
+      const params = new URLSearchParams({ format, status });
+      if (selectedIds) {
+        params.append('selectedIds', selectedIds);
+      }
+      
+      const response = await api.get(`/voters/export?${params.toString()}`, {
         responseType: format === 'csv' ? 'blob' : 'json',
       });
       
@@ -693,6 +714,10 @@ class VoterService {
       createdAt: voter.created_at,
       updatedAt: voter.updated_at,
       createdBy: voter.created_by,
+      // Add participation status
+      hasParticipated: voter.has_participated || false,
+      surveyCount: voter.survey_count || 0,
+      firstSurveyDate: voter.first_survey_date || null,
       // Add computed fields for display
       fullName: `${voter.last_name}, ${voter.first_name}`,
       displayName: `${voter.first_name} ${voter.last_name}`,

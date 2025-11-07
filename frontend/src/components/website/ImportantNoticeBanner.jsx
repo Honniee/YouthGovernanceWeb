@@ -3,10 +3,10 @@ import { X } from 'lucide-react';
 import { useNotice } from '../../context/NoticeContext';
 
 const ImportantNoticeBanner = () => {
-  const { showNotice, setShowNotice } = useNotice();
+  const { showNotice, setShowNotice, notice, loading } = useNotice();
 
   // Don't render if notice is not visible
-  if (!showNotice) return null;
+  if (loading || !showNotice) return null;
 
   // Smooth marquee that persists position across navigations
   const trackRef = useRef(null);
@@ -64,28 +64,45 @@ const ImportantNoticeBanner = () => {
     };
   }, []);
 
+  const typeClass = (() => {
+    switch (notice?.type) {
+      case 'success': return 'bg-green-100 border-green-500 text-green-800';
+      case 'warning': return 'bg-yellow-100 border-yellow-500 text-yellow-800';
+      case 'danger': return 'bg-red-100 border-red-500 text-red-800';
+      default: return 'bg-gray-100 border-gray-400 text-gray-800';
+    }
+  })();
+
+  const handleClose = () => {
+    // Persist dismissal for 24h
+    localStorage.setItem('noticeDismissedAt', String(Date.now()));
+    setShowNotice(false);
+  };
+
   return (
-    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 relative overflow-hidden">
+    <div className={`${typeClass} border-l-4 relative overflow-hidden`}>
       <div className="max-w-screen-2xl mx-auto px-2 sm:px-6 lg:px-8 py-1 sm:py-1.5 flex items-center justify-between">
         {/* Scrolling Text Container */}
-        <div className="overflow-hidden whitespace-nowrap flex-1 mr-2">
+        <div className="overflow-hidden whitespace-nowrap flex-1 mr-2" aria-live="polite" role="status">
           <div ref={trackRef} className="inline-block will-change-transform">
             <span className="text-xs sm:text-xs font-medium">
-              🚨 <strong>Important Notice:</strong> LYDO office hours have been extended on Thursdays until 7:00 PM. • New youth registration deadline: December 31, 2024. • KK Survey now available online. • Youth Leadership Training starts January 2025. • Contact us for more information: (043) 756-XXXX
+              {notice?.text || 'Important notice'}
             </span>
           </div>
         </div>
         
         {/* Close Button - Aligned with Login position */}
-        <div className="flex-shrink-0">
-          <button
-            onClick={() => setShowNotice(false)}
-            className="bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 sm:p-1 transition-colors shadow-md"
-            aria-label="Close notice"
-          >
-            <X className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-          </button>
-        </div>
+        {notice?.dismissible !== false && (
+          <div className="flex-shrink-0">
+            <button
+              onClick={handleClose}
+              className="bg-black/70 hover:bg-black text-white rounded-full p-0.5 sm:p-1 transition-colors shadow-md"
+              aria-label="Close notice"
+            >
+              <X className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

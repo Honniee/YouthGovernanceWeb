@@ -29,7 +29,7 @@ import {
   FileText,
   PieChart
 } from 'lucide-react';
-import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, BulkModal, Pagination, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, ViewStaffModal, EditStaffModal, ActiveTermBanner } from '../../components/portal_main_content';
+import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, BulkModal, Pagination, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, BulkActionsBar, CollapsibleForm, DataTable, ViewStaffModal, EditStaffModal, ActiveTermBanner } from '../../components/portal_main_content';
 import { extractTermStats } from '../../utils/termStats';
 import { ToastContainer, showSKSuccessToast, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 // Removed useActiveTerm import since we always use termId parameter now
@@ -85,6 +85,29 @@ const SKTermReport = () => {
       setTabLoading(false);
     }
   });
+  // Federation state
+  const [federation, setFederation] = useState([]);
+  const [isLoadingFederation, setIsLoadingFederation] = useState(false);
+  const [showEditFederation, setShowEditFederation] = useState(false);
+  const [editingPosition, setEditingPosition] = useState(null);
+  const [termOfficials, setTermOfficials] = useState([]);
+  const [federationSearch, setFederationSearch] = useState('');
+  // Federation table search/sort
+  const [fedTableSearch, setFedTableSearch] = useState('');
+  const [fedSortBy, setFedSortBy] = useState('position'); // position | name | barangay
+  const [fedSortOrder, setFedSortOrder] = useState('asc'); // asc | desc
+  const FED_POSITIONS = [
+    'President',
+    'Vice President',
+    'Secretary',
+    'Treasurer',
+    'Auditor',
+    'PRO',
+    'Sergeant-at-Arms'
+  ];
+  const [federationForm, setFederationForm] = useState(() => (
+    FED_POSITIONS.reduce((acc, p) => ({ ...acc, [p]: '' }), {})
+  ));
   const [sortBy, setSortBy] = useState('name'); // 'name', 'vacancy_rate', 'total_vacant'
   const [sortOrder, setSortOrder] = useState('asc');
   const [isLoading, setIsLoading] = useState(false);
@@ -109,6 +132,66 @@ const SKTermReport = () => {
     onPageChange: setCurrentPage,
     onItemsPerPageChange: setItemsPerPage
   });
+
+  // Load federation when the tab is active and term is available
+  useEffect(() => {
+    const loadFederation = async () => {
+      if (viewMode !== 'federation' || !reportTerm?.termId) return;
+      setIsLoadingFederation(true);
+      try {
+        const resp = await skService.getFederation(reportTerm.termId);
+        if (resp.success) {
+          const rows = Array.isArray(resp.data) ? resp.data : [];
+          setFederation(rows);
+          // Prefill form selections from current assignments
+          const map = FED_POSITIONS.reduce((acc, p) => ({ ...acc, [p]: '' }), {});
+          rows.forEach(r => { if (r.position && r.official_id) map[r.position] = r.official_id; });
+          setFederationForm(map);
+        } else {
+          showErrorToast('Failed to load SK Federation', resp.message || '');
+          setFederation([]);
+        }
+      } catch (e) {
+        setFederation([]);
+      } finally {
+        setIsLoadingFederation(false);
+      }
+    };
+    loadFederation();
+  }, [viewMode, reportTerm?.termId]);
+
+  // Load officials for the term when opening the edit modal
+  useEffect(() => {
+    const loadTermOfficials = async () => {
+      if (!showEditFederation || !reportTerm?.termId) return;
+      try {
+        // Use existing endpoint that returns officials grouped by barangay
+        const resp = await skService.getTermOfficialsByBarangay(reportTerm.termId);
+        const barangays = Array.isArray(resp?.data?.barangays)
+          ? resp.data.barangays
+          : (Array.isArray(resp?.data) ? resp.data : []);
+        // Flatten into one list with barangay info for searching/selecting
+        const flattened = [];
+        (barangays || []).forEach((b) => {
+          (b.officials || []).forEach((o) => {
+            flattened.push({
+              skId: o.skId || o.sk_id,
+              name: o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`.trim(),
+              firstName: o.firstName || o.first_name,
+              lastName: o.lastName || o.last_name,
+              barangayId: b.barangayId,
+              barangayName: b.barangayName,
+              position: o.position
+            });
+          });
+        });
+        setTermOfficials(flattened);
+      } catch (_) {
+        setTermOfficials([]);
+      }
+    };
+    loadTermOfficials();
+  }, [showEditFederation, reportTerm?.termId]);
 
   // Export state management
   const mainExport = useExport({
@@ -1090,51 +1173,152 @@ ${bodyRows}
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {/* Total Positions Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-            <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <Users className="w-6 h-6 text-blue-600" />
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                <Users className="w-4 h-4 text-blue-600" />
               </div>
-            <span className="text-3xl font-bold text-gray-900">{summary.totalPositions}</span>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Total Positions</h4>
+                <p className="text-[11px] text-gray-600">Available across all barangays</p>
+              </div>
             </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Positions</h3>
-          <p className="text-gray-600 text-sm">Available across all barangays</p>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{summary.totalPositions}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-blue-50 text-blue-700 border border-blue-200">capacity</span>
+            </div>
+          </div>
         </div>
 
         {/* Filled Positions Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-            <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <UserCheck className="w-6 h-6 text-green-600" />
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                <UserCheck className="w-4 h-4 text-green-600" />
               </div>
-            <span className="text-3xl font-bold text-gray-900">{summary.filledPositions}</span>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Filled Positions</h4>
+                <p className="text-[11px] text-gray-600">Currently occupied</p>
+              </div>
             </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Filled Positions</h3>
-          <p className="text-gray-600 text-sm">Currently occupied by officials</p>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{summary.filledPositions}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-green-50 text-green-700 border border-green-200">filled</span>
+            </div>
+          </div>
         </div>
 
         {/* Vacant Positions Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-            <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-orange-100 rounded-lg">
-              <UserX className="w-6 h-6 text-orange-600" />
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-amber-50 to-yellow-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                <UserX className="w-4 h-4 text-amber-600" />
               </div>
-            <span className="text-3xl font-bold text-gray-900">{summary.vacantPositions}</span>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Vacant Positions</h4>
+                <p className="text-[11px] text-gray-600">Need to be filled</p>
+              </div>
             </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Vacant Positions</h3>
-          <p className="text-gray-600 text-sm">Need to be filled</p>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{summary.vacantPositions}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-amber-50 text-amber-700 border border-amber-200">open</span>
+            </div>
+          </div>
         </div>
 
         {/* Vacancy Rate Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-            <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-red-100 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-red-600" />
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-red-50 to-rose-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-red-600" />
               </div>
-            <span className="text-3xl font-bold text-gray-900">{summary.vacancyRate}%</span>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Vacancy Rate</h4>
+                <p className="text-[11px] text-gray-600">Percentage unfilled</p>
+              </div>
             </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Vacancy Rate</h3>
-          <p className="text-gray-600 text-sm">Percentage of unfilled positions</p>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{summary.vacancyRate}%</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-rose-50 text-rose-700 border border-rose-200">rate</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Overview meta: term period and duration (match SurveyBatchReport styling)
+  const renderOverviewMeta = () => {
+    const start = termCtx?.startDate ? new Date(termCtx.startDate) : null;
+    const end = termCtx?.endDate ? new Date(termCtx.endDate) : null;
+    const durationDays = (start && end && !isNaN(start) && !isNaN(end))
+      ? Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    const formatLong = (d) => {
+      if (!d) return 'N/A';
+      const dt = new Date(d);
+      if (isNaN(dt)) return 'N/A';
+      return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    };
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* Term Period Card */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Term Period</h4>
+                <p className="text-[11px] text-gray-600">Start and end dates</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+              <span className="text-gray-600">Start:</span>
+              <span className="font-medium text-gray-900">{formatLong(termCtx?.startDate)}</span>
+              <span className="mx-2 text-gray-400">to</span>
+              <span className="text-gray-600">End:</span>
+              <span className="font-medium text-gray-900">{formatLong(termCtx?.endDate)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Term Duration Card */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-emerald-50 to-green-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                <Clock className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Term Duration</h4>
+                <p className="text-[11px] text-gray-600">Total days</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{durationDays ?? '—'}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">day{durationDays === 1 ? '' : 's'}</span>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -1148,71 +1332,153 @@ ${bodyRows}
     
     console.log('🔍 renderPositionBreakdown - positionStats:', positionStats);
 
+    // Map position to color scheme classes
+    const getPositionClasses = (position) => {
+      if (position.includes('Chairperson')) {
+        return {
+          gradient: 'bg-gradient-to-r from-purple-50 to-indigo-50',
+          bg: 'bg-purple-100',
+          icon: 'text-purple-600'
+        };
+      }
+      if (position.includes('Secretary')) {
+        return {
+          gradient: 'bg-gradient-to-r from-blue-50 to-cyan-50',
+          bg: 'bg-blue-100',
+          icon: 'text-blue-600'
+        };
+      }
+      if (position.includes('Treasurer')) {
+        return {
+          gradient: 'bg-gradient-to-r from-emerald-50 to-teal-50',
+          bg: 'bg-emerald-100',
+          icon: 'text-emerald-600'
+        };
+      }
+      // Councilor
+      return {
+        gradient: 'bg-gradient-to-r from-green-50 to-emerald-50',
+        bg: 'bg-green-100',
+        icon: 'text-green-600'
+      };
+    };
+
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8 shadow-sm">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-gray-900 flex items-center">
-            <PieChart className="w-6 h-6 mr-3 text-green-600" />
-            Position Breakdown
-          </h3>
-          <div className="flex items-center space-x-4 text-sm text-gray-600">
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-              <span>Filled</span>
-            </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-orange-500 rounded-full mr-2"></div>
-              <span>Vacant</span>
-            </div>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {positionStats.map((stat) => (
-            <div key={stat.position} className="bg-white rounded-lg p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="font-semibold text-gray-900 text-lg">{stat.position}</h4>
-                <Status 
-                  status={stat.vacancyRate > 20 ? 'error' : stat.vacancyRate > 10 ? 'warning' : 'success'}
-                  size="sm"
-                  variant="pill"
-                  customLabel={stat.vacancyRate > 20 ? 'High Vacancy' : stat.vacancyRate > 10 ? 'Moderate Vacancy' : 'Well Staffed'}
-                />
-              </div>
-              
-              <div className="space-y-3 mb-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Filled:</span>
-                  <span className="font-semibold text-green-600">{stat.filled}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Available:</span>
-                  <span className="font-semibold text-orange-600">{stat.available}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Total:</span>
-                  <span className="font-semibold text-gray-900">{stat.total}</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {positionStats.map((stat) => {
+          const classes = getPositionClasses(stat.position);
+          return (
+            <div key={stat.position} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-200">
+              <div className={`px-5 py-3 ${classes.gradient} border-b border-gray-100`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg ${classes.bg} flex items-center justify-center`}>
+                      <Users className={`w-4 h-4 ${classes.icon}`} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-900">{stat.position}</h4>
+                      <p className="text-[11px] text-gray-600">Position status</p>
+                    </div>
+                  </div>
+                  <Status 
+                    status={stat.vacancyRate > 20 ? 'error' : stat.vacancyRate > 10 ? 'warning' : 'success'}
+                    size="sm"
+                    variant="pill"
+                    className="px-2 py-0.5"
+                    customLabel={<span className="text-[10px]">{stat.vacancyRate > 20 ? 'High Vacancy' : stat.vacancyRate > 10 ? 'Moderate' : 'Well Staffed'}</span>}
+                  />
                 </div>
               </div>
               
-              {/* Progress bar */}
-              <div className="mt-4">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${stat.total > 0 ? (stat.filled / stat.total) * 100 : 0}%` }}
-                  ></div>
+              <div className="p-5 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-600">Filled:</span>
+                  <span className="text-sm font-semibold text-green-600">{stat.filled}</span>
                 </div>
-                <div className="flex justify-between text-xs text-gray-500 mt-2">
-                  <span>{stat.filled} filled</span>
-                  <span>{stat.available} vacant</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-600">Available:</span>
+                  <span className="text-sm font-semibold text-orange-600">{stat.available}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-600">Total:</span>
+                  <span className="text-sm font-semibold text-gray-900">{stat.total}</span>
+                </div>
+                
+                {/* Progress bar */}
+                <div className="mt-4">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${stat.total > 0 ? (stat.filled / stat.total) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-gray-500 mt-2">
+                    <span>{stat.filled} filled</span>
+                    <span>{stat.available} vacant</span>
+                  </div>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
     );
+  };
+
+  // Helpers for federation table
+  const getBarangayName = (barangayId) => {
+    return (typeof skService.getBarangayById === 'function'
+      ? (skService.getBarangayById(barangayId)?.name || '')
+      : '') || '';
+  };
+
+  const getFederationRows = () => {
+    const rows = FED_POSITIONS.map((pos) => {
+      const found = (federation || []).find(r => r.position === pos);
+      const name = found ? [found.first_name, found.last_name].filter(Boolean).join(' ') : '';
+      const barangay = found ? (getBarangayName(found.barangay_id) || found.barangay_id || '') : '';
+      return { position: pos, name, barangay, assigned: !!found };
+    });
+
+    // Search filter
+    const q = fedTableSearch.trim().toLowerCase();
+    const filtered = q
+      ? rows.filter(r => (
+          r.position.toLowerCase().includes(q) ||
+          r.name.toLowerCase().includes(q) ||
+          r.barangay.toLowerCase().includes(q)
+        ))
+      : rows;
+
+    // Sort
+    filtered.sort((a, b) => {
+      const key = fedSortBy;
+      const av = (a[key] || '').toString().toLowerCase();
+      const bv = (b[key] || '').toString().toLowerCase();
+      if (av === bv) return 0;
+      const cmp = av > bv ? 1 : -1;
+      return fedSortOrder === 'asc' ? cmp : -cmp;
+    });
+
+    return filtered;
+  };
+
+  const exportFederationCsv = () => {
+    const rows = [['Position', 'Name', 'Barangay']];
+    getFederationRows().forEach(r => rows.push([r.position, r.name || 'Unassigned', r.barangay || '']));
+    const csv = rows.map(r => r.map(v => {
+      const s = (v ?? '').toString().replace(/"/g, '""');
+      return /[",\n]/.test(s) ? `"${s}"` : s;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${(termCtx?.termName || 'sk-term')}-federation.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   // Debug logging
@@ -1266,74 +1532,46 @@ ${bodyRows}
 
   return (
     <div className="space-y-6">
-      {/* Header Section */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate(-1)}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </button>
-              <div className="h-8 w-px bg-gray-300"></div>
-              <div>
-                <div className="flex items-center space-x-3 mb-2">
-                  <h1 className="text-xl font-bold text-gray-900">
-                    {hasTerm ? `${(termCtx?.termName || 'SK Term')} Report` : 'SK Term Report'}
-                  </h1>
-                  {hasTerm && (
-                    <Status 
-                      status={
-                        (termCtx?.status === 'active') ? 'active' :
-                        (termCtx?.status === 'upcoming') ? 'warning' :
-                        (termCtx?.status === 'completed') ? 'closed' :
-                        'draft'
-                      }
-                      customLabel={
-                        (termCtx?.status === 'active') ? 'Active' :
-                        (termCtx?.status === 'upcoming') ? 'Upcoming' :
-                        (termCtx?.status === 'completed') ? 'Completed' :
-                        'Draft'
-                      }
-                      size="sm"
-                      variant="pill"
-                    />
-                  )}
-                </div>
-                                    <div className="flex items-center space-x-4 text-sm text-gray-600">
-                  {hasTerm && termCtx?.startDate && termCtx?.endDate && (
-                    <>
-                      <div className="flex items-center">
-                        <Calendar className="w-3 h-3 mr-1" />
-                        <span>
-                          {new Date(termCtx.startDate).toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric',
-                            year: 'numeric'
-                          })} - {new Date(termCtx.endDate).toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric',
-                            year: 'numeric'
-                          })}
-                        </span>
-                      </div>
-                      <div className="flex items-center">
-                        <FileText className="w-3 h-3 mr-1" />
-                        <span>Term Report</span>
-                      </div>
-                    </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              
+      {/* Header Section (matches SurveyBatchReport header pattern) */}
+      <HeaderMainContent
+        leading={(
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Back"
+            className="inline-flex items-center p-1 text-gray-700 text-base sm:text-sm sm:px-3 sm:py-2 sm:border sm:border-gray-300 sm:rounded-lg hover:bg-transparent sm:hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 mr-0 sm:mr-2" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        )}
+        title={(
+          <div className="flex items-center space-x-2">
+            <h1 className="text-base sm:text-xl font-bold text-gray-900 truncate">
+              {hasTerm ? `${(termCtx?.termName || 'SK Term')} Report` : 'SK Term Report'}
+            </h1>
+            {hasTerm && (
+              <Status
+                status={
+                  (termCtx?.status === 'active') ? 'active' :
+                  (termCtx?.status === 'upcoming') ? 'warning' :
+                  (termCtx?.status === 'completed') ? 'closed' :
+                  'draft'
+                }
+                size="sm"
+                variant="pill"
+                className="px-2 py-0.5 sm:px-3 sm:py-1"
+                customLabel={<span className="hidden sm:inline">{
+                  (termCtx?.status === 'active') ? 'Active' :
+                  (termCtx?.status === 'upcoming') ? 'Upcoming' :
+                  (termCtx?.status === 'completed') ? 'Completed' :
+                  'Draft'
+                }</span>}
+              />
+            )}
           </div>
-        </div>
-      </div>
+        )}
+        description=""
+      />
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -1365,6 +1603,12 @@ ${bodyRows}
                 shortLabel="Detailed"
                 color="yellow"
               />
+            <Tab 
+              id="federation" 
+              label="Federation" 
+              shortLabel="Federation"
+              color="purple"
+            />
             </TabContainer>
 
             {/* Controls */}
@@ -1413,19 +1657,25 @@ ${bodyRows}
             </div>
 
             {/* Content Area */}
-            {isLoadingReportTerm || isLoading || tabLoading || isLoadingDetailed ? (
-              <LoadingSpinner 
-                variant="spinner"
-                message="Loading data..." 
-                size="md"
-                color="blue"
-                height="h-64"
-              />
+            {isLoadingReportTerm || isLoading || tabLoading || isLoadingDetailed || isLoadingFederation ? (
+              <div className="flex items-center justify-center min-h-[400px]">
+                <div className="text-center">
+                  <div className="relative">
+                    <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Users className="w-5 h-5 text-blue-600 animate-pulse" />
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-3 font-medium">Loading data...</p>
+                  <p className="text-xs text-gray-500 mt-1">Fetching term report information</p>
+                </div>
+              </div>
             ) : (
               <div className="p-6">
                 {/* Overview Tab */}
                 {viewMode === 'overview' && (
                   <>
+                    {renderOverviewMeta()}
                     {renderOverviewCards()}
                     {renderPositionBreakdown()}
                   </>
@@ -1589,6 +1839,96 @@ ${bodyRows}
                     )}
                   </div>
                 )}
+
+                {/* Federation Tab */}
+                {viewMode === 'federation' && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                    <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <Users className="w-5 h-5 mr-2 text-purple-600" />
+                        SK Federation Officers
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <div className="hidden sm:flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={fedTableSearch}
+                            onChange={(e) => setFedTableSearch(e.target.value)}
+                            placeholder="Search position, name, barangay..."
+                            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                          />
+                          <select
+                            value={fedSortBy}
+                            onChange={(e) => setFedSortBy(e.target.value)}
+                            className="px-2 py-2 border border-gray-200 rounded-lg text-sm"
+                          >
+                            <option value="position">Position</option>
+                            <option value="name">Name</option>
+                            <option value="barangay">Barangay</option>
+                          </select>
+                          <select
+                            value={fedSortOrder}
+                            onChange={(e) => setFedSortOrder(e.target.value)}
+                            className="px-2 py-2 border border-gray-200 rounded-lg text-sm"
+                          >
+                            <option value="asc">Asc</option>
+                            <option value="desc">Desc</option>
+                          </select>
+                          <button
+                            onClick={exportFederationCsv}
+                            className="px-3 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50"
+                          >
+                            Export CSV
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => { setEditingPosition(null); setShowEditFederation(true); }}
+                          className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          Edit Federation
+                        </button>
+                      </div>
+                    </div>
+                    <div className="px-4 pt-3 sm:hidden">
+                      <input
+                        type="text"
+                        value={fedTableSearch}
+                        onChange={(e) => setFedTableSearch(e.target.value)}
+                        placeholder="Search position, name, barangay..."
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      />
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Barangay</th>
+                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {getFederationRows().map((row) => (
+                            <tr key={row.position} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{row.position}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.name || 'Unassigned'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.barangay}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-right">
+                                <button
+                                  onClick={() => { setEditingPosition(row.position); setShowEditFederation(true); }}
+                                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                  {row.assigned ? 'Change' : 'Assign'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1620,6 +1960,144 @@ ${bodyRows}
       
       {/* Universal Confirmation Modal */}
       <ConfirmationModal {...confirmation.modalProps} />
+  {/* Edit Federation Modal */}
+  {showEditFederation && (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm" onClick={() => setShowEditFederation(false)}>
+      <div className="bg-white rounded-xl shadow-2xl border border-gray-200/60 w-full max-w-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50 flex items-center justify-between">
+          <h3 className="text-lg font-bold text-gray-900">{editingPosition ? `Assign ${editingPosition}` : 'Assign SK Federation Officers'}</h3>
+          <button onClick={() => setShowEditFederation(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">×</button>
+        </div>
+        <div className="p-6 space-y-4">
+          {/* Search box to filter officials */}
+          <div className="sm:col-span-2">
+            <input
+              type="text"
+              value={federationSearch}
+              onChange={(e) => setFederationSearch(e.target.value)}
+              placeholder="Search officials by name or barangay..."
+              className="w-full mb-4 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+            />
+          </div>
+          {(() => {
+            const q = federationSearch.trim().toLowerCase();
+            const filtered = q
+              ? termOfficials.filter(o => {
+                  const name = (o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`).toLowerCase();
+                  const bname = (o.barangayName || (typeof skService.getBarangayById === 'function' ? (skService.getBarangayById(o.barangayId || o.barangay_id)?.name || '') : '')).toLowerCase();
+                  return name.includes(q) || bname.includes(q);
+                })
+              : termOfficials;
+
+            // Single-position selection: show a radio list to pick one official
+            if (editingPosition) {
+              return (
+                <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2"></th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Barangay</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filtered.map((o) => {
+                        const id = o.skId || o.sk_id;
+                        const name = (o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`).trim();
+                        const bname = skService.getBarangayById?.(o.barangayId || o.barangay_id)?.name || (o.barangayName || '');
+                        return (
+                          <tr key={id} className="hover:bg-gray-50">
+                            <td className="px-4 py-2">
+                              <input
+                                type="radio"
+                                name="federation-pick"
+                                checked={(federationForm[editingPosition] || '') === id}
+                                onChange={() => setFederationForm(prev => ({ ...prev, [editingPosition]: id }))}
+                              />
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{name}</td>
+                            <td className="px-4 py-2 text-sm text-gray-700">{bname}</td>
+                            <td className="px-4 py-2 text-sm text-gray-500">{o.position || ''}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            }
+
+            // Full-editor fallback: keep dropdowns per position
+            return (
+              <>
+                {FED_POSITIONS.map((pos) => (
+                  <div key={pos} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+                    <label className="text-sm font-medium text-gray-700">{pos}</label>
+                    <div className="sm:col-span-2">
+                      <select
+                        value={federationForm[pos] || ''}
+                        onChange={(e) => setFederationForm(prev => ({ ...prev, [pos]: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                      >
+                        <option value="">— Select official —</option>
+                        {filtered.map((o) => (
+                          <option key={o.skId || o.sk_id} value={o.skId || o.sk_id}>
+                            {`${(o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`).trim()} • ${skService.getBarangayById?.(o.barangayId || o.barangay_id)?.name || (o.barangayName || '')}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </>
+            );
+          })()}
+        </div>
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-2">
+          <button onClick={() => setShowEditFederation(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+          <button
+            onClick={async () => {
+              try {
+                const positionsToSave = editingPosition ? [editingPosition] : FED_POSITIONS;
+                const assignments = positionsToSave
+                  .filter(p => !!federationForm[p])
+                  .map((p, idx) => ({
+                    position: p,
+                    official_id: String(federationForm[p]),
+                    display_order: idx + 1
+                  }));
+
+                if (!assignments.length) {
+                  showErrorToast('Nothing to save', 'Please assign at least one federation officer');
+                  return;
+                }
+
+                const resp = await skService.updateFederation(reportTerm.termId, assignments);
+                if (resp.success) {
+                  showSuccessToast('Federation saved', 'SK Federation officers updated');
+                  setShowEditFederation(false);
+                  setEditingPosition(null);
+                  // Refresh
+                  const ref = await skService.getFederation(reportTerm.termId);
+                  if (ref.success) setFederation(Array.isArray(ref.data) ? ref.data : []);
+                } else {
+                  const detail = resp?.details ? (Array.isArray(resp.details) ? resp.details.join(', ') : JSON.stringify(resp.details)) : '';
+                  showErrorToast('Save failed', `${resp.message || 'Failed to update SK Federation officers'}${detail ? ` — ${detail}` : ''}`);
+                }
+              } catch (e) {
+                showErrorToast('Save failed', e.message || 'Failed to update SK Federation officers');
+              }
+            }}
+            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
     </div>
   );
 };

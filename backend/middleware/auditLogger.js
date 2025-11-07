@@ -1,5 +1,7 @@
 import { query } from '../config/database.js';
 import { generateLogId } from '../utils/idGenerator.js';
+import { generateActivityMessage } from '../utils/activityLogMessageGenerator.js';
+import { maskEmail, maskContact, extractBirthYear, maskFullName } from '../utils/dataMasking.js';
 
 /**
  * Audit Logging Middleware
@@ -13,45 +15,122 @@ import { generateLogId } from '../utils/idGenerator.js';
  * @returns {string} The appropriate category
  */
 const determineCategory = (action, resource) => {
-  // Data Export operations
-  if (action === 'EXPORT') {
+  // Normalize action to uppercase for comparison (support both uppercase and title case)
+  const actionUpper = action.toUpperCase();
+  const actionNormalized = actionUpper.replace(/ /g, '_'); // "Bulk Activate" -> "BULK_ACTIVATE"
+  
+  // Extract resource name from paths like "/api/staff" -> "staff", "/api/sk-officials/bulk/status" -> "sk-officials"
+  // Use same logic as resourceType extraction to skip action segments
+  // For council routes, also skip: members, roles, page (so we get 'council' instead)
+  let resourceName = resource;
+  if (resource && resource.includes('/')) {
+    const parts = resource.split('/').filter(p => p && p !== 'api');
+    const actionSegments = ['export', 'bulk', 'template', 'import', 'stats', 'search', 'csv', 'pdf', 'excel', 'xlsx', 'json', 'status', 'members', 'roles', 'page'];
+    
+    // Find the first non-action segment from the end (the actual resource name)
+    // For /api/council/members/bulk -> parts = ['council', 'members', 'bulk']
+    // We want 'council', not 'members' or 'bulk'
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (!actionSegments.includes(parts[i])) {
+        resourceName = parts[i];
+        break;
+      }
+    }
+    
+    // Fallback: if all segments are action segments, use the first one
+    if (resourceName === resource && parts.length > 0) {
+      resourceName = parts[0];
+    }
+  }
+  
+  // Data Export operations (including bulk exports)
+  // Check if action contains "EXPORT" (case-insensitive) to catch "Export", "Bulk Export", etc.
+  if (actionUpper.includes('EXPORT')) {
     return 'Data Export';
   }
   
   // Data Management operations (imports, bulk data operations)
-  if (action === 'BULK_IMPORT' || action.includes('IMPORT')) {
+  // This includes voter bulk imports and other import operations
+  if (actionNormalized === 'BULK_IMPORT' || actionUpper.includes('IMPORT')) {
+    return 'Data Management';
+  }
+
+  // Voter Management operations (CRUD operations, but NOT imports/exports)
+  // Check both resource path and resourceName to catch voter CRUD operations
+  const isVoterResource = resourceName === 'voters' || resourceName === 'voter' || 
+                         (resource && resource.includes('/voters'));
+  
+  if (isVoterResource) {
+    // Voter CRUD operations should be Data Management
     return 'Data Management';
   }
   
-  // User Management operations
-  if (resource === 'staff' || resource === 'sk-officials' || resource === 'users') {
-    const userManagementActions = [
-      'CREATE', 'UPDATE', 'DELETE', 'ACTIVATE', 'DEACTIVATE', 
-      'BULK_ACTIVATE', 'BULK_DEACTIVATE', 'BULK_CREATE', 'BULK_UPDATE', 'BULK_DELETE'
+  // SK Governance operations (sk-terms and council)
+  // Check both the extracted resourceName AND if the resource path contains 'council' or 'sk-terms'
+  const isSKGovernanceResource = resourceName === 'sk-terms' || resourceName === 'council' || 
+                                  (resource && (resource.includes('/council') || resource.includes('/sk-terms')));
+  
+  if (isSKGovernanceResource) {
+    const skGovernanceActions = [
+      'CREATE', 'UPDATE', 'DELETE', 'ACTIVATE', 'DEACTIVATE', 'COMPLETE', 'EXTEND',
+      'Create', 'Update', 'Delete', 'Activate', 'Deactivate', 'Complete', 'Extend',
+      'Force Activate', 'FORCE_ACTIVATE', 'Force Complete', 'FORCE_COMPLETE',
+      'Force Extend', 'FORCE_EXTEND',
+      'CREATE_COUNCIL_ROLE', 'UPDATE_COUNCIL_ROLE', 'DELETE_COUNCIL_ROLE',
+      'CREATE_COUNCIL_MEMBER', 'UPDATE_COUNCIL_MEMBER', 'DELETE_COUNCIL_MEMBER',
+      'UPDATE_COUNCIL_PAGE',
+      'BULK_ACTIVATE', 'BULK_DEACTIVATE', 'BULK_DELETE',
+      'Bulk Activate', 'Bulk Deactivate', 'Bulk Delete'
     ];
     
-    if (userManagementActions.includes(action)) {
+    // Check if action matches - including "Bulk Activate", "Bulk Deactivate", "Bulk Delete"
+    // Also check for simple actions (Create, Update, Delete) if resource is council-related
+    const matchesAction = skGovernanceActions.includes(action) || 
+                         actionNormalized.match(/^(CREATE|UPDATE|DELETE|ACTIVATE|DEACTIVATE|COMPLETE|EXTEND)$/) || 
+                         actionNormalized.match(/^(FORCE_ACTIVATE|FORCE_COMPLETE|FORCE_EXTEND|FORCE (ACTIVATE|COMPLETE|EXTEND))$/) || 
+                         actionNormalized.match(/^(CREATE_COUNCIL_|UPDATE_COUNCIL_|DELETE_COUNCIL_|UPDATE_COUNCIL_PAGE)$/) || 
+                         actionNormalized.match(/^(BULK_(ACTIVATE|DEACTIVATE|DELETE))$/) ||
+                         ((action === 'Create' || action === 'Update' || action === 'Delete') && isSKGovernanceResource);
+    
+    if (matchesAction) {
+      return 'SK Governance';
+    }
+  }
+  
+  // User Management operations (staff, sk-officials, users, youth)
+  if (resourceName === 'staff' || resourceName === 'sk-officials' || resourceName === 'users' || resourceName === 'youth') {
+    const userManagementActions = [
+      'CREATE', 'UPDATE', 'DELETE', 'ACTIVATE', 'DEACTIVATE',
+      'BULK_ACTIVATE', 'BULK_DEACTIVATE', 'BULK_CREATE', 'BULK_UPDATE', 'BULK_DELETE',
+      'Create', 'Update', 'Delete', 'Activate', 'Deactivate',
+      'Bulk Activate', 'Bulk Deactivate', 'Bulk Create', 'Bulk Update', 'Bulk Delete',
+      'Archive', 'Unarchive', 'Bulk Archive', 'Bulk Unarchive'
+    ];
+    
+    if (userManagementActions.includes(action) || actionNormalized.match(/^(CREATE|UPDATE|DELETE|ACTIVATE|DEACTIVATE|BULK_(ACTIVATE|DEACTIVATE|CREATE|UPDATE|DELETE))$/) || actionNormalized.match(/^(ARCHIVE|UNARCHIVE|BULK_(ARCHIVE|UNARCHIVE))$/)) {
       return 'User Management';
     }
   }
   
   // Authentication operations
-  if (['LOGIN', 'LOGOUT', 'PASSWORD_RESET', 'PASSWORD_CHANGE', 'EMAIL_VERIFICATION'].includes(action)) {
+  const authActions = ['LOGIN', 'LOGOUT', 'PASSWORD_RESET', 'PASSWORD_CHANGE', 'EMAIL_VERIFICATION',
+                       'Login', 'Logout', 'Password Reset', 'Password Change', 'Email Verification'];
+  if (authActions.includes(action) || actionUpper.match(/^(LOGIN|LOGOUT|PASSWORD_(RESET|CHANGE)|EMAIL_VERIFICATION)$/)) {
     return 'Authentication';
   }
   
   // Survey Management operations
-  if (resource === 'surveys' || resource === 'survey') {
+  if (resourceName === 'surveys' || resourceName === 'survey' || resourceName === 'survey-batches') {
     return 'Survey Management';
   }
   
   // Announcement operations
-  if (resource === 'announcements' || resource === 'announcement') {
-    return 'Announcement';
+  if (resourceName === 'announcements' || resourceName === 'announcement') {
+    return 'Announcement Management';
   }
   
   // Activity Log operations (viewing, managing logs themselves)
-  if (resource === 'activity-logs' || action === 'VIEW_LOGS' || action === 'CLEAR_LOGS') {
+  if (resourceName === 'activity-logs' || actionUpper === 'VIEW_LOGS' || actionUpper === 'CLEAR_LOGS') {
     return 'Activity Log';
   }
   
@@ -72,29 +151,91 @@ export const createAuditLog = async (logData) => {
       action,
       resource,
       resourceId,
+      resourceName, // New: explicit resource name
+      resourceType: providedResourceType = null, // Allow manual override of resource type
       details,
       ipAddress,
       userAgent,
       status,
       errorMessage = null,
-      category = null // Allow manual override, but use auto-detection by default
+      category = null, // Allow manual override, but use auto-detection by default
+      message = null // New: Allow pre-generated message
     } = logData;
 
     // Auto-determine category if not explicitly provided
     const finalCategory = category || determineCategory(action, resource);
 
+    // Mask sensitive survey data in details if present
+    const maskedDetails = maskSensitiveSurveyData(details);
+
     const logId = await generateLogId();
     
-    // Extract resource type from resource path
-    const resourceType = resource ? resource.split('/')[1] || 'unknown' : 'unknown';
+    // Extract resource type from resource path (e.g., "/api/staff" -> "staff", "/api/staff/export" -> "staff", "/api/staff/export/csv" -> "staff", "/api/staff/bulk/import" -> "staff")
+    // If resourceType is explicitly provided, use it instead of auto-extraction
+    let resourceType = providedResourceType || 'unknown';
+    if (!providedResourceType && resource) {
+      if (resource.includes('/')) {
+        const parts = resource.split('/').filter(p => p && p !== 'api');
+        // Common action segments to skip: export, bulk, template, import, stats, search, csv, pdf, excel, xlsx, json, status
+        // For council routes, also skip: members, roles, page (so we get 'council' instead)
+        const actionSegments = ['export', 'bulk', 'template', 'import', 'stats', 'search', 'csv', 'pdf', 'excel', 'xlsx', 'json', 'status', 'members', 'roles', 'page'];
+        
+        // Find the first non-action segment from the end (the actual resource type)
+        // For /api/council/members/bulk -> parts = ['council', 'members', 'bulk']
+        // We want 'council', not 'members' or 'bulk'
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (!actionSegments.includes(parts[i])) {
+            resourceType = parts[i];
+            break;
+          }
+        }
+        
+        // Fallback: if all segments are action segments (shouldn't happen), use the first one
+        if (resourceType === 'unknown' && parts.length > 0) {
+          resourceType = parts[0];
+        }
+      } else {
+        resourceType = resource;
+      }
+    }
     
+    // Generate message if not provided
+    let finalMessage = message;
+    if (!finalMessage) {
+      try {
+        finalMessage = await generateActivityMessage(
+          action,
+          { userId, userType },
+          {
+            name: resourceName || details?.name || details?.batchName || details?.title || details?.member_name || details?.role_name || details?.youthName || details?.skName || details?.staffName,
+            resourceType,
+            batchName: details?.batchName,
+            youthName: details?.youthName,
+            barangay: details?.barangay || details?.barangayName,
+            role_name: details?.role_name,
+            member_name: details?.member_name
+          },
+          details
+        );
+      } catch (msgError) {
+        console.error('Error generating activity message:', msgError);
+        // Fallback to simple message
+        finalMessage = `${userType || 'User'} performed ${action}`;
+      }
+    }
+    
+    // Use timezone-aware timestamp to ensure consistent timezone (Asia/Manila)
+    // Since connection timezone is set to Asia/Manila in database.js getClient(),
+    // NOW() will return time in Asia/Manila timezone
+    // Using AT TIME ZONE 'Asia/Manila' explicitly converts to Asia/Manila and returns TIMESTAMP (without timezone)
+    // This ensures consistent timestamps regardless of database server timezone
     const result = await query(
       `INSERT INTO "Activity_Logs" (
         log_id, user_id, user_type, action, resource_type, resource_id, 
-        resource_name, details, category, success, error_message, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+        resource_name, details, category, success, error_message, message, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, (NOW() AT TIME ZONE 'Asia/Manila'))
       RETURNING log_id`,
-      [logId, userId, userType, action, resourceType, resourceId, resourceId, JSON.stringify({details, ipAddress, userAgent}), finalCategory, status === 'success', errorMessage]
+      [logId, userId, userType, action, resourceType, resourceId, resourceName || resourceId, JSON.stringify({details: maskedDetails, ipAddress, userAgent}), finalCategory, status === 'success', errorMessage, finalMessage]
     );
 
     console.log(`📝 Audit log created: ${result.rows[0].log_id} - ${action} on ${resourceType} (${finalCategory})`);
@@ -105,6 +246,59 @@ export const createAuditLog = async (logData) => {
     // Don't throw error to avoid breaking the main operation
     return null;
   }
+};
+
+/**
+ * Mask sensitive survey data in details object
+ * Provides a safety net to ensure sensitive data is masked even if not masked at source
+ */
+const maskSensitiveSurveyData = (details) => {
+  if (!details || typeof details !== 'object') return details;
+  
+  const masked = { ...details };
+  
+  // Mask email fields
+  if (masked.email && typeof masked.email === 'string' && !masked.email.includes('***')) {
+    masked.email = maskEmail(masked.email);
+  }
+  
+  // Mask contact number fields (various field names)
+  const contactFields = ['contact_number', 'contactNumber', 'contact', 'phone', 'mobile'];
+  contactFields.forEach(field => {
+    if (masked[field] && typeof masked[field] === 'string' && !masked[field].includes('***')) {
+      masked[field] = maskContact(masked[field]);
+    }
+  });
+  
+  // Mask birth date - extract only year if full date present
+  const birthDateFields = ['birth_date', 'birthDate', 'birthday'];
+  birthDateFields.forEach(field => {
+    if (masked[field] && typeof masked[field] === 'string') {
+      const year = extractBirthYear(masked[field]);
+      if (year) {
+        masked[`${field}_year`] = year;
+        delete masked[field]; // Remove full date
+      }
+    }
+  });
+  
+  // Mask name fields if present as objects
+  if (masked.name && typeof masked.name === 'object') {
+    masked.name = maskFullName(
+      masked.name.firstName || masked.name.first_name,
+      masked.name.lastName || masked.name.last_name,
+      masked.name.middleName || masked.name.middle_name
+    );
+  }
+  
+  // Recursively mask nested objects
+  Object.keys(masked).forEach(key => {
+    if (masked[key] && typeof masked[key] === 'object' && !Array.isArray(masked[key])) {
+      masked[key] = maskSensitiveSurveyData(masked[key]);
+    }
+  });
+  
+  return masked;
 };
 
 /**

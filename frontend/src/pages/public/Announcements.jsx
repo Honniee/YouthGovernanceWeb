@@ -35,6 +35,7 @@ import PublicLayout from '../../components/layouts/PublicLayout';
 import PageHero from '../../components/website/PageHero';
 import heroVideo from '../../assets/media/hero.mp4';
 import { getAnnouncements } from '../../services/announcementsService';
+import { useRealtime } from '../../realtime/useRealtime';
 
 // Scroll reveal hook
 const useScrollReveal = () => {
@@ -291,82 +292,76 @@ const Announcements = () => {
     return sortModal.sortOrder || 'desc';
   }, [sortModal.sortOrder]);
 
-  // Fetch recent updates for the hero-adjacent section
-  useEffect(() => {
+  // Fetch recent updates for the hero-adjacent section (full and silent)
+  const loadRecent = async (opts = { silent: false }) => {
+    const { silent } = opts || { silent: false };
     let mounted = true;
-    const load = async () => {
-      try {
-        setFeaturedLoading(true);
-        setFeaturedError('');
-        console.log('🔍 Fetching featured announcements...');
-        const res = await getAnnouncements({ limit: 5, status: 'published', sortBy: 'published_at', sortOrder: 'DESC' });
-        console.log('📊 Featured response:', res);
-        if (!mounted) return;
-        if (res?.data) {
-          setFeatured(res.data || []);
-        } else {
-          setFeatured([]);
-          setFeaturedError('Failed to load recent updates');
-        }
-      } catch (e) {
-        if (!mounted) return;
+    try {
+      if (!silent) { setFeaturedLoading(true); setFeaturedError(''); }
+      const res = await getAnnouncements({ limit: 5, status: 'published', sortBy: 'published_at', sortOrder: 'DESC' });
+      if (!mounted) return;
+      if (res?.data) {
+        setFeatured(res.data || []);
+      } else {
         setFeatured([]);
-        setFeaturedError(e?.message || 'Failed to load recent updates');
-      } finally {
-        if (mounted) setFeaturedLoading(false);
+        if (!silent) setFeaturedError('Failed to load recent updates');
       }
-    };
-    load();
+    } catch (e) {
+      if (!mounted) return;
+      setFeatured([]);
+      if (!silent) setFeaturedError(e?.message || 'Failed to load recent updates');
+    } finally {
+      if (!silent) setFeaturedLoading(false);
+    }
     return () => { mounted = false; };
-  }, [featuredReloadKey]);
+  };
 
-  // Fetch announcements from API
-  useEffect(() => {
+  useEffect(() => { loadRecent({ silent: false }); }, [featuredReloadKey]);
+
+  // Realtime: silent refresh lists on announcement events (no loading flash)
+  const silentRefresh = () => { fetchData({ silent: true }); loadRecent({ silent: true }); };
+  useRealtime('announcement:created', silentRefresh);
+  useRealtime('announcement:updated', silentRefresh);
+  useRealtime('announcement:deleted', silentRefresh);
+  useRealtime('announcement:statusChanged', silentRefresh);
+  useRealtime('announcement:changed', silentRefresh);
+
+  // Fetch announcements from API (full and silent)
+  const fetchData = async (opts = { silent: false }) => {
+    const { silent } = opts || { silent: false };
     let isMounted = true;
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError('');
-        console.log('🔍 Fetching main announcements...', {
-          page: currentPage,
-          limit: itemsPerPage,
-          status: 'published',
-          category: apiCategory,
-          search: searchTerm,
-          sortBy: apiSortBy,
-          sortOrder: apiSortOrder.toUpperCase(),
-        });
-        const result = await getAnnouncements({
-          page: currentPage,
-          limit: itemsPerPage,
-          status: 'published',
-          category: apiCategory || undefined,
-          search: searchTerm || undefined,
-          sortBy: apiSortBy,
-          sortOrder: apiSortOrder.toUpperCase(),
-        });
-        console.log('📊 Main announcements response:', result);
-        if (!isMounted) return;
-        if (result?.data) {
-          setAnnouncements(result.data || []);
-          setPagination(result.pagination || { page: currentPage, limit: itemsPerPage, total: 0, pages: 0 });
-        } else {
-          setAnnouncements([]);
-          setPagination({ page: currentPage, limit: itemsPerPage, total: 0, pages: 0 });
-          setError('Failed to load announcements');
-        }
-      } catch (e) {
-        if (!isMounted) return;
+    try {
+      if (!silent) { setLoading(true); setError(''); }
+      const result = await getAnnouncements({
+        page: currentPage,
+        limit: itemsPerPage,
+        status: 'published',
+        category: apiCategory || undefined,
+        search: searchTerm || undefined,
+        sortBy: apiSortBy,
+        sortOrder: apiSortOrder.toUpperCase(),
+      });
+      if (!isMounted) return;
+      if (result?.data) {
+        setAnnouncements(result.data || []);
+        setPagination(result.pagination || { page: currentPage, limit: itemsPerPage, total: 0, pages: 0 });
+      } else {
         setAnnouncements([]);
         setPagination({ page: currentPage, limit: itemsPerPage, total: 0, pages: 0 });
-        setError(e?.message || 'Failed to load announcements');
-      } finally {
-        if (isMounted) setLoading(false);
+        if (!silent) setError('Failed to load announcements');
       }
-    };
-    fetchData();
+    } catch (e) {
+      if (!isMounted) return;
+      setAnnouncements([]);
+      setPagination({ page: currentPage, limit: itemsPerPage, total: 0, pages: 0 });
+      if (!silent) setError(e?.message || 'Failed to load announcements');
+    } finally {
+      if (!silent) setLoading(false);
+    }
     return () => { isMounted = false; };
-  }, [currentPage, itemsPerPage, apiCategory, searchTerm, apiSortBy, apiSortOrder, reloadKey]);
+  };
+
+  useEffect(() => { fetchData({ silent: false }); }, [currentPage, itemsPerPage, apiCategory, searchTerm, apiSortBy, apiSortOrder, reloadKey]);
 
   // Sync local sort state with sort modal hook
   useEffect(() => {

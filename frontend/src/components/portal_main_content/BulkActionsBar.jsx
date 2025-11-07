@@ -117,14 +117,16 @@ const BulkActionsBar = ({
 
         {/* Right side - Action buttons */}
         <div className="flex items-center space-x-2">
-          {/* Bulk Actions Button */}
-          <button 
-            onClick={onBulkAction}
-            className={`inline-flex items-center px-3 py-2 ${colors.buttonBg} text-white text-sm font-medium rounded-lg ${colors.buttonHover} transition-all duration-200`}
-          >
-            <Archive className="w-4 h-4 mr-2" />
-            Bulk Actions
-          </button>
+          {/* Bulk Actions Button (only shown if onBulkAction is provided) */}
+          {onBulkAction && (
+            <button 
+              onClick={onBulkAction}
+              className={`inline-flex items-center px-3 py-2 ${colors.buttonBg} text-white text-sm font-medium rounded-lg ${colors.buttonHover} transition-all duration-200`}
+            >
+              <Archive className="w-4 h-4 mr-2" />
+              Bulk Actions
+            </button>
+          )}
 
           {/* Export Button (optional) */}
           {exportConfig && (

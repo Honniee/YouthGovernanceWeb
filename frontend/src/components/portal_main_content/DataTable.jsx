@@ -15,6 +15,7 @@ import { ActionMenu, Avatar, Status } from './index';
  * @param {Function} props.onSelectAll - Callback when select all is toggled
  * @param {Function} props.getActionMenuItems - Function to get action menu items for an item
  * @param {Function} props.onActionClick - Callback when an action is clicked
+ * @param {Function} [props.onCardClick] - Callback when a card/row is clicked (opens modal, etc.)
  * @param {string} [props.viewMode='grid'] - View mode: 'grid' or 'list'
  * @param {string} [props.keyField='id'] - Field to use as unique key
  * @param {Object} [props.displayFields] - Configuration for which fields to display
@@ -39,6 +40,7 @@ const DataTable = ({
   onSelectAll,
   getActionMenuItems,
   onActionClick,
+  onCardClick,
   viewMode = 'grid',
   keyField = 'id',
   displayFields = {
@@ -87,6 +89,9 @@ const DataTable = ({
   };
 
   const themeColors = getThemeColors(styling.theme);
+  const hasFooter = Boolean(
+    (displayFields && (displayFields.status || displayFields.position || displayFields.badge || displayFields.extraBadges || displayFields.date))
+  );
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -128,10 +133,17 @@ const DataTable = ({
           return (
             <div 
               key={itemKey} 
-              className={`group bg-white rounded-xl border border-gray-200 p-5 ${styling.cardHover} transition-all duration-300 relative overflow-hidden`}
+              onClick={onCardClick ? (e) => {
+                // Don't trigger card click if clicking checkbox or action menu
+                if (e.target.closest('input[type="checkbox"]') || e.target.closest('[data-action-menu]')) {
+                  return;
+                }
+                onCardClick(item);
+              } : undefined}
+              className={`group bg-white rounded-lg border border-gray-200 p-4 sm:p-5 ${styling.cardHover} transition-all duration-200 relative overflow-hidden shadow-sm hover:shadow-md ${onCardClick ? 'cursor-pointer' : ''}`}
             >
-              {/* Card Header */}
-              <div className="flex items-start justify-between mb-4">
+              {/* Card Header - Top Right */}
+              <div className="flex items-start justify-between mb-3">
                 <input
                   type="checkbox"
                   checked={isSelected}
@@ -139,66 +151,114 @@ const DataTable = ({
                   className={`rounded border-gray-300 ${themeColors.checkbox} focus:ring-2 transition-colors duration-200`}
                 />
                 {getActionMenuItems && onActionClick && (
-                  <ActionMenu
-                    items={getActionMenuItems(item)}
-                    onAction={(actionId) => onActionClick(actionId, item)}
-                    size="md"
-                    position="auto"
-                  />
+                  <div data-action-menu onClick={(e) => e.stopPropagation()}>
+                    <ActionMenu
+                      items={getActionMenuItems(item)}
+                      onAction={(actionId) => onActionClick(actionId, item)}
+                      size="md"
+                      position="auto"
+                    />
+                  </div>
                 )}
               </div>
               
-              {/* Card Content */}
-              <div className="flex items-start mb-4">
+              {/* Card Content - Centered Avatar Layout */}
+              <div className="flex flex-col items-center text-center mb-4">
                 {displayFields.avatar && (
-                  <Avatar 
-                    user={{
-                      firstName: item[displayFields.avatar.firstName],
-                      lastName: item[displayFields.avatar.lastName],
-                      personalEmail: item[displayFields.avatar.email],
-                      profilePicture: item[displayFields.avatar.picture]
-                    }}
-                    size="lg"
-                    color={themeColors.avatar}
-                  />
+                  <div className="mb-4">
+                    <Avatar 
+                      user={{
+                        firstName: item[displayFields.avatar.firstName],
+                        lastName: item[displayFields.avatar.lastName],
+                        personalEmail: item[displayFields.avatar.email],
+                        profilePicture: item[displayFields.avatar.picture],
+                        updatedAt: item.updatedAt || item.updated_at
+                      }}
+                      size="xl"
+                      color={themeColors.avatar}
+                    />
+                  </div>
                 )}
-                <div className="ml-4 flex-1 min-w-0">
-                  <h3 className="font-bold text-gray-900 mb-2 ${themeColors.hover} transition-colors duration-200 text-lg">
+                <div className="w-full flex flex-col items-center">
+                  {displayFields.status && (
+                    <div className="flex items-center justify-center mb-3">
+                      <Status 
+                        status={getFieldValue(item, displayFields.status)}
+                        variant="badge"
+                        size="xs"
+                      />
+                    </div>
+                  )}
+                  <h3 className="font-semibold text-gray-900 mb-2 text-base leading-tight">
                     {getFieldValue(item, displayFields.title)}
                   </h3>
+                  {displayFields.email && (
+                    <div className="text-sm text-gray-600 mb-2 truncate w-full text-center">
+                      {typeof displayFields.email === 'function' ? (
+                        displayFields.email(item)
+                      ) : (
+                        getFieldValue(item, displayFields.email)
+                      )}
+                    </div>
+                  )}
                   {displayFields.subtitle && (
-                    <div className="text-sm text-gray-600">
-                      {getFieldValue(item, displayFields.subtitle)}
+                    <div className="w-full flex flex-col items-center gap-2">
+                      {typeof displayFields.subtitle === 'function' ? (
+                        displayFields.subtitle(item)
+                      ) : (
+                        <div className="text-sm text-gray-500 truncate w-full text-center">
+                          {getFieldValue(item, displayFields.subtitle)}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
               
-              {/* Card Footer */}
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                <div className="flex items-center space-x-3">
-                  {displayFields.status && (
-                    <Status 
-                      status={getFieldValue(item, displayFields.status)}
-                      variant="badge"
-                      size="sm"
-                    />
+              {/* Card Footer - Bottom */}
+              {hasFooter && (
+                <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
+                  {(displayFields.position || displayFields.badge || displayFields.extraBadges) && (
+                    <div className="flex items-center justify-center gap-2 flex-wrap">
+                      {displayFields.position && (
+                        <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                          {typeof displayFields.position === 'function' ? (
+                            displayFields.position(item)
+                          ) : (
+                            getFieldValue(item, displayFields.position)
+                          )}
+                        </span>
+                      )}
+                      {displayFields.extraBadges && (() => {
+                        const badges = typeof displayFields.extraBadges === 'function' 
+                          ? displayFields.extraBadges(item) 
+                          : getFieldValue(item, displayFields.extraBadges);
+                        if (!Array.isArray(badges)) return null;
+                        return badges.map((badge, idx) => (
+                          <span 
+                            key={idx}
+                            className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${badge.className || 'bg-gray-50 text-gray-700 border-gray-200'}`}
+                          >
+                            {badge.text}
+                          </span>
+                        ));
+                      })()}
+                      {displayFields.badge && (
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${getFieldValue(item, displayFields.badge).className}`}>
+                          {getFieldValue(item, displayFields.badge).text}
+                        </span>
+                      )}
+                    </div>
                   )}
-                  {displayFields.badge && (
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${getFieldValue(item, displayFields.badge).className}`}>
-                      {getFieldValue(item, displayFields.badge).text}
-                    </span>
+                  {displayFields.date && (
+                    <div className="text-center">
+                      <span className="text-xs text-gray-400">
+                        {displayFields.dateLabel || 'Joined'} {formatDate(getFieldValue(item, displayFields.date))}
+                      </span>
+                    </div>
                   )}
                 </div>
-                {displayFields.date && (
-                  <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-md">
-                    {formatDate(getFieldValue(item, displayFields.date))}
-                  </span>
-                )}
-              </div>
-
-              {/* Subtle accent line */}
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-400 via-blue-400 to-purple-400 opacity-60 group-hover:opacity-100 transition-opacity duration-300"></div>
+              )}
             </div>
           );
         })}
@@ -235,7 +295,14 @@ const DataTable = ({
           return (
             <div 
               key={itemKey} 
-              className={`px-3 sm:px-5 py-3 sm:py-4 flex items-center justify-between ${styling.listHover} transition-all duration-300 relative border-l-2 border-transparent`}
+              onClick={onCardClick ? (e) => {
+                // Don't trigger card click if clicking checkbox or action menu
+                if (e.target.closest('input[type="checkbox"]') || e.target.closest('[data-action-menu]')) {
+                  return;
+                }
+                onCardClick(item);
+              } : undefined}
+              className={`px-3 sm:px-5 py-3 sm:py-4 flex items-center justify-between ${styling.listHover} transition-all duration-300 relative border-l-2 border-transparent ${onCardClick ? 'cursor-pointer' : ''}`}
             >
               {/* Left side - Checkbox, Avatar, and Info */}
               <div className="flex items-center space-x-2 sm:space-x-4 min-w-0 flex-1">
@@ -251,7 +318,8 @@ const DataTable = ({
                       firstName: item[displayFields.avatar.firstName],
                       lastName: item[displayFields.avatar.lastName],
                       personalEmail: item[displayFields.avatar.email],
-                      profilePicture: item[displayFields.avatar.picture]
+                      profilePicture: item[displayFields.avatar.picture],
+                      updatedAt: item.updatedAt || item.updated_at
                     }}
                     size="sm"
                     color={themeColors.avatar}
@@ -291,12 +359,14 @@ const DataTable = ({
                   </span>
                 )}
                 {getActionMenuItems && onActionClick && (
-                  <ActionMenu
-                    items={getActionMenuItems(item)}
-                    onAction={(actionId) => onActionClick(actionId, item)}
-                    size="sm"
-                    position="auto"
-                  />
+                  <div data-action-menu onClick={(e) => e.stopPropagation()}>
+                    <ActionMenu
+                      items={getActionMenuItems(item)}
+                      onAction={(actionId) => onActionClick(actionId, item)}
+                      size="sm"
+                      position="auto"
+                    />
+                  </div>
                 )}
               </div>
             </div>

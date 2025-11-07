@@ -1,55 +1,58 @@
+/**
+ * Youth Routes
+ * Handles youth-related API endpoints
+ */
+
 import express from 'express';
-import { query } from '../config/database.js';
+import { authenticateToken } from '../middleware/auth.js';
+import { requireRole } from '../middleware/roleCheck.js';
+import { getValidatedYouth, getYouthStats, archiveYouth, unarchiveYouth, exportYouth, bulkUpdateStatus } from '../controllers/youthController.js';
 
 const router = express.Router();
 
-// GET /api/youth - list youth profiles with optional filters
-router.get('/', async (req, res) => {
-  try {
-    const { barangayId, search } = req.query;
+// Apply authentication to all routes
+router.use(authenticateToken);
 
-    const conditions = [];
-    const params = [];
+/**
+ * @route   GET /api/youth/validated
+ * @desc    Get all validated youth (youth with validated survey responses)
+ * @access  Private (Admin/Staff)
+ */
+router.get('/validated', getValidatedYouth);
 
-    if (barangayId) {
-      params.push(barangayId);
-      conditions.push(`y.barangay_id = $${params.length}`);
-    }
+/**
+ * @route   GET /api/youth/stats
+ * @desc    Get youth statistics and age distribution
+ * @access  Private (Admin/Staff)
+ */
+router.get('/stats', getYouthStats);
 
-    if (search) {
-      params.push(`%${search}%`);
-      params.push(`%${search}%`);
-      conditions.push(`(LOWER(y.first_name || ' ' || y.last_name) LIKE LOWER($${params.length - 1}) OR LOWER(y.email) LIKE LOWER($${params.length}))`);
-    }
+/**
+ * @route   PATCH /api/youth/:id/archive
+ * @desc    Archive a youth (set is_active=false)
+ * @access  Private (Admin/Staff)
+ */
+router.patch('/:id/archive', requireRole(['admin', 'lydo_staff']), archiveYouth);
 
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+/**
+ * @route   PATCH /api/youth/:id/unarchive
+ * @desc    Unarchive a youth (set is_active=true)
+ * @access  Private (Admin/Staff)
+ */
+router.patch('/:id/unarchive', requireRole(['admin', 'lydo_staff']), unarchiveYouth);
 
-    const sql = `
-      SELECT 
-        y.youth_id,
-        y.first_name,
-        y.last_name,
-        y.email,
-        y.contact_number,
-        y.age,
-        y.gender,
-        y.created_at,
-        b.barangay_name
-      FROM "Youth_Profiling" y
-      JOIN "Barangay" b ON y.barangay_id = b.barangay_id
-      ${where}
-      ORDER BY y.created_at DESC
-      LIMIT 500
-    `;
+/**
+ * @route   GET /api/youth/export
+ * @desc    Export youth data (logging endpoint for activity logs)
+ * @access  Private (Admin/Staff)
+ */
+router.get('/export', requireRole(['admin', 'lydo_staff']), exportYouth);
 
-    const result = await query(sql, params);
-    return res.json({ success: true, data: result.rows });
-  } catch (err) {
-    console.error('GET /api/youth error:', err);
-    return res.status(500).json({ success: false, message: 'Failed to fetch youth profiles.' });
-  }
-});
+/**
+ * @route   POST /api/youth/bulk
+ * @desc    Bulk archive/unarchive youth
+ * @access  Private (Admin/Staff)
+ */
+router.post('/bulk', requireRole(['admin', 'lydo_staff']), bulkUpdateStatus);
 
 export default router;
-
-

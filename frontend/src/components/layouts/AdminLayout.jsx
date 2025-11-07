@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import AdminSidebar from '../porrtal/AdminSidebar';
 import AdminHeader from '../porrtal/AdminHeader';
+import { RealtimeProvider } from '../../realtime/RealtimeProvider';
 
 const AdminLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -72,9 +73,11 @@ const AdminLayout = ({ children }) => {
       />
 
       {/* Main Content Area */}
-      <main className="p-4 md:ml-80 h-auto pt-20 bg-gray-50">
-        {children}
-      </main>
+      <RealtimeProvider>
+        <main className="p-4 md:ml-80 h-auto pt-20 bg-gray-50">
+          {children}
+        </main>
+      </RealtimeProvider>
     </div>
   );
 };

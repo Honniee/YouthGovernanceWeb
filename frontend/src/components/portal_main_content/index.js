@@ -9,6 +9,7 @@ export { default as SearchBar } from './SearchBar';
 export { default as FilterButton } from './FilterButton';
 export { default as SortButton } from './SortButton';
 export { default as useSearch } from './useSearch';
+export { default as TabbedDetailModal } from './TabbedDetailModal';
 export { default as Modal } from './Modal';
 export { default as FilterModal } from './FilterModal';
 export { default as SortModal } from './SortModal';

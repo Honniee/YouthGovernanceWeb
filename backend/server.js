@@ -16,15 +16,22 @@ import notificationRoutes from './routes/notifications.js';
 import skOfficialsRoutes from './routes/skOfficials.js';
 import skTermsRoutes from './routes/skTerms.js';
 import activityLogsRoutes from './routes/activityLogs.js';
+import validationLogsRoutes from './routes/validationLogs.js';
 import cronRoutes from './routes/cron.js';
 import voterRoutes from './routes/voters.js';
 import surveyBatchesRoutes from './routes/surveyBatches.js';
+import surveyTrackingRoutes from './routes/surveyTracking.js';
 import youthRoutes from './routes/youth.js';
 import announcementsRoutes from './routes/announcements.js';
 import statisticsRoutes from './routes/statistics.js';
+import systemNoticeRoutes from './routes/systemNotice.js';
 import barangaysRoutes from './routes/barangays.js';
 import youthProfilesRoutes from './routes/youthProfiles.js';
 import surveyResponsesRoutes from './routes/surveyResponses.js';
+import validationQueueRoutes from './routes/validationQueue.js';
+import councilRoutes from './routes/council.js';
+import skFederationRoutes from './routes/skFederation.js';
+import clusteringRoutes from './routes/clustering.js';
 // import programRoutes from './routes/programs.js';
 // import eventRoutes from './routes/events.js';
 // import userRoutes from './routes/users.js';
@@ -147,15 +154,22 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/sk-officials', skOfficialsRoutes);
 app.use('/api/sk-terms', skTermsRoutes);
 app.use('/api/activity-logs', activityLogsRoutes);
+app.use('/api/validation-logs', validationLogsRoutes);
 app.use('/api/cron', cronRoutes);
 app.use('/api/voters', voterRoutes);
 app.use('/api/survey-batches', surveyBatchesRoutes);
+app.use('/api/survey-tracking', surveyTrackingRoutes);
 app.use('/api/youth', youthRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/statistics', statisticsRoutes);
+app.use('/api/system/notice', systemNoticeRoutes);
 app.use('/api/barangays', barangaysRoutes);
 app.use('/api/youth-profiles', youthProfilesRoutes);
 app.use('/api/survey-responses', surveyResponsesRoutes);
+app.use('/api/validation-queue', validationQueueRoutes);
+app.use('/api/council', councilRoutes);
+app.use('/api/sk-federation', skFederationRoutes);
+app.use('/api/clustering', clusteringRoutes);
 // app.use('/api/programs', programRoutes);
 // app.use('/api/events', eventRoutes);
 // app.use('/api/users', userRoutes);
@@ -208,6 +222,15 @@ const server = app.listen(PORT, () => {
   console.log(`💡 Health Check: http://localhost:${PORT}/api/health`);
   console.log(`🔄 Manual term updates: http://localhost:${PORT}/api/cron/manual-update-term-statuses`);
 });
+
+// Attach Socket.IO realtime server
+import { initSocket } from './server-socket.js';
+try {
+  initSocket(server);
+  console.log('📡 Realtime (Socket.IO) initialized');
+} catch (e) {
+  console.warn('⚠️ Failed to initialize realtime server:', e?.message);
+}
 
 // Setup global error handlers for graceful shutdown
 import { setupErrorHandlers } from './middleware/errorHandler.js';

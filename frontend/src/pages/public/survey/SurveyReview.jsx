@@ -55,7 +55,10 @@ const SurveyReview = () => {
   const { activeSurvey, hasActiveSurvey, isLoading: surveyLoading, error: surveyError } = useActiveSurvey();
   
   // Barangays data
-  const { barangays } = useBarangays();
+  const { barangays, isLoading: barangaysLoading, error: barangaysError } = useBarangays();
+  
+  // Debug barangays loading (remove in production)
+  // console.log('🔍 Barangays loading state:', { barangaysLoading, barangaysError, barangaysCount: barangays?.length });
   
   // reCAPTCHA hook
   const recaptcha = useReCaptcha({ 
@@ -71,8 +74,32 @@ const SurveyReview = () => {
   // Helper function to get barangay name
   const getBarangayName = (barangayId) => {
     if (!barangayId) return '';
-    const barangay = (barangays || []).find(b => (b.barangay_id || b.id) === barangayId);
-    return barangay ? (barangay.name || barangay.barangay_name) : barangayId;
+    
+    // If barangays are still loading, show loading state
+    if (barangaysLoading) {
+      return 'Loading...';
+    }
+    
+    // If there's an error loading barangays, show the ID
+    if (barangaysError) {
+      console.warn('⚠️ Error loading barangays:', barangaysError);
+      return barangayId;
+    }
+    
+    // Debug logging (remove in production)
+    // console.log('🔍 Getting barangay name for ID:', barangayId);
+    // console.log('🔍 Available barangays:', barangays);
+    
+    const barangay = (barangays || []).find(b => {
+      const match = (b.barangay_id || b.id) === barangayId;
+      // console.log('🔍 Checking barangay:', b, 'Match:', match);
+      return match;
+    });
+    
+    const result = barangay ? (barangay.barangay_name || barangay.name) : barangayId;
+    // console.log('🔍 Barangay name result:', result);
+    
+    return result;
   };
 
   // ✅ reCAPTCHA verification guard
@@ -129,6 +156,10 @@ const SurveyReview = () => {
         demographics: Object.keys(demographicsFormData).length,
         civic: Object.keys(civicFormData).length
         });
+        
+      // Debug barangay data (remove in production)
+      // console.log('🔍 Personal data barangay:', personal.barangay);
+      // console.log('🔍 Personal data full:', personal);
       } catch (e) {
         console.error('Error loading saved data:', e);
     }

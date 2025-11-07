@@ -89,14 +89,10 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
       description: 'Create, activate, and archive SK terms',
       category: 'governance'
     },
+    
+    
 
-    { 
-      name: 'Term History', 
-      href: '/admin/sk-governance/term-history', 
-      icon: History,
-      description: 'View past terms and associated officials',
-      category: 'governance'
-    },
+    
     
     // 🗳️ KK Survey Management
     { 
@@ -114,40 +110,27 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
       category: 'survey'
     },
     { 
-      name: 'Survey Responses', 
-      href: '/admin/survey/responses', 
-      icon: FileText,
-      description: 'View validated responses, filter by barangay/batch',
-      category: 'survey'
-    },
-    { 
       name: 'Validation Queue', 
       href: '/admin/survey/validation', 
       icon: Filter,
       description: 'Monitor pending manual validations',
       category: 'survey'
     },
-    
-    // 📈 Recommendations
     { 
-      name: 'Batch Reports', 
-      href: '/admin/recommendations/batch-reports', 
-      icon: BarChart3,
-      description: 'View generated recommendations per barangay',
-      category: 'reports'
-    },
-    { 
-      name: 'Trend Analysis', 
-      href: '/admin/recommendations/trends', 
+      name: 'Survey Tracking', 
+      href: '/admin/survey/tracking', 
       icon: TrendingUp,
-      description: 'Compare participation and needs across batches',
-      category: 'reports'
+      description: 'Track youth participation across survey batches',
+      category: 'survey'
     },
+    
+    
+    // 📈 Reports & Analytics
     { 
-      name: 'Export Reports', 
-      href: '/admin/recommendations/export', 
-      icon: Download,
-      description: 'Download data for planning or documentation',
+      name: 'Report Generator', 
+      href: '/admin/reports/generator', 
+      icon: FileText,
+      description: 'Generate and export reports from any system module',
       category: 'reports'
     },
     
@@ -168,13 +151,7 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
       description: 'Track admin and user actions',
       category: 'audit'
     },
-    { 
-      name: 'Validation Logs', 
-      href: '/admin/audit/validation', 
-      icon: Eye,
-      description: 'Record of manual approvals/rejections',
-      category: 'audit'
-    },
+    
     { 
       name: 'System Health', 
       href: '/admin/system/health', 
@@ -183,6 +160,24 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
       category: 'audit'
     }
   ];
+
+  // Add link under Communication or Audit
+  navigation.push({
+    name: 'System Notice',
+    href: '/admin/system/notice',
+    icon: Megaphone,
+    description: 'Edit the important public notice banner',
+    category: 'communication'
+  });
+
+  // LYDO Council under SK Governance
+  navigation.push({
+    name: 'LYDO Council',
+    href: '/admin/content/lydo-council',
+    icon: Users,
+    description: 'Manage LYDO Council members and photos',
+    category: 'governance'
+  });
 
   const isActive = (href) => {
     // Special case for dashboard - check if we're on admin root or dashboard
@@ -260,7 +255,7 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
         } bg-white/95 backdrop-blur-sm border-r border-gray-200/60 shadow-xl md:translate-x-0`}
         aria-label="Sidenav"
       >
-        <div className="overflow-y-auto py-4 px-3 h-full bg-gradient-to-b from-white to-gray-50/30 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+        <div className="overflow-y-auto py-4 px-3 h-full bg-gradient-to-b from-white to-gray-50/30 admin-sidebar">
           
           {/* Search Functionality */}
           <div className="px-0 mb-4 mt-2">

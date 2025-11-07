@@ -293,6 +293,30 @@ CREATE INDEX idx_kk_responses_validation_status ON "KK_Survey_Responses" (valida
 CREATE INDEX idx_kk_responses_validation_tier ON "KK_Survey_Responses" (validation_tier);
 CREATE INDEX idx_kk_responses_created_at ON "KK_Survey_Responses" (created_at);
 
+-- Add unique constraint for response_id to allow foreign key references
+ALTER TABLE "KK_Survey_Responses" ADD CONSTRAINT uk_kk_responses_response_id UNIQUE (response_id);
+
+-- Add unique constraint for youth_id to allow foreign key references
+ALTER TABLE "Youth_Profiling" ADD CONSTRAINT uk_youth_profiling_youth_id UNIQUE (youth_id);
+
+-- . VALIDATION_QUEUE TABLE
+CREATE TABLE "Validation_Queue" (
+    queue_id VARCHAR(20) PRIMARY KEY,
+    response_id VARCHAR(20) NOT NULL,
+    youth_id VARCHAR(20) NOT NULL,
+    voter_match_type TEXT CHECK (voter_match_type IN ('existing_youth', 'exact', 'strong', 'partial', 'weak', 'none')) DEFAULT 'none',
+    validation_score INTEGER CHECK (validation_score >= 0 AND validation_score <= 100) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (response_id) REFERENCES "KK_Survey_Responses"(response_id) ON DELETE CASCADE,
+    FOREIGN KEY (youth_id) REFERENCES "Youth_Profiling"(youth_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_validation_queue_response_id ON "Validation_Queue" (response_id);
+CREATE INDEX idx_validation_queue_youth_id ON "Validation_Queue" (youth_id);
+CREATE INDEX idx_validation_queue_voter_match_type ON "Validation_Queue" (voter_match_type);
+CREATE INDEX idx_validation_queue_validation_score ON "Validation_Queue" (validation_score);
+CREATE INDEX idx_validation_queue_created_at ON "Validation_Queue" (created_at);
 
 
 -- 12. VALIDATION_LOGS TABLE
@@ -322,6 +346,7 @@ CREATE TABLE "Activity_Logs" (
     resource_type VARCHAR(50) NOT NULL, -- 'survey', 'user', 'validation', etc.
     resource_id VARCHAR(20) NULL,
     resource_name VARCHAR(100) NULL,
+    message TEXT NULL,
     details JSONB, -- Additional details about the action
     category TEXT CHECK (category IN ('Authentication', 'User Management', 'Survey Management', 'Announcement', 'Activity Log', 'Data Export', 'Data Management', 'System Management', 'SK Management', 'Term Management', 'Youth Management', 'Voter Management', 'Notification Management', 'Bulk Operations', 'System Events', 'Data Validation', 'Report Generation', 'File Management', 'Email Operations', 'Security Events')) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -335,6 +360,7 @@ CREATE INDEX idx_activity_logs_user_type ON "Activity_Logs" (user_type);
 CREATE INDEX idx_activity_logs_action ON "Activity_Logs" (action);
 CREATE INDEX idx_activity_logs_resource ON "Activity_Logs" (resource_type, resource_id);
 CREATE INDEX idx_activity_logs_created_at ON "Activity_Logs" (created_at);
+CREATE INDEX idx_activity_logs_category ON "Activity_Logs" (category);
 
 -- 14. NOTIFICATIONS TABLE
 CREATE TABLE "Notifications" (
@@ -391,6 +417,44 @@ CREATE INDEX idx_announcements_is_pinned ON "Announcements" (is_pinned);
 CREATE INDEX idx_announcements_category ON "Announcements" (category);
 CREATE INDEX idx_announcements_published_at ON "Announcements" (published_at);
 CREATE INDEX idx_announcements_created_at ON "Announcements" (created_at);
+
+
+CREATE TABLE "LYDO_Council_Roles" (
+  id VARCHAR(20) PRIMARY KEY,
+  role_name VARCHAR(50) NOT NULL,
+  role_description TEXT,
+  created_by VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES "Users"(user_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_council_roles_name ON "LYDO_Council_Roles" (role_name);
+
+CREATE TABLE "LYDO_Council_Members" (
+  id VARCHAR(20) PRIMARY KEY,
+  role_id VARCHAR(20) NOT NULL,
+  member_name VARCHAR(50) NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_by VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES "Users"(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES "LYDO_Council_Roles"(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_council_members_active ON "LYDO_Council_Members" (is_active);
+CREATE INDEX idx_council_members_role   ON "LYDO_Council_Members" (role_id);
+CREATE INDEX idx_council_members_name   ON "LYDO_Council_Members" (member_name);
+
+CREATE TABLE "LYDO_Council_Page" (
+  id VARCHAR(20) PRIMARY KEY,
+  hero_url_1 TEXT,
+  hero_url_2 TEXT,
+  hero_url_3 TEXT,
+  created_by VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES "Users"(user_id) ON DELETE CASCADE
+);
 
 ALTER TABLE "Announcements" 
 ADD COLUMN location VARCHAR(100) NULL,        -- Where the event happens

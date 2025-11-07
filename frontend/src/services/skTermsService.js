@@ -145,17 +145,34 @@ class SKTermsService {
   }
 
   /**
+   * Update SK term status (like Survey Batch's updateBatchStatus)
+   * @param {string} id - Term ID
+   * @param {string} status - New status ('active', 'completed')
+   * @param {string} action - Action type ('activate', 'force-activate', 'complete')
+   * @param {string} reason - Optional reason
+   * @returns {Promise<Object>} API response
+   */
+  async updateTermStatus(id, status, action, reason = '') {
+    try {
+      const statusData = {
+        status,
+        action,
+        ...(reason && { reason })
+      };
+      const response = await api.patch(`/sk-terms/${id}/status`, statusData);
+      return { success: true, data: response.data.data, message: response.data.message };
+    } catch (error) {
+      return this.handleError(error, 'Failed to update SK term status');
+    }
+  }
+
+  /**
    * Activate SK term
    * @param {string} id - Term ID
    * @returns {Promise<Object>} API response
    */
   async activateSKTerm(id) {
-    try {
-      const response = await api.patch(`/sk-terms/${id}/activate`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return this.handleError(error, 'Failed to activate SK term');
-    }
+    return this.updateTermStatus(id, 'active', 'activate');
   }
 
   /**
@@ -530,8 +547,12 @@ class SKTermsService {
         message = data.message;
       }
       
-      if (data && data.errors) {
-        details = data.errors;
+      // Backend sends 'details' for validation errors, but may also send 'errors'
+      if (data && data.details) {
+        details = Array.isArray(data.details) ? data.details : [data.details];
+        console.log('🔍 Extracted details:', details);
+      } else if (data && data.errors) {
+        details = Array.isArray(data.errors) ? data.errors : [data.errors];
         console.log('🔍 Extracted errors:', details);
       }
       

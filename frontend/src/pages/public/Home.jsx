@@ -33,6 +33,7 @@ import { useAuth } from '../../context/AuthContext';
 import surveyBatchesService from '../../services/surveyBatchesService';
 import useConfirmation from '../../hooks/useConfirmation';
 import { useNotice } from '../../context/NoticeContext';
+import { useRealtime } from '../../realtime/useRealtime';
 
 // Scroll reveal hook (from About page)
 const useScrollReveal = () => {
@@ -209,63 +210,71 @@ const Home = () => {
   };
 
   // Fetch featured announcements from database
-  useEffect(() => {
-    const fetchFeaturedAnnouncements = async () => {
-      try {
-        setLoadingFeatured(true);
-        setErrorFeatured(null);
-        
-        console.log('🔍 Fetching featured announcements in Home...');
-        const response = await getFeaturedAnnouncements(8); // Get up to 8 featured items
-        console.log('📊 Featured response in Home:', response);
-        
-        if (response?.data) {
-          // Transform database data to match our carousel format
-          const transformedData = response.data.map((announcement, index) => ({
-            id: announcement.announcement_id,
-            type: announcement.category === 'programs' ? 'Program' : 
-                  announcement.category === 'projects' ? 'Project' : 
-                  announcement.category === 'activities' ? 'Activity' : 'Announcement',
-            title: announcement.title,
-            description: announcement.summary || announcement.content?.substring(0, 200) + '...',
-            image: announcement.image_url || `https://images.unsplash.com/photo-${1522202176988 + index}?q=80&w=1200&auto=format&fit=crop`,
-            date: announcement.published_at ? new Date(announcement.published_at).toLocaleDateString('en-US', { 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            }) : 'TBA',
-            location: announcement.location || 'San Jose, Batangas',
-            link: `/programs/${announcement.announcement_id}`,
-            gradient: gradientOptions[index % gradientOptions.length]
-          }));
-          
-          setFeaturedContent(transformedData);
-        }
-      } catch (error) {
-        console.error('Error fetching featured announcements:', error);
-        setErrorFeatured('Failed to load featured content');
-        
-        // Fallback to sample data if API fails
-        setFeaturedContent([
-          {
-            id: 1,
-            type: 'Featured Program',
-            title: 'Youth Leadership Summit 2025',
-            description: 'Join us for an empowering 3-day summit designed to develop leadership skills, civic engagement, and community impact among young leaders.',
-            image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=1200&auto=format&fit=crop',
-            date: 'March 15-17, 2025',
-            location: 'San Jose Convention Center',
-            link: '/programs/leadership-summit',
-            gradient: 'from-blue-600 via-purple-600 to-blue-800'
-          }
-        ]);
-      } finally {
-        setLoadingFeatured(false);
+  // Featured fetchers: full (with loading) and silent
+  const fetchFeaturedAnnouncements = async (opts = { silent: false }) => {
+    const { silent } = opts || { silent: false };
+    try {
+      if (!silent) { setLoadingFeatured(true); setErrorFeatured(null); }
+      const response = await getFeaturedAnnouncements(8);
+      if (response?.data) {
+        const transformedData = response.data.map((announcement, index) => ({
+          id: announcement.announcement_id,
+          type: announcement.category === 'programs' ? 'Program' : 
+                announcement.category === 'projects' ? 'Project' : 
+                announcement.category === 'activities' ? 'Activity' : 'Announcement',
+          title: announcement.title,
+          description: announcement.summary || announcement.content?.substring(0, 200) + '...',
+          image: announcement.image_url || `https://images.unsplash.com/photo-${1522202176988 + index}?q=80&w=1200&auto=format&fit=crop`,
+          date: announcement.published_at ? new Date(announcement.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'TBA',
+          location: announcement.location || 'San Jose, Batangas',
+          link: `/programs/${announcement.announcement_id}`,
+          gradient: gradientOptions[index % gradientOptions.length]
+        }));
+        setFeaturedContent(transformedData);
       }
-    };
+    } catch (error) {
+      if (!silent) {
+        setErrorFeatured('Failed to load featured content');
+        setFeaturedContent([{
+          id: 1,
+          type: 'Featured Program',
+          title: 'Youth Leadership Summit 2025',
+          description: 'Join us for an empowering 3-day summit designed to develop leadership skills, civic engagement, and community impact among young leaders.',
+          image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=1200&auto=format&fit=crop',
+          date: 'March 15-17, 2025',
+          location: 'San Jose Convention Center',
+          link: '/programs/leadership-summit',
+          gradient: 'from-blue-600 via-purple-600 to-blue-800'
+        }]);
+      }
+    } finally {
+      if (!silent) setLoadingFeatured(false);
+    }
+  };
 
-    fetchFeaturedAnnouncements();
+  useEffect(() => {
+    fetchFeaturedAnnouncements({ silent: false });
   }, [featuredReloadKey]);
+
+  // Realtime: announcements and survey updates
+  const silentFeaturedRefresh = () => fetchFeaturedAnnouncements({ silent: true });
+  useRealtime('announcement:created', silentFeaturedRefresh);
+  useRealtime('announcement:updated', silentFeaturedRefresh);
+  useRealtime('announcement:deleted', silentFeaturedRefresh);
+  useRealtime('announcement:statusChanged', silentFeaturedRefresh);
+  useRealtime('announcement:changed', silentFeaturedRefresh);
+  useRealtime('survey:batchUpdated', async () => {
+    await refreshActiveSurvey();
+    await refreshStatistics();
+  });
+  useRealtime('survey:responsesUpdated', async () => {
+    await refreshActiveSurvey();
+    await refreshStatistics();
+  });
+  // System notice: let layout refresh on change (public clients receive broadcast)
+  useRealtime('systemNotice:changed', () => {
+    // No-op here; PublicLayout/NoticeContext is responsible for fetching notice
+  });
 
   // Fetch total Programs (category=programs) count
   useEffect(() => {

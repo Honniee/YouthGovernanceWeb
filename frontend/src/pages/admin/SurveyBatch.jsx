@@ -49,13 +49,64 @@ import {
   Heart,
   ClipboardList
 } from 'lucide-react';
-import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, ActiveSurveyBanner } from '../../components/portal_main_content';
+import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, SortModal, FilterModal, Pagination, useSortModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, ActiveSurveyBanner } from '../../components/portal_main_content';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import surveyBatchesService from '../../services/surveyBatchesService';
 import { useActiveSurvey } from '../../hooks/useActiveSurvey';
+import { useRealtime } from '../../realtime/useRealtime';
 
 const SurveyBatch = () => {
   const navigate = useNavigate();
+  
+  // Helpers for announcement-style grid cards
+  const formatDate = (value) => {
+    if (!value) return '';
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+  const getStatusStyles = (status) => {
+    const s = (status || '').toString().toLowerCase();
+    switch (s) {
+      case 'active':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'draft':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'closed':
+      case 'inactive':
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+  const getBatchFallbackImage = (status, title) => {
+    const s = (status || '').toString().toLowerCase();
+    let from = '#64748b', to = '#111827';
+    if (s === 'active') { from = '#10b981'; to = '#065f46'; }
+    else if (s === 'draft') { from = '#f59e0b'; to = '#92400e'; }
+    else if (s === 'closed' || s === 'inactive') { from = '#9ca3af'; to = '#374151'; }
+    const displayTitle = (title || '').toString().slice(0, 42);
+    const svg = `
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 675' preserveAspectRatio='xMidYMid slice'>
+        <defs>
+          <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='${from}'/>
+            <stop offset='100%' stop-color='${to}'/>
+          </linearGradient>
+        </defs>
+        <rect width='1200' height='675' fill='url(#g)'/>
+        <g fill='rgba(255,255,255,0.25)'>
+          <circle cx='150' cy='120' r='90'/>
+          <circle cx='1050' cy='560' r='120'/>
+          <circle cx='950' cy='90' r='60'/>
+        </g>
+        ${displayTitle ? `
+        <text x='600' y='350' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-size='32' font-weight='bold' opacity='0.9'>
+          <tspan x='600' dy='0'>${displayTitle}</tspan>
+        </text>` : ''}
+      </svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  };
   
   // Tab state hook for status filtering
   const { activeTab, setActiveTab } = useTabState('all', async (tabId) => {
@@ -80,7 +131,7 @@ const SurveyBatch = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
 
   // Survey batch data state
@@ -142,17 +193,14 @@ const SurveyBatch = () => {
   // Form saving state
   const [isSaving, setIsSaving] = useState(false);
 
-  // Bulk operations state
-  const [bulkAction, setBulkAction] = useState('');
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
-  // Batch details modal state
-  const [showViewModal, setShowViewModal] = useState(false);
+  // Batch details modal state (removed view modal)
   const [showEditModal, setShowEditModal] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [isEditingSaving, setIsEditingSaving] = useState(false);
   const [extensionData, setExtensionData] = useState({ newEndDate: '' });
+  const [isExtending, setIsExtending] = useState(false);
 
   // Confirmation modal hook
   const confirmation = useConfirmation();
@@ -162,7 +210,6 @@ const SurveyBatch = () => {
 
   // Modal state management using custom hooks
   const sortModal = useSortModal(sortBy, sortOrder);
-  const bulkModal = useBulkModal();
   
   // Pagination state management using custom hook - RESTORED like StaffManagement
   const pagination = usePagination({
@@ -212,9 +259,16 @@ const SurveyBatch = () => {
     });
   }, [pagination.currentPage, pagination.itemsPerPage, pagination.totalItems]);
 
-  // Load survey batch data
-  const loadBatchData = async (customStatus = null, customPage = null) => {
-    setIsLoading(true);
+  // Load survey batch data (supports silent refresh)
+  const loadBatchData = async (...args) => {
+    let customStatus = null, customPage = null, silent = false;
+    if (args.length > 0 && typeof args[0] === 'object' && args[0] !== null) {
+      ({ customStatus = null, customPage = null, silent = false } = args[0]);
+    } else {
+      customStatus = args[0] ?? null;
+      customPage = args[1] ?? null;
+    }
+    if (!silent) setIsLoading(true);
     try {
       const params = {
         page: customPage || currentPage,
@@ -244,12 +298,12 @@ const SurveyBatch = () => {
       console.error('Error loading batches:', error);
       showErrorToast('Load Error', 'Error loading survey batch data');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
-  // Load survey batch statistics
-  const loadBatchStats = async () => {
+  // Load survey batch statistics (supports silent refresh)
+  const loadBatchStats = async (opts = { silent: false }) => {
     try {
       console.log('🔍 Loading batch statistics...');
       const response = await surveyBatchesService.getBatchStats();
@@ -395,6 +449,17 @@ const SurveyBatch = () => {
     return () => clearTimeout(timeoutId);
   }, [memoizedLoadBatchData, loadBatchStats]);
 
+  // Realtime: refresh when batches or responses change
+  useRealtime('survey:batchUpdated', async () => {
+    await loadBatchData({ silent: true });
+    await loadBatchStats({ silent: true });
+    refreshActiveSurvey();
+  });
+  useRealtime('survey:responsesUpdated', async () => {
+    await loadBatchData({ silent: true });
+    await loadBatchStats({ silent: true });
+  });
+
   // Track if auto-update has been run to prevent infinite loops
   const autoUpdateRunRef = React.useRef(false);
   
@@ -472,6 +537,22 @@ const SurveyBatch = () => {
         break;
         
       case 'active':
+        // Pause/Resume moved from inline controls into the menu
+        if (!item.pausedAt) {
+          items.push({
+            id: 'pause',
+            label: 'Pause Batch',
+            icon: <Pause className="w-4 h-4" />,
+            action: 'pause'
+          });
+        } else {
+          items.push({
+            id: 'resume',
+            label: 'Resume Batch',
+            icon: <Play className="w-4 h-4" />,
+            action: 'resume'
+          });
+        }
         items.push({
           id: 'close',
           label: 'Mark as Closed',
@@ -580,7 +661,7 @@ const SurveyBatch = () => {
           if (confirmed) {
             confirmation.setLoading(true);
             try {
-              const closeResponse = await surveyBatchesService.updateBatchStatus(item.batchId, 'closed');
+              const closeResponse = await surveyBatchesService.closeBatch(item.batchId);
               if (closeResponse.success) {
                 showSuccessToast('Batch closed', `${item.batchName} has been closed successfully`);
                 await loadBatchData(); // Reload data
@@ -823,10 +904,6 @@ const SurveyBatch = () => {
       const rejectedResponses = item.statisticsRejectedResponses || 0;
       const totalYouths = item.statisticsTotalYouths || 0;  // Real count from Voters_List
       
-      const responseRate = totalYouths > 0 
-        ? Math.round((validatedResponses / totalYouths) * 100)
-        : 0;
-      
       // Calculate days remaining if not provided by backend
       let daysRemaining = item.daysRemaining;
       let isOverdue = item.isOverdue;
@@ -857,7 +934,7 @@ const SurveyBatch = () => {
         }
       }
       
-      // Debug: Log the item data to see what we're receiving
+      // Debug: Log the item data to see what we're receiving (without responseRate)
       console.log('🔍 Batch item data:', {
         batchId: item.batchId,
         status: item.status,
@@ -870,8 +947,7 @@ const SurveyBatch = () => {
         validatedResponses,
         pendingResponses,
         rejectedResponses,
-        totalYouths,
-        responseRate
+        totalYouths
       });
       
       // Debug: Log the raw item object to see all available fields
@@ -931,13 +1007,8 @@ const SurveyBatch = () => {
             </div>
           </div>
           
-          {/* Statistics - Mobile-friendly layout */}
+          {/* Statistics - Mobile-friendly layout (Rate and Target removed) */}
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-1 sm:gap-2">
-            {/* Response Rate - Most Important (Always First) */}
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200 w-fit">
-              <TrendingUp className="w-3 h-3 mr-1 flex-shrink-0" />
-              <span className="truncate">{responseRate}% Rate</span>
-            </span>
             
             {/* Total Responses */}
             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 w-fit">
@@ -949,12 +1020,6 @@ const SurveyBatch = () => {
             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit">
               <CheckCircle className="w-3 h-3 mr-1 flex-shrink-0" />
               <span className="truncate">{validatedResponses} Validated</span>
-            </span>
-            
-            {/* Target Population */}
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 w-fit">
-              <Target className="w-3 h-3 mr-1 flex-shrink-0" />
-              <span className="truncate">{totalYouths} Target</span>
             </span>
             
             {/* Pending Responses - Always show */}
@@ -1223,13 +1288,22 @@ ${bodyRows}
   const mainExport = useExport({
     exportFunction: async (format, style = null) => {
       try {
-        showSuccessToast('Export logged', 'Your export was recorded successfully');
-
         const filteredBatches = statusFilter === 'all' ? batches : batches.filter(b => b.status === statusFilter);
+        
+        // Log export activity to backend
+        const logFormat = format === 'excel' ? 'xlsx' : format;
+        await surveyBatchesService.logExport({
+          format: format === 'excel' ? 'excel' : format,
+          logFormat: logFormat,
+          count: filteredBatches.length,
+          status: statusFilter !== 'all' ? statusFilter : undefined
+        });
+
+        // Perform actual export
         if (format === 'csv') {
           const rows = buildBatchCsvRows(filteredBatches);
           downloadCsv('survey-batches.csv', rows);
-        } else if (format === 'excel') {
+        } else if (format === 'excel' || format === 'xlsx') {
           const xml = buildBatchExcelXml(filteredBatches);
           downloadExcel('survey-batches.xls', xml);
         } else if (format === 'pdf') {
@@ -1253,9 +1327,24 @@ ${bodyRows}
           throw new Error('No batches selected for export');
         }
 
+        // Log bulk export activity to backend
+        const logFormat = format === 'excel' ? 'xlsx' : format;
+        await surveyBatchesService.logExport({
+          format: format === 'excel' ? 'excel' : format,
+          logFormat: logFormat,
+          selectedIds: selectedItems,
+          count: selectedBatchesData.length
+        });
+
+        // Perform actual export
         if (format === 'csv') {
           const rows = buildBatchCsvRows(selectedBatchesData);
           downloadCsv('survey-batches-selected.csv', rows);
+        } else if (format === 'excel' || format === 'xlsx') {
+          const xml = buildBatchExcelXml(selectedBatchesData);
+          downloadExcel('survey-batches-selected.xls', xml);
+        } else if (format === 'pdf') {
+          openPrintPdf('Survey Batches (Selected)', selectedBatchesData);
         }
         return { success: true };
       } catch (error) {
@@ -1282,8 +1371,7 @@ ${bodyRows}
         onNavigateToActive={() => setActiveTab('active')}
         onCreateSurvey={() => setFormCollapsed(false)}
         onViewSurvey={(survey) => {
-          setSelectedBatch(survey);
-          setShowViewModal(true);
+          navigate(`/admin/survey/batches/batch-report?batchId=${survey.batchId}`);
         }}
         variant="report"
       />
@@ -1482,17 +1570,16 @@ ${bodyRows}
               selectedCount={selectedItems.length}
               itemName="batch"
               itemNamePlural="batches"
-              onBulkAction={() => bulkModal.showModal()}
               exportConfig={{
-                formats: ['csv'],
-                onExport: (format) => bulkExportHook.handleExport(format),
+                formats: ['csv', 'xlsx', 'pdf'],
+                onExport: (format) => bulkExportHook.handleExport(format === 'xlsx' ? 'excel' : format),
                 isExporting: bulkExportHook.isExporting
               }}
               primaryColor="blue"
             />
 
             {/* Content Area */}
-            {tabLoading ? (
+            {(tabLoading || isLoading) ? (
               <LoadingSpinner 
                 variant="spinner"
                 message="Loading survey batches..." 
@@ -1502,25 +1589,153 @@ ${bodyRows}
               />
             ) : (
               <>
-                <DataTable
-                  data={batches}
-                  selectedItems={selectedItems}
-                  onSelectItem={handleSelectItem}
-                  onSelectAll={handleSelectAll}
-                  getActionMenuItems={getActionMenuItems}
-                  onActionClick={handleActionClick}
-                  viewMode={viewMode}
-                  keyField="batchId"
-                  displayFields={getBatchDisplayFields()}
-                  selectAllLabel="Select All Batches"
-                  emptyMessage="No survey batches found"
-                  styling={{
-                    gridCols: 'grid-cols-1 lg:grid-cols-2',
-                    cardHover: 'hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50 hover:scale-[1.02]',
-                    listHover: 'hover:bg-blue-50/30 hover:border-l-4 hover:border-l-blue-400',
-                    theme: 'blue'
-                  }}
-                />
+                {viewMode === 'grid' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
+                    {(batches || []).length === 0 ? (
+                      <div className="col-span-full">
+                        <div className="flex flex-col items-center justify-center text-center border border-dashed border-gray-300 rounded-2xl p-10 bg-gray-50/60">
+                          <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mb-3">
+                            <ClipboardList className="w-7 h-7" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-1">No survey batches</h3>
+                          <p className="text-gray-600 mb-4">Try adjusting filters or create a new batch.</p>
+                          <button
+                            type="button"
+                            onClick={() => { setFormCollapsed(false); setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50); }}
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <Plus className="w-4 h-4 mr-2" /> Create Batch
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      batches.map((item) => {
+                        const totalResponses = item.statisticsTotalResponses || 0;
+                        const validatedResponses = item.statisticsValidatedResponses || 0;
+                        const pendingResponses = item.statisticsPendingResponses || 0;
+                        const rejectedResponses = item.statisticsRejectedResponses || 0;
+                        const status = (item.status || '').toString().toLowerCase() === 'inactive' ? 'closed' : (item.status || '').toString();
+                        // Days remaining for active
+                        let daysRemaining = null;
+                        if (status === 'active' && item.endDate) {
+                          try {
+                            const today = new Date(); today.setHours(0,0,0,0);
+                            const end = new Date(item.endDate); end.setHours(0,0,0,0);
+                            daysRemaining = Math.ceil((end.getTime() - today.getTime()) / (1000*3600*24));
+                          } catch {}
+                        }
+                        return (
+                          <div key={item.batchId} className="group relative h-full">
+                            {/* Glow */}
+                            <div className="absolute -inset-2 rounded-2xl bg-gradient-to-br from-blue-300/20 via-indigo-200/20 to-purple-300/20 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
+                            {/* Card */}
+                              <div className="relative rounded-2xl overflow-hidden shadow-sm transition-all duration-200 group-hover:shadow-lg h-full flex flex-col cursor-pointer bg-white ring-1 ring-gray-200" onClick={() => navigate(`/admin/survey/batches/batch-report?batchId=${item.batchId}`)}>
+                              {/* Action Menu */}
+                              <div className="absolute top-3 right-3 z-20">
+                                <ActionMenu
+                                  items={getActionMenuItems(item)}
+                                  onAction={(action) => handleActionClick(action, item)}
+                                  trigger={
+                                    <button aria-label="Open actions" onClick={(e) => e.stopPropagation()} className="p-1.5 text-gray-600 hover:text-gray-800 hover:bg-white/90 backdrop-blur-sm rounded-lg transition-colors shadow-sm border border-white/20">
+                                      <MoreHorizontal className="w-4 h-4" />
+                                    </button>
+                                  }
+                                />
+                              </div>
+                              {/* Image header */}
+                              <div className="relative overflow-hidden flex-shrink-0 aspect-[16/9]">
+                                <img src={getBatchFallbackImage(status, item.batchName)} alt={item.batchName} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" decoding="async" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent" />
+                              </div>
+                              {/* Content */}
+                              <div className="flex flex-col flex-1 p-6">
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <h3 className="font-semibold text-gray-900 line-clamp-2 text-lg">{item.batchName}</h3>
+                                      {status === 'active' && daysRemaining !== null && (
+                                        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[11px] font-medium border whitespace-nowrap ${daysRemaining > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                          {daysRemaining > 0 ? `${daysRemaining} days left` : daysRemaining === 0 ? 'Ends today' : `${Math.abs(daysRemaining)} days overdue`}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-3">
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusStyles(status)}`}>
+                                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                                    </span>
+                                    {!!item.pausedAt && (
+                                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border bg-orange-100 text-orange-800 border-orange-200">
+                                        Paused
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {/* Dates under title with calendar and label */}
+                                <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                                  <Calendar className="w-4 h-4 text-blue-500" />
+                                  <span className="text-gray-500">Date range:</span>
+                                  <span>{formatDate(item.startDate)} - {formatDate(item.endDate)}</span>
+                                </div>
+                                {/* Description under date */}
+                                {item.description && (
+                                  <p className="text-sm text-gray-700 mb-3 line-clamp-2">{item.description}</p>
+                                )}
+                                {/* Metrics strip (same data, new layout) */}
+                                <div className="mb-4 bg-gray-50 rounded-xl px-4 py-3 grid grid-cols-4 gap-2 text-center">
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{totalResponses}</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Total</div>
+                                  </div>
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{validatedResponses}</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Validated</div>
+                                  </div>
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{pendingResponses}</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Pending</div>
+                                  </div>
+                                  <div className="flex flex-col items-center">
+                                    <div className="text-base sm:text-lg font-semibold text-gray-900">{rejectedResponses}</div>
+                                    <div className="text-[11px] sm:text-xs text-gray-500">Rejected</div>
+                                  </div>
+                                </div>
+                                
+                                {/* Days badge moved next to title */}
+                                <div className="flex-1" />
+                                {/* Footer */}
+                                <div className="flex items-center justify-between pt-4 border-t border-gray-100 mt-auto text-xs text-gray-500">
+                                  <span>Created: {formatDate(item.createdAt)}</span>
+                                  <span>Updated: {formatDate(item.updatedAt)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : (
+                  <DataTable
+                    data={batches}
+                    selectedItems={selectedItems}
+                    onSelectItem={handleSelectItem}
+                    onSelectAll={handleSelectAll}
+                    getActionMenuItems={getActionMenuItems}
+                    onActionClick={handleActionClick}
+                    viewMode={viewMode}
+                    keyField="batchId"
+                    displayFields={getBatchDisplayFields()}
+                    selectAllLabel="Select All Batches"
+                    emptyMessage="No survey batches found"
+                    styling={{
+                      gridCols: 'grid-cols-1 lg:grid-cols-2',
+                      cardHover: 'hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50 hover:scale-[1.02]',
+                      listHover: 'hover:bg-blue-50/30 hover:border-l-4 hover:border-l-blue-400',
+                      theme: 'blue'
+                    }}
+                  />
+                )}
               </>
             )}
 
@@ -1678,171 +1893,7 @@ ${bodyRows}
         </div>
       </div>
 
-      {/* Batch Details View Modal */}
-      {showViewModal && selectedBatch && createPortal(
-        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setShowViewModal(false)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-100 text-blue-600">
-                    <ClipboardList className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">{selectedBatch.batchName}</h3>
-                    <p className="text-sm text-gray-600">Survey Batch Details</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowViewModal(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-              {/* Basic Information Section */}
-              <div className="mb-8">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <BarChart3 className="w-5 h-5 mr-2 text-blue-600" />
-                  Basic Information
-                </h4>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Batch Name</label>
-                      <p className="text-lg font-semibold text-gray-900">{selectedBatch.batchName}</p>
-                  </div>
-                  
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                      <p className="text-sm text-gray-900">{selectedBatch.description || 'No description provided'}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
-                      <p className="text-sm text-gray-900">
-                      {new Date(selectedBatch.startDate).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      })} - {new Date(selectedBatch.endDate).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      })}
-                    </p>
-                  </div>
-                  
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                    <div className="mt-1">
-                      <Status status={selectedBatch.status} />
-                      </div>
-                    </div>
-                    </div>
-                  </div>
-                </div>
-                
-              {/* Response Statistics Section */}
-              <div>
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <TrendingUp className="w-5 h-5 mr-2 text-green-600" />
-                  Response Statistics
-                </h4>
-                
-                {/* Primary Statistics - Key Metrics */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-3xl font-bold text-blue-800">{selectedBatch.statisticsTotalResponses || 0}</div>
-                        <div className="text-sm font-medium text-blue-600">Total Responses</div>
-                      </div>
-                      <div className="w-12 h-12 bg-blue-200 rounded-full flex items-center justify-center">
-                        <Users className="w-6 h-6 text-blue-700" />
-                      </div>
-                    </div>
-                    </div>
-                    
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-3xl font-bold text-green-800">{selectedBatch.statisticsValidatedResponses || 0}</div>
-                        <div className="text-sm font-medium text-green-600">Validated</div>
-                      </div>
-                      <div className="w-12 h-12 bg-green-200 rounded-full flex items-center justify-center">
-                        <CheckCircle className="w-6 h-6 text-green-700" />
-                      </div>
-                    </div>
-                    </div>
-                    
-                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-3xl font-bold text-purple-800">
-                          {selectedBatch.statisticsTotalYouths > 0 
-                            ? Math.round((selectedBatch.statisticsValidatedResponses / selectedBatch.statisticsTotalYouths) * 100)
-                            : 0}%
-                        </div>
-                        <div className="text-sm font-medium text-purple-600">Response Rate</div>
-                      </div>
-                      <div className="w-12 h-12 bg-purple-200 rounded-full flex items-center justify-center">
-                        <Target className="w-6 h-6 text-purple-700" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Secondary Statistics - Detailed Breakdown */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 text-center">
-                    <div className="text-2xl font-bold text-orange-800">{selectedBatch.statisticsPendingResponses || 0}</div>
-                      <div className="text-sm text-orange-600">Pending</div>
-                    </div>
-                    
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-                    <div className="text-2xl font-bold text-red-800">{selectedBatch.statisticsRejectedResponses || 0}</div>
-                    <div className="text-sm text-red-600">Rejected</div>
-                  </div>
-                  
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                    <div className="text-2xl font-bold text-gray-800">{selectedBatch.statisticsTotalYouths || 0}</div>
-                    <div className="text-sm text-gray-600">Target Youth</div>
-                  </div>
-                  
-                  <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-center">
-                    <div className="text-2xl font-bold text-indigo-800">
-                        {selectedBatch.statisticsTotalYouths > 0 
-                        ? Math.round(((selectedBatch.statisticsTotalResponses || 0) / selectedBatch.statisticsTotalYouths) * 100)
-                          : 0}%
-                      </div>
-                    <div className="text-sm text-indigo-600">Participation</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
-              <button
-                onClick={() => setShowViewModal(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {/* Batch Details View Modal removed - navigating on card click */}
 
       {/* Edit Batch Modal */}
       {showEditModal && selectedBatch && createPortal(
@@ -2045,48 +2096,35 @@ ${bodyRows}
         document.body
       )}
 
-      {/* Bulk Operations Modal */}
-      <BulkModal
-        isOpen={bulkModal.isOpen}
-        onClose={bulkModal.hideModal}
-        title="Bulk Operations"
-        description={`${selectedItems.length} batch${selectedItems.length > 1 ? 'es' : ''} selected`}
-        actions={[
-          { value: 'activate', label: 'Activate Batches' },
-          { value: 'close', label: 'Close Batches' }
-        ]}
-        selectedAction={bulkAction}
-        onActionChange={setBulkAction}
-        onExecute={async () => {
-          try {
-            setIsBulkProcessing(true);
-            
-            // Simulate bulk operations
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            showSuccessToast('Bulk operation completed', `${bulkAction} operation completed successfully`);
-            setSelectedItems([]);
-            
-          } catch (error) {
-            showErrorToast('Bulk operation failed', 'An error occurred during bulk operation');
-          } finally {
-            setIsBulkProcessing(false);
-            bulkModal.hideModal();
-            setBulkAction('');
-          }
-        }}
-        isProcessing={isBulkProcessing}
-      />
 
       {/* Batch Extension Modal */}
       {showExtendModal && selectedBatch && createPortal(
-        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setShowExtendModal(false)}>
-          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Extend Survey Batch</h3>
-              <p className="text-sm text-gray-600 mt-1">Extend the end date for {selectedBatch.batchName}</p>
+        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 bg-black/30 backdrop-blur-sm" onClick={() => setShowExtendModal(false)}>
+          <div className="relative bg-white rounded-xl shadow-2xl border border-gray-200/60 max-w-md w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-100 text-blue-600">
+                    <ClipboardList className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Extend Survey Batch</h3>
+                    <p className="text-sm text-gray-600">Extend the end date for {selectedBatch.batchName}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowExtendModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <div className="px-6 py-4 space-y-4">
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h4 className="font-medium text-blue-900 mb-2">Current Batch Information</h4>
                 <div className="text-sm text-blue-700">
@@ -2100,16 +2138,28 @@ ${bodyRows}
                   type="date"
                   value={extensionData?.newEndDate || ''}
                   onChange={(e) => setExtensionData(prev => ({ ...(prev||{}), newEndDate: e.target.value }))}
-                  min={formatDateForInput(selectedBatch.endDate)}
+                  min={(() => {
+                    try {
+                      const d = new Date(selectedBatch.endDate);
+                      if (!isFinite(d)) return formatDateForInput(selectedBatch.endDate);
+                      const next = new Date(d.getTime());
+                      next.setDate(next.getDate() + 1);
+                      return formatDateForInput(next);
+                    } catch {
+                      return formatDateForInput(selectedBatch.endDate);
+                    }
+                  })()}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">New end date must be after current end date and must not overlap an existing active batch today</p>
+                <p className="text-xs text-gray-500 mt-1">New end date must be after the current end date and must not overlap an existing active batch today</p>
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
               <button
                 onClick={() => { setShowExtendModal(false); setExtensionData({ newEndDate: '' }); }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
@@ -2120,6 +2170,7 @@ ${bodyRows}
                     return;
                   }
                   try {
+                    setIsExtending(true);
                     const resp = await surveyBatchesService.updateSurveyBatch(selectedBatch.batchId, { end_date: extensionData.newEndDate });
                     if (resp.success) {
                       showSuccessToast('Batch extended', `${selectedBatch.batchName} has been extended successfully`);
@@ -2127,19 +2178,28 @@ ${bodyRows}
                       setExtensionData({ newEndDate: '' });
                       await loadBatchData();
                       await loadBatchStats();
-                      refreshActiveSurvey(); // Refresh the active survey banner
+                      refreshActiveSurvey();
                     } else {
                       showErrorToast('Extension failed', resp.message || resp.error || 'Failed to extend batch');
                     }
                   } catch (error) {
                     console.error('Extension error:', error);
                     showErrorToast('Extension failed', error?.message || 'An error occurred while extending the batch');
+                  } finally {
+                    setIsExtending(false);
                   }
                 }}
-                disabled={!extensionData?.newEndDate}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                disabled={isExtending || !extensionData?.newEndDate}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed inline-flex items-center justify-center"
               >
-                Extend Batch
+                {isExtending ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  'Extend Batch'
+                )}
               </button>
             </div>
           </div>

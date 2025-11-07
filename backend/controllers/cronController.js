@@ -1,4 +1,5 @@
 import skTermsAutoUpdateService from '../services/skTermsAutoUpdateService.js';
+import clusteringCronService from '../services/clusteringCronService.js';
 
 /**
  * Cron Job Controller
@@ -110,8 +111,62 @@ const getPendingStatusUpdates = async (req, res) => {
   }
 };
 
+/**
+ * Manual trigger for scheduled clustering (for testing)
+ * GET /api/cron/manual-clustering
+ */
+const manualTriggerClustering = async (req, res) => {
+  try {
+    console.log('🔧 Manual clustering cron job triggered');
+    
+    const result = await clusteringCronService.triggerManualScheduledClustering('MANUAL_TRIGGER');
+    
+    res.json({
+      success: true,
+      message: 'Manual clustering completed successfully',
+      data: {
+        runId: result.runId,
+        metrics: result.metrics
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Manual clustering cron job error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to run manual clustering',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get clustering cron job status
+ * GET /api/cron/clustering-status
+ */
+const getClusteringCronStatus = async (req, res) => {
+  try {
+    const status = clusteringCronService.getStatus();
+    
+    res.json({
+      success: true,
+      data: status
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting clustering cron status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get clustering cron status',
+      error: error.message
+    });
+  }
+};
+
 export {
   updateTermStatuses,
   manualUpdateTermStatuses,
-  getPendingStatusUpdates
+  getPendingStatusUpdates,
+  manualTriggerClustering,
+  getClusteringCronStatus
 };

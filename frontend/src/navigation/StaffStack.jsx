@@ -26,6 +26,13 @@ import AnnouncementEdit from '../pages/staff/AnnouncementEdit';
 import AnnouncementDetail from '../pages/staff/AnnouncementDetail';
 import AnnouncementsFeatured from '../pages/staff/AnnouncementsFeatured';
 
+import SurveyBatches from '../pages/staff/SurveyBatch';
+import SurveyBatchReport from '../pages/staff/SurveyBatchReport';
+
+// Staff SK Governance
+import SKTerms from '../pages/staff/SKTerms';
+import SKTermReport from '../pages/staff/SKTermReport';
+
 import PortalNotFound from '../components/porrtal/PortalNotFound';
 
 const StaffStack = () => {
@@ -46,6 +53,14 @@ const StaffStack = () => {
         <Route path="/profile" element={<StaffProfile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/notifications" element={<Notifications />} />
+        
+        {/* Survey Batch Routes */}
+        <Route path="/survey/batches" element={<SurveyBatches />} />
+        <Route path="/survey/batches/batch-report" element={<SurveyBatchReport />} />
+        
+        {/* SK Governance (view-only for staff) */}
+        <Route path="/sk-governance/terms" element={<SKTerms />} />
+        <Route path="/sk-governance/term-report" element={<SKTermReport />} />
         
         {/* Fallback for unknown routes under /staff */
         }

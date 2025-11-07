@@ -360,14 +360,22 @@ export const bulkImportStaff = async (req, res) => {
             await client.query('COMMIT');
             
             // Create individual audit log for each staff member
+            const staffName = `${processed.data.firstName} ${processed.data.lastName}`;
             setTimeout(() => {
               createAuditLog({
                 userId: req.user?.id || 'SYSTEM',
                 userType: req.user?.userType || 'admin',
-                action: 'CREATE',
-                resource: 'staff',
+                action: 'Create',
+                resource: '/api/staff',
                 resourceId: processed.data.lydoId,
-                details: `Created Staff Member via bulk import: ${processed.data.firstName} ${processed.data.lastName} (${processed.data.roleId}) with email ${processed.data.personalEmail}`,
+                resourceName: staffName,
+                details: {
+                  staffName: staffName,
+                  resourceType: 'staff',
+                  roleId: processed.data.roleId,
+                  email: processed.data.personalEmail,
+                  importedViaBulk: true
+                },
                 ipAddress: req.ip || '127.0.0.1',
                 userAgent: req.get('User-Agent') || 'Bulk Import',
                 status: 'success'
@@ -454,13 +462,33 @@ export const bulkImportStaff = async (req, res) => {
     }, 100);
 
     // Create audit log for bulk import
+    // Create meaningful resource name for bulk import
+    const importedCount = results.summary.importedRecords;
+    const errorCount = results.summary.errors;
+    const fileName = req.file.originalname;
+    
+    let resourceName;
+    if (errorCount > 0) {
+      resourceName = `Staff Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'}, ${errorCount} ${errorCount === 1 ? 'error' : 'errors'})`;
+    } else {
+      resourceName = `Staff Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'})`;
+    }
+    
     createAuditLog({
       userId: req.user?.id || 'SYSTEM',
       userType: req.user?.userType || 'admin',
-      action: 'BULK_IMPORT',
-      resource: 'staff',
-      resourceId: `bulk-${Date.now()}`,
-      details: `Bulk imported ${results.summary.importedRecords} Staff Members from ${req.file.originalname} (${results.summary.totalRows} total rows, ${results.summary.errors} errors)`,
+      action: 'Bulk Import',
+      resource: '/api/staff/bulk/import',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'staff',
+        totalItems: results.summary.totalRows,
+        successCount: results.summary.importedRecords,
+        errorCount: results.summary.errors,
+        fileName: req.file.originalname,
+        action: 'import'
+      },
       ipAddress: req.ip || '127.0.0.1',
       userAgent: req.get('User-Agent') || 'Bulk Import',
       status: 'success'
@@ -503,6 +531,28 @@ export const bulkImportStaff = async (req, res) => {
 
   } catch (error) {
     console.error('Bulk import error:', error);
+    
+    // Create audit log for failed bulk import
+    const resourceName = `Staff Import - Failed`;
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: 'Bulk Import',
+      resource: '/api/staff/bulk/import',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'staff',
+        error: error.message,
+        fileName: req.file?.originalname || 'unknown',
+        importFailed: true
+      },
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.get('User-Agent') || 'Bulk Import',
+      status: 'error',
+      errorMessage: error.message
+    }).catch(err => console.error('Failed import audit log error:', err));
+    
     return res.status(500).json({
       success: false,
       message: 'Bulk import failed',

@@ -1,5 +1,4 @@
 import { query } from '../config/database.js';
-import universalAuditService from '../services/universalAuditService.js';
 import universalNotificationService from '../services/universalNotificationService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import PDFDocument from 'pdfkit';
@@ -20,7 +19,9 @@ import { generateOfficialFormat, generateModernFormat, generateDetailedFormat, g
  */
 const exportSKOfficialsCSV = async (req, res) => {
   try {
-    const { status, selectedIds, style, termId } = req.query;
+    const { format = 'csv', status, selectedIds, style, termId, logFormat } = req.query;
+    // logFormat is the actual format exported (for logging), format is the response format
+    const actualFormat = logFormat || (format === 'json' ? 'csv' : format);
     
     let whereClause = 'WHERE 1=1';
     let queryParams = [];
@@ -74,36 +75,81 @@ const exportSKOfficialsCSV = async (req, res) => {
 
     const result = await query(exportQuery, queryParams);
     
-    // Convert to CSV
+    // Prepare audit log data (before sending response)
+    const userId = req.user?.id || req.user?.lydo_id || req.user?.user_id || 'SYSTEM';
+    const userType = req.user?.userType || req.user?.user_type || 'admin';
+    const exportType = selectedIds ? 'selected' : (status !== 'all' ? status : (termId ? 'by-term' : 'all'));
+    
+    // Determine action: 'Bulk Export' for bulk exports (selectedIds), 'Export' for regular exports
+    const action = exportType === 'selected' ? 'Bulk Export' : 'Export';
+    
+    // Create meaningful resource name for export
+    const resourceName = `SK Officials Export - ${actualFormat.toUpperCase()} (${result.rows.length} ${result.rows.length === 1 ? 'member' : 'members'})`;
+    
+    // Create audit log for export (await before responding if JSON format)
+    if (format === 'json') {
+      try {
+        await createAuditLog({
+          userId: userId,
+          userType: userType,
+          action: action,
+          resource: '/api/sk-officials/export/csv',
+          resourceId: null,
+          resourceName: resourceName,
+          details: {
+            resourceType: 'sk-officials',
+            reportType: 'sk_official',
+            format: actualFormat,
+            count: result.rows.length,
+            exportType: exportType,
+            status: status || 'all',
+            termId: termId || null,
+            selectedIds: selectedIds || null
+          },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.get('User-Agent'),
+          status: 'success',
+          category: 'Data Export'
+        });
+        console.log(`✅ Export audit log created: JSON export of ${result.rows.length} SK officials`);
+      } catch (err) {
+        console.error('❌ Export audit log failed:', err);
+      }
+      
+      // Return JSON response without file download
+      return res.json({
+        success: true,
+        exportedAt: new Date().toISOString(),
+        total: result.rows.length,
+        exportType: exportType
+      });
+    }
+    
+    // Convert to CSV for actual file download
     const csvContent = convertToCSV(result.rows);
     
-    // Log export activity using Universal Audit Service (following Staff Management pattern)
-    const exportType = selectedIds ? 'selected' : (status !== 'all' ? status : (termId ? 'by-term' : 'all'));
-    const exportedOfficialNames = result.rows.map(row => `${row.first_name} ${row.last_name}`);
-    const officialsList = exportedOfficialNames.length <= 5 
-      ? exportedOfficialNames.join(', ')
-      : `${exportedOfficialNames.slice(0, 5).join(', ')} and ${exportedOfficialNames.length - 5} more`;
-
-    universalAuditService.logCreation('reports', {
-      reportType: 'SK Officials CSV Export',
-      recordCount: result.rows.length,
-      exportType: exportType,
-      exportedOfficials: officialsList,
-      filters: { status, termId: termId || 'current', selectedIds: selectedIds || 'none', style },
-      fileName: 'sk_officials_export.csv',
-      details: `Exported ${result.rows.length} SK Officials in CSV format (${exportType} export - status: ${status}): ${officialsList}`
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Export audit log failed:', err));
-
-    // Notify admins (follow Staff pattern but without threshold to mirror desired behavior)
-    if (result.rows.length > 0) {
-      universalNotificationService.sendNotificationAsync('reports', 'creation', {
-        reportType: 'SK Officials CSV Export',
-        recordCount: result.rows.length,
+    // Create audit log for CSV export (fire and forget)
+    createAuditLog({
+      userId: userId,
+      userType: userType,
+      action: action,
+      resource: '/api/sk-officials/export/csv',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'sk-officials',
+        reportType: 'sk_official',
+        format: actualFormat,
+        count: result.rows.length,
         exportType: exportType,
-        exportedOfficials: officialsList,
-        fileName: 'sk_officials_export.csv'
-      }, req.user);
-    }
+        status: status || 'all',
+        termId: termId || null
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success',
+      category: 'Data Export'
+    }).catch(err => console.error('❌ Export audit log failed:', err));
     
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="sk_officials_export.csv"');
@@ -111,6 +157,27 @@ const exportSKOfficialsCSV = async (req, res) => {
 
   } catch (error) {
     console.error('Error exporting SK officials to CSV:', error);
+    
+    // Create audit log for failed export
+    const resourceName = `SK Officials Export - Failed`;
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: 'Export',
+      resource: '/api/sk-officials/export/csv',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'sk-officials',
+        error: error.message,
+        exportFailed: true
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'error',
+      errorMessage: error.message
+    }).catch(err => console.error('Failed export audit log error:', err));
+    
     res.status(500).json({
       success: false,
       message: 'Failed to export SK officials',
@@ -125,7 +192,9 @@ const exportSKOfficialsCSV = async (req, res) => {
  */
 const exportSKOfficialsPDF = async (req, res) => {
   try {
-    const { status, selectedIds, style, termId } = req.query;
+    const { format = 'pdf', status, selectedIds, style, termId, logFormat } = req.query;
+    // logFormat is the actual format exported (for logging), format is the response format
+    const actualFormat = logFormat || (format === 'json' ? 'pdf' : format);
 
     let whereClause = 'WHERE 1=1';
     let queryParams = [];
@@ -223,37 +292,70 @@ const exportSKOfficialsPDF = async (req, res) => {
         break;
     }
 
-    // Audit log and optional notification (large export)
+    // Prepare audit log data
+    const userId = req.user?.id || req.user?.lydo_id || req.user?.user_id || 'SYSTEM';
+    const userType = req.user?.userType || req.user?.user_type || 'admin';
     const exportType = selectedIds ? 'selected' : (status && status !== 'all' ? status : (termId ? 'by-term' : 'all'));
-    const exportedOfficialNames = result.rows.map(r => `${r.first_name} ${r.last_name}`);
-    const officialsList = exportedOfficialNames.length <= 5 ? exportedOfficialNames.join(', ') : `${exportedOfficialNames.slice(0,5).join(', ')} and ${exportedOfficialNames.length - 5} more`;
-
-    // Activity log (parity with Staff)
-    createAuditLog({
-      userId: req.user?.id || 'SYSTEM',
-      userType: req.user?.userType || 'admin',
-      action: 'EXPORT',
-      resource: 'sk-officials',
-      resourceId: selectedIds ? (Array.isArray(selectedIds) ? selectedIds.join(',') : selectedIds) : 'bulk',
-      details: `Exported ${result.rows.length} SK Officials in PDF format (${exportType}${termId ? `, termId: ${termId}` : ''}${status && status !== 'all' ? `, status: ${status}` : ''}, style: ${pdfStyle})`,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent'),
-      status: 'success'
-    }).catch(err => console.error('Export audit log failed:', err));
-
-    if (result.rows.length > 0) {
-      universalNotificationService.sendNotificationAsync('reports', 'creation', {
-        reportType: 'SK Officials PDF Export',
-        recordCount: result.rows.length,
-        exportType,
-        exportedOfficials: officialsList,
-        fileName: `sk_officials_${pdfStyle}.pdf`
-      }, req.user);
+    
+    // Determine action: 'Bulk Export' for bulk exports (selectedIds), 'Export' for regular exports
+    const action = exportType === 'selected' ? 'Bulk Export' : 'Export';
+    
+    // Create meaningful resource name for export
+    const resourceName = `SK Officials Export - ${actualFormat.toUpperCase()} (${result.rows.length} ${result.rows.length === 1 ? 'member' : 'members'})`;
+    
+    // Create audit log for PDF export (before ending document)
+    try {
+      await createAuditLog({
+        userId: userId,
+        userType: userType,
+        action: action,
+        resource: '/api/sk-officials/export/pdf',
+        resourceId: null,
+        resourceName: resourceName,
+        details: {
+          resourceType: 'sk-officials',
+          reportType: 'sk_official',
+          format: actualFormat,
+          count: result.rows.length,
+          exportType: exportType,
+          status: status || 'all',
+          termId: termId || null,
+          pdfStyle: pdfStyle
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success',
+        category: 'Data Export'
+      });
+      console.log(`✅ Export audit log created: PDF export of ${result.rows.length} SK officials`);
+    } catch (err) {
+      console.error('❌ Export audit log failed:', err);
     }
 
     doc.end();
   } catch (error) {
     console.error('Error exporting SK officials to PDF:', error);
+    
+    // Create audit log for failed export
+    const resourceName = `SK Officials Export - Failed`;
+    createAuditLog({
+      userId: req.user?.id || 'SYSTEM',
+      userType: req.user?.userType || 'admin',
+      action: 'Export',
+      resource: '/api/sk-officials/export/pdf',
+      resourceId: null,
+      resourceName: resourceName,
+      details: {
+        resourceType: 'sk-officials',
+        error: error.message,
+        exportFailed: true
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'error',
+      errorMessage: error.message
+    }).catch(err => console.error('Failed export audit log error:', err));
+    
     res.status(500).json({
       success: false,
       message: 'Failed to export SK officials',

@@ -2,6 +2,7 @@ import SurveyBatchesService from '../services/surveyBatchesService.js';
 import { sanitizeInput, validatePagination, validateSorting } from '../utils/validation.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import logger from '../utils/logger.js';
+import { emitToAdmins, emitToRole } from '../services/realtime.js';
 
 // Simple string sanitizer for individual fields
 const sanitizeString = (str) => {
@@ -113,13 +114,26 @@ export const createBatch = async (req, res) => {
 
     // Create audit log
     await createAuditLog({
-      userId: sanitizedData.created_by,
-      action: 'CREATE_SURVEY_BATCH',
-      resourceType: 'Survey_Batch',
+      userId: sanitizedData.created_by || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: 'Create',
+      resource: '/api/survey-batches',
       resourceId: newBatch.batch_id,
-      details: `Created survey batch: ${newBatch.batch_name}`,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent')
+      resourceName: newBatch.batch_name,
+      resourceType: 'survey-batch',
+      details: {
+        resourceType: 'survey-batch',
+        batchId: newBatch.batch_id,
+        batchName: newBatch.batch_name,
+        startDate: newBatch.start_date,
+        endDate: newBatch.end_date,
+        status: newBatch.status,
+        targetAgeMin: newBatch.target_age_min,
+        targetAgeMax: newBatch.target_age_max
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
     });
 
     res.status(201).json({
@@ -127,6 +141,13 @@ export const createBatch = async (req, res) => {
       message: 'Survey batch created successfully',
       data: mapBatchRow(newBatch)
     });
+
+    // Realtime: notify creation
+    try {
+      const payload = { type: 'created', batch: mapBatchRow(newBatch) };
+      emitToAdmins('survey:batchUpdated', payload);
+      emitToRole('staff', 'survey:batchUpdated', payload);
+    } catch (_) {}
 
   } catch (error) {
     logger.error('Create batch error:', error);
@@ -296,17 +317,96 @@ export const updateBatch = async (req, res) => {
       });
     }
 
+    // Get original batch BEFORE updating for comparison
+    const originalBatch = await SurveyBatchesService.getBatchById(id);
+    const oldStatus = originalBatch?.status;
+    const oldEndDate = originalBatch?.end_date ? new Date(originalBatch.end_date) : null;
+
     const updatedBatch = await SurveyBatchesService.updateBatch(id, updateData);
+    const newStatus = updatedBatch.status;
+    const newEndDate = updatedBatch.end_date ? new Date(updatedBatch.end_date) : null;
+
+    // Check if end date was extended (new end date > old end date)
+    const isEndDateExtended = oldEndDate && newEndDate && newEndDate > oldEndDate;
+    // Check if end date was shortened (new end date < old end date)
+    const isEndDateShortened = oldEndDate && newEndDate && newEndDate < oldEndDate;
+
+    // Determine action based on status change and date changes
+    let action = 'Update';
+    if (isEndDateExtended && oldStatus === 'closed' && newStatus === 'active') {
+      // Extending a closed batch to active = Extend
+      action = 'Extend';
+    } else if (oldStatus !== newStatus) {
+      // Status changed - determine appropriate action
+      if (newStatus === 'active') {
+        if (oldStatus === 'paused') {
+          action = 'Resume';
+        } else if (oldStatus === 'draft') {
+          action = 'Activate';
+        } else if (oldStatus === 'closed') {
+          // Closed -> Active; if end_date was part of the payload, we treat this as an Extend even
+          // if the exact comparison did not detect an increase (e.g., equal date due to TZ or same-day)
+          if (Object.prototype.hasOwnProperty.call(updateData, 'end_date')) {
+            action = 'Extend';
+          } else {
+            action = 'Activate';
+          }
+        } else {
+          action = 'Activate'; // Fallback for any other -> active
+        }
+      } else if (newStatus === 'paused' && oldStatus === 'active') {
+        action = 'Pause';
+      } else if (newStatus === 'closed') {
+        // Closing: check if end date was shortened as part of closing
+        if (oldStatus === 'active' && isEndDateShortened) {
+          action = 'Close'; // Closing by shortening end date
+        } else {
+          action = 'Close'; // Regular close
+        }
+      } else {
+        action = 'Update Status'; // Other status transitions
+      }
+    } else if (isEndDateExtended) {
+      // End date extended but status didn't change (e.g., extending active batch)
+      action = 'Extend';
+    } else if (isEndDateShortened && oldStatus === 'active') {
+      // End date shortened on active batch - might indicate closing (but status didn't change yet)
+      // This could happen if they manually set end_date to past but status isn't auto-updated
+      // We'll keep as Update since status didn't change, but this is edge case
+      action = 'Update';
+    }
 
     // Create audit log
     await createAuditLog({
-      userId,
-      action: 'UPDATE_SURVEY_BATCH',
-      resourceType: 'Survey_Batch',
+      userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: action,
+      resource: '/api/survey-batches',
       resourceId: id,
-      details: `Updated survey batch: ${updatedBatch.batch_name}`,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent')
+      resourceName: updatedBatch.batch_name,
+      resourceType: 'survey-batch',
+      details: {
+        resourceType: 'survey-batch',
+        batchId: updatedBatch.batch_id,
+        batchName: updatedBatch.batch_name,
+        startDate: updatedBatch.start_date,
+        endDate: updatedBatch.end_date,
+        oldEndDate: originalBatch?.end_date,
+        newEndDate: updatedBatch.end_date,
+        status: updatedBatch.status,
+        oldStatus: oldStatus,
+        newStatus: newStatus,
+        targetAgeMin: updatedBatch.target_age_min,
+        targetAgeMax: updatedBatch.target_age_max,
+        oldBatchName: originalBatch?.batch_name,
+        updatedFields: Object.keys(updateData),
+        ...(oldStatus !== newStatus && { statusChanged: true }),
+        ...(isEndDateExtended && { endDateExtended: true }),
+        ...(isEndDateShortened && { endDateShortened: true })
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
     });
 
     res.json({
@@ -314,6 +414,13 @@ export const updateBatch = async (req, res) => {
       message: 'Survey batch updated successfully',
       data: mapBatchRow(updatedBatch)
     });
+
+    // Realtime: notify update
+    try {
+      const payload = { type: 'updated', batch: mapBatchRow(updatedBatch) };
+      emitToAdmins('survey:batchUpdated', payload);
+      emitToRole('staff', 'survey:batchUpdated', payload);
+    } catch (_) {}
 
   } catch (error) {
     logger.error('Update batch error:', error);
@@ -382,19 +489,37 @@ export const deleteBatch = async (req, res) => {
 
     // Create audit log
     await createAuditLog({
-      userId,
-      action: 'DELETE_SURVEY_BATCH',
-      resourceType: 'Survey_Batch',
+      userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: 'Delete',
+      resource: '/api/survey-batches',
       resourceId: id,
-      details: `Deleted survey batch: ${batch.batch_name}`,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent')
+      resourceName: batch.batch_name,
+      resourceType: 'survey-batch',
+      details: {
+        resourceType: 'survey-batch',
+        batchId: batch.batch_id,
+        batchName: batch.batch_name,
+        startDate: batch.start_date,
+        endDate: batch.end_date,
+        status: batch.status
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
     });
 
     res.json({
       success: true,
       message: 'Survey batch deleted successfully'
     });
+
+    // Realtime: notify deletion
+    try {
+      const payload = { type: 'deleted', batchId: id };
+      emitToAdmins('survey:batchUpdated', payload);
+      emitToRole('staff', 'survey:batchUpdated', payload);
+    } catch (_) {}
 
   } catch (error) {
     logger.error('Delete batch error:', error);
@@ -463,26 +588,45 @@ export const updateBatchStatus = async (req, res) => {
       isForce: action === 'force-activate' || action === 'force-close' || action === 'force'
     };
 
+    // Get original batch for comparison
+    const originalBatch = await SurveyBatchesService.getBatchById(id);
+
     const updatedBatch = await SurveyBatchesService.updateBatchStatus(id, status, userId, options);
 
     // Create audit log with action-specific details
     const actionMap = {
-      'pause': 'PAUSE_SURVEY_BATCH',
-      'resume': 'RESUME_SURVEY_BATCH',
-      'activate': 'ACTIVATE_SURVEY_BATCH',
-      'close': 'CLOSE_SURVEY_BATCH',
-      'force-activate': 'FORCE_ACTIVATE_SURVEY_BATCH',
-      'force-close': 'FORCE_CLOSE_SURVEY_BATCH'
+      'pause': 'Pause',
+      'resume': 'Resume',
+      'activate': 'Activate',
+      'close': 'Close',
+      'force-activate': 'Force Activate',
+      'force-close': 'Force Close'
     };
 
     await createAuditLog({
-      userId,
-      action: actionMap[action] || 'UPDATE_SURVEY_BATCH_STATUS',
-      resourceType: 'Survey_Batch',
+      userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+      userType: req.user?.userType || 'admin',
+      action: actionMap[action] || 'Update Status',
+      resource: '/api/survey-batches',
       resourceId: id,
-      details: `${action || 'Updated'} survey batch: ${updatedBatch.batch_name}${reason ? ` (Reason: ${reason})` : ''}`,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent')
+      resourceName: updatedBatch.batch_name,
+      resourceType: 'survey-batch',
+      details: {
+        resourceType: 'survey-batch',
+        batchId: updatedBatch.batch_id,
+        batchName: updatedBatch.batch_name,
+        action: action || 'update-status',
+        oldStatus: originalBatch?.status,
+        newStatus: status,
+        startDate: updatedBatch.start_date,
+        endDate: updatedBatch.end_date,
+        ...(reason && { reason }),
+        ...(action === 'force-activate' && { startDateAdjusted: true }),
+        ...(action === 'force-close' && { endDateAdjusted: true })
+      },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      status: 'success'
     });
 
     res.json({
@@ -490,6 +634,13 @@ export const updateBatchStatus = async (req, res) => {
       message: `Survey batch ${action || 'status updated'} successfully`,
       data: mapBatchRow(updatedBatch)
     });
+
+    // Realtime: notify status change
+    try {
+      const payload = { type: 'statusChanged', action: action || 'update-status', batch: mapBatchRow(updatedBatch) };
+      emitToAdmins('survey:batchUpdated', payload);
+      emitToRole('staff', 'survey:batchUpdated', payload);
+    } catch (_) {}
 
   } catch (error) {
     logger.error('Update batch status error:', error);
@@ -581,14 +732,48 @@ export const getDashboardStats = async (req, res) => {
 export const getBatchResponses = async (req, res) => {
   try {
     const { id: batchId } = req.params;
-    const { page = 1, limit = 10, search, status } = req.query;
+    const { page = 1, limit = 10, search, status, barangay } = req.query;
 
     const responses = await SurveyBatchesService.getBatchResponses(batchId, {
       page: parseInt(page),
       limit: parseInt(limit),
       search,
-      status
+      status,
+      barangay // Pass barangay filter to service
     });
+
+    // Create audit log for survey data access
+    try {
+      await createAuditLog({
+        userId: req.user?.id || req.user?.user_id || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'VIEW_SURVEY_RESPONSES',
+        resource: `/api/survey-batches/${batchId}/responses`,
+        resourceId: batchId,
+        resourceName: `Survey Batch ${batchId} Responses`,
+        resourceType: 'survey-batch',
+        category: 'Data Access',
+        details: {
+          batch_id: batchId,
+          filters_applied: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            search: search || null,
+            status: status || null,
+            barangay: barangay || null
+          },
+          records_accessed: responses.data?.length || responses.items?.length || 0,
+          total_records: responses.pagination?.totalRecords || responses.total || 0
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+      console.log(`✅ Survey data access audit log created for batch ${batchId}`);
+    } catch (auditError) {
+      console.error('❌ Failed to create survey data access audit log:', auditError);
+      // Don't fail the request if audit logging fails
+    }
 
     res.json({
       success: true,
@@ -696,10 +881,24 @@ export const bulkUpdateStatus = async (req, res) => {
     const results = [];
     const errors = [];
 
+    // Get batch details for audit log
+    const batchDetails = [];
+    for (const batchId of batchIds) {
+      try {
+        const batch = await SurveyBatchesService.getBatchById(batchId);
+        if (batch) {
+          batchDetails.push(batch);
+        }
+      } catch (_) {
+        // Skip if batch not found
+      }
+    }
+
     // Process each batch
     for (const batchId of batchIds) {
       try {
         const options = { reason: sanitizeString(reason) };
+        const originalBatch = await SurveyBatchesService.getBatchById(batchId);
         const updatedBatch = await SurveyBatchesService.updateBatchStatus(batchId, status, userId, options);
         results.push({
           batchId,
@@ -707,15 +906,28 @@ export const bulkUpdateStatus = async (req, res) => {
           data: mapBatchRow(updatedBatch)
         });
 
-        // Create audit log
+        // Create audit log for each batch in bulk operation
         await createAuditLog({
-          userId,
-          action: 'BULK_UPDATE_SURVEY_BATCH_STATUS',
-          resourceType: 'Survey_Batch',
+          userId: userId || req.user?.id || req.user?.lydo_id || req.user?.lydoId || null,
+          userType: req.user?.userType || 'admin',
+          action: 'Bulk Update Status',
+          resource: '/api/survey-batches/bulk',
           resourceId: batchId,
-          details: `Bulk status update to ${status}: ${updatedBatch.batch_name}${reason ? ` (Reason: ${reason})` : ''}`,
-          ipAddress: req.ip,
-          userAgent: req.get('User-Agent')
+          resourceName: updatedBatch.batch_name,
+          resourceType: 'survey-batch',
+          details: {
+            resourceType: 'survey-batch',
+            batchId: updatedBatch.batch_id,
+            batchName: updatedBatch.batch_name,
+            action: 'bulk-update-status',
+            oldStatus: originalBatch?.status,
+            newStatus: status,
+            totalItems: batchIds.length,
+            ...(reason && { reason })
+          },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.get('User-Agent'),
+          status: 'success'
         });
 
       } catch (error) {
@@ -741,6 +953,148 @@ export const bulkUpdateStatus = async (req, res) => {
       success: false,
       message: 'Failed to perform bulk status update',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// =============================================================================
+// EXPORT OPERATIONS
+// =============================================================================
+
+/**
+ * Export survey batch data (logging endpoint for activity logs)
+ * Since exports are done client-side, this endpoint just logs the activity
+ */
+export const exportSurveyBatches = async (req, res) => {
+  try {
+    const { format = 'json', selectedIds, logFormat, count: providedCount, status: filterStatus } = req.query;
+    // logFormat is the actual format exported (for logging), format is the response format
+    const actualFormat = logFormat || format;
+    
+    console.log('🔍 Survey Batch export request received:', { format, actualFormat, selectedIds, providedCount, filterStatus, queryParams: req.query });
+    
+    if (!['csv', 'json', 'pdf', 'excel', 'xlsx'].includes(format)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid export format. Use "csv", "json", "pdf", "excel", or "xlsx"' 
+      });
+    }
+
+    // Use provided count if available (from filtered dataset), otherwise count from database
+    let count = 0;
+    let exportType = 'all';
+    
+    if (providedCount) {
+      // Use the count provided by frontend (filtered dataset length)
+      count = parseInt(providedCount);
+      exportType = filterStatus ? `status:${filterStatus}` : 'filtered';
+    } else if (selectedIds && selectedIds.length > 0) {
+      const idsArray = Array.isArray(selectedIds) ? selectedIds : selectedIds.split(',');
+      const sanitizedIds = idsArray
+        .map(id => String(id).trim())
+        .filter(id => id.length > 0);
+      
+      if (sanitizedIds.length > 0) {
+        count = sanitizedIds.length;
+        exportType = 'selected';
+      }
+    } else {
+      // Count all batches
+      const { getClient } = await import('../config/database.js');
+      const client = await getClient();
+      try {
+        const countResult = await client.query(`
+          SELECT COUNT(*) as count FROM "KK_Survey_Batches"
+        `);
+        count = parseInt(countResult.rows[0].count);
+      } finally {
+        client.release();
+      }
+    }
+
+    // Prepare audit log data
+    const userId = req.user?.id || req.user?.lydo_id || req.user?.lydoId || null;
+    const userType = req.user?.userType || 'admin';
+    
+    // Determine action: 'Bulk Export' for selected/filtered exports, 'Export' for all data exports
+    const action = (exportType === 'selected' || exportType === 'filtered' || exportType.startsWith('status:')) ? 'Bulk Export' : 'Export';
+    
+    // Create meaningful resource name for export
+    const resourceName = `Survey Batch Export - ${actualFormat.toUpperCase()} (${count} ${count === 1 ? 'batch' : 'batches'})`;
+    
+    console.log('🔍 Survey Batch Export - Will create audit log with:', { userId, userType, format: actualFormat, count, resourceName, action, exportType });
+
+    // Create audit log for export
+    try {
+      await createAuditLog({
+        userId: userId,
+        userType: userType,
+        action: action,
+        resource: '/api/survey-batches/export',
+        resourceId: null,
+        resourceName: resourceName,
+        resourceType: 'survey-batch',
+        details: {
+          resourceType: 'survey-batch',
+          reportType: 'survey-batches',
+          format: actualFormat,
+          count: count,
+          exportType: exportType,
+          ...(filterStatus && { filterStatus })
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+      console.log(`✅ Survey Batch export audit log created: ${actualFormat.toUpperCase()} export of ${count} batches`);
+    } catch (err) {
+      console.error('❌ Survey Batch export audit log failed:', err);
+    }
+
+    // Return success response (frontend handles actual file generation)
+    return res.json({
+      success: true,
+      exportedAt: new Date().toISOString(),
+      total: count,
+      exportType: exportType,
+      format: actualFormat
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in survey batch export:', error);
+    
+    // Create audit log for failed export
+    const userId = req.user?.id || req.user?.lydo_id || req.user?.lydoId || null;
+    const userType = req.user?.userType || 'admin';
+    const resourceName = `Survey Batch Export - Failed`;
+    
+    try {
+      await createAuditLog({
+        userId: userId,
+        userType: userType,
+        action: 'Export',
+        resource: '/api/survey-batches/export',
+        resourceId: null,
+        resourceName: resourceName,
+        resourceType: 'survey-batch',
+        details: {
+          resourceType: 'survey-batch',
+          error: error.message,
+          exportFailed: true
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'error',
+        errorMessage: error.message
+      });
+    } catch (err) {
+      console.error('❌ Failed export audit log error:', err);
+    }
+
+    return res.status(500).json({ 
+      success: false,
+      message: 'Failed to log survey batch export',
+      error: error.message
     });
   }
 };

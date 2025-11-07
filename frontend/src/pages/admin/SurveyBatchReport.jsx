@@ -26,10 +26,13 @@ import {
   Grid,
   List
 } from 'lucide-react';
-import { HeaderMainContent, TabContainer, Tab, useTabState, LoadingSpinner, ExportButton, useExport, SearchBar, SortModal, useSortModal, FilterModal, Pagination, usePagination, Status } from '../../components/portal_main_content';
+import { HeaderMainContent, TabContainer, Tab, useTabState, ExportButton, useExport, SearchBar, SortModal, useSortModal, FilterModal, Pagination, usePagination, Status } from '../../components/portal_main_content';
+import SurveyBatchResponses from './SurveyBatchResponses';
 import { ToastContainer, showSuccessToast, showErrorToast } from '../../components/universal';
 import surveyBatchesService from '../../services/surveyBatchesService.js';
 import skService from '../../services/skService.js';
+import SurveyBatchSegmentation from './SurveyBatchSegmentation';
+import SurveyBatchAnalytics from './SurveyBatchAnalytics';
 
 const SurveyBatchReport = () => {
   console.log('🔍 SurveyBatchReport component rendering...');
@@ -71,8 +74,8 @@ const SurveyBatchReport = () => {
   const [locationFilter, setLocationFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [sortBy, setSortBy] = useState('submittedDate');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortBy, setSortBy] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
   // Active filter indicator
   const activeFilterCount = (statusFilter !== 'all' ? 1 : 0) + (locationFilter !== 'all' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -90,7 +93,7 @@ const SurveyBatchReport = () => {
   const filterTriggerRef = React.useRef(null);
 
   // Sort modal state
-  const sortModal = useSortModal('submittedDate', 'desc', (newSortBy, newSortOrder) => {
+  const sortModal = useSortModal('name', 'asc', (newSortBy, newSortOrder) => {
     setSortBy(newSortBy);
     setSortOrder(newSortOrder);
     setCurrentPage(1);
@@ -182,7 +185,10 @@ const SurveyBatchReport = () => {
       setIsLoadingResponses(true);
       console.log('🔍 Loading responses for batchId:', effectiveBatchId);
       
-      const responsesResp = await surveyBatchesService.getBatchResponses(effectiveBatchId);
+      // Request ALL responses by setting a high limit
+      const responsesResp = await surveyBatchesService.getBatchResponses(effectiveBatchId, {
+        limit: 10000 // High limit to get all responses
+      });
       console.log('🔍 Responses response:', responsesResp);
       console.log('🔍 Responses response success:', responsesResp?.success);
       console.log('🔍 Responses response data:', responsesResp?.data);
@@ -670,8 +676,11 @@ ${bodyRows}
           break;
         case 'submittedDate':
         default:
-          aValue = new Date(a.submittedDate || 0).getTime();
-          bValue = new Date(b.submittedDate || 0).getTime();
+          // Robust date sorting with common fallbacks from API
+          const aDate = a.submittedDate || a.created_at || a.createdAt || a.created || a.created_date || a.createdAtDate || 0;
+          const bDate = b.submittedDate || b.created_at || b.createdAt || b.created || b.created_date || b.createdAtDate || 0;
+          aValue = new Date(aDate || 0).getTime();
+          bValue = new Date(bDate || 0).getTime();
           break;
       }
 
@@ -706,75 +715,246 @@ ${bodyRows}
 
   // Render overview cards
   const renderOverviewCards = () => {
-    const filtered = getFilteredResponses();
-    const totalResponses = filtered.length || 0;
-    const validatedResponses = filtered.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'validated').length;
-    const pendingResponses = filtered.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'pending').length;
-    const rejectedResponses = filtered.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'rejected').length;
+    // Use filtered responses to respect location filter
+    const allResponses = getFilteredResponses();
+    const totalResponses = allResponses.length || 0;
+    const validatedResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'validated').length;
+    const pendingResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'pending').length;
+    const rejectedResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'rejected').length;
     const targetYouth = batchStatistics?.targetYouth || 0;
     const responseRate = totalResponses; // raw count for card usage
     const validationRate = totalResponses > 0 ? Math.round((validatedResponses / totalResponses) * 100) : 0;
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* Total Responses Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <Users className="w-6 h-6 text-blue-600" />
+        {/* Total Responses */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                <Users className="w-4 h-4 text-blue-600" />
             </div>
-            <span className="text-3xl font-bold text-gray-900">{totalResponses}</span>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Total Responses</h4>
+                <p className="text-[11px] text-gray-600">Survey submissions received</p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Responses</h3>
-          <p className="text-gray-600 text-sm">Survey submissions received</p>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{totalResponses}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-blue-50 text-blue-700 border border-blue-200">All</span>
+            </div>
+          </div>
         </div>
 
-        {/* Validated Responses Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+        {/* Validated */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                <CheckCircle className="w-4 h-4 text-green-600" />
             </div>
-            <span className="text-3xl font-bold text-gray-900">{validatedResponses}</span>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Validated</h4>
+                <p className="text-[11px] text-gray-600">Approved responses</p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Validated</h3>
-          <p className="text-gray-600 text-sm">Approved responses</p>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{validatedResponses}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-green-50 text-green-700 border border-green-200">{validationRate}%</span>
+            </div>
+          </div>
         </div>
 
-        {/* Pending Responses Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-yellow-100 rounded-lg">
-              <Clock className="w-6 h-6 text-yellow-600" />
+        {/* Pending */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-yellow-50 to-amber-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-yellow-100 flex items-center justify-center">
+                <Clock className="w-4 h-4 text-yellow-600" />
             </div>
-            <span className="text-3xl font-bold text-gray-900">{pendingResponses}</span>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Pending</h4>
+                <p className="text-[11px] text-gray-600">Awaiting validation</p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Pending</h3>
-          <p className="text-gray-600 text-sm">Awaiting validation</p>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{pendingResponses}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-yellow-50 text-yellow-700 border border-yellow-200">in queue</span>
+            </div>
+          </div>
         </div>
 
-        {/* Response Rate Card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-purple-100 rounded-lg">
-              <Target className="w-6 h-6 text-purple-600" />
+        {/* Rejected */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-red-50 to-rose-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                <AlertCircle className="w-4 h-4 text-red-600" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Rejected</h4>
+                <p className="text-[11px] text-gray-600">Needs correction</p>
+              </div>
             </div>
-            <span className="text-3xl font-bold text-gray-900">{responseRate}%</span>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Response Rate</h3>
-          <p className="text-gray-600 text-sm">Target achievement</p>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{rejectedResponses}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-rose-50 text-rose-700 border border-rose-200">items</span>
+            </div>
+          </div>
         </div>
+      </div>
+    );
+  };
+
+  // Overview meta: survey period
+  const renderOverviewMeta = () => {
+    const start = reportBatch?.startDate ? new Date(reportBatch.startDate) : null;
+    const end = reportBatch?.endDate ? new Date(reportBatch.endDate) : null;
+    const durationDays = (start && end && !isNaN(start) && !isNaN(end)) 
+      ? Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    const formatLong = (d) => {
+      if (!d) return 'N/A';
+      const dt = new Date(d);
+      if (isNaN(dt)) return 'N/A';
+      return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    };
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* Survey Period Card */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Survey Period</h4>
+                <p className="text-[11px] text-gray-600">Start and end dates</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+              <span className="text-gray-600">Start:</span>
+              <span className="font-medium text-gray-900">{formatLong(reportBatch?.startDate)}</span>
+              <span className="mx-2 text-gray-400">to</span>
+              <span className="text-gray-600">End:</span>
+              <span className="font-medium text-gray-900">{formatLong(reportBatch?.endDate)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Survey Duration Card */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-gradient-to-r from-amber-50 to-yellow-50 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                <Clock className="w-4 h-4 text-amber-600" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-gray-900">Survey Duration</h4>
+                <p className="text-[11px] text-gray-600">Total active days</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-gray-900">{durationDays ?? '—'}</div>
+              <span className="px-2 py-1 text-xs rounded-lg bg-amber-50 text-amber-700 border border-amber-200">day{durationDays === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Status rate breakdown cards (Validated, Pending, Rejected)
+  const renderRateBreakdownCards = () => {
+    // Use filtered responses to respect location filter
+    const allResponses = getFilteredResponses();
+    const totalResponses = allResponses.length || 0;
+    const validatedResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'validated').length;
+    const pendingResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'pending').length;
+    const rejectedResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'rejected').length;
+
+    const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
+
+    const cards = [
+      {
+        title: 'Validated Rate',
+        subtitle: 'Approved responses',
+        count: validatedResponses,
+        percent: pct(validatedResponses, totalResponses),
+        color: 'green',
+        Icon: CheckCircle
+      },
+      {
+        title: 'Pending Rate',
+        subtitle: 'Awaiting validation',
+        count: pendingResponses,
+        percent: pct(pendingResponses, totalResponses),
+        color: 'yellow',
+        Icon: Clock
+      },
+      {
+        title: 'Rejected Rate',
+        subtitle: 'Needs correction',
+        count: rejectedResponses,
+        percent: pct(rejectedResponses, totalResponses),
+        color: 'red',
+        Icon: AlertCircle
+      }
+    ];
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-2">
+        {cards.map(({ title, subtitle, count, percent, color, Icon }) => (
+          <div key={title} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className={`px-5 py-3 bg-gradient-to-r from-${color}-50 to-${color === 'yellow' ? 'amber' : color}-50 border-b border-gray-100`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg bg-${color}-100 flex items-center justify-center`}>
+                  <Icon className={`w-4 h-4 text-${color}-600`} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-900">{title}</h4>
+                  <p className="text-[11px] text-gray-600">{subtitle}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="flex items-end justify-between">
+                <div className="text-3xl font-bold text-gray-900">{percent}%</div>
+                <span className={`px-2 py-1 text-xs rounded-lg bg-${color}-50 text-${color}-700 border border-${color}-200`}>{count} of {totalResponses}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className={`h-2 rounded-full bg-${color}-500`} style={{ width: `${percent}%` }}></div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     );
   };
 
   // Render status breakdown
   const renderStatusBreakdown = () => {
-    const filtered = getFilteredResponses();
-    const totalResponses = filtered.length || 0;
-    const validatedResponses = filtered.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'validated').length;
-    const pendingResponses = filtered.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'pending').length;
-    const rejectedResponses = filtered.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'rejected').length;
+    // Use filtered responses to respect location filter
+    const allResponses = getFilteredResponses();
+    const totalResponses = allResponses.length || 0;
+    const validatedResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'validated').length;
+    const pendingResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'pending').length;
+    const rejectedResponses = allResponses.filter(r => (r.status || r.validationStatus || '').toString().toLowerCase() === 'rejected').length;
 
     const statusData = [
       {
@@ -853,13 +1033,18 @@ ${bodyRows}
           title="Survey Batch Report"
           description="Loading batch report..."
         />
-        <LoadingSpinner 
-          variant="spinner"
-          message="Loading batch data..." 
-          size="lg"
-          color="blue"
-          height="h-96"
-        />
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="relative">
+              <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <FileText className="w-5 h-5 text-blue-600 animate-pulse" />
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mt-3 font-medium">Loading batch data...</p>
+            <p className="text-xs text-gray-500 mt-1">Fetching batch report information</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -892,61 +1077,44 @@ ${bodyRows}
   }
 
   const filteredResponses = getFilteredResponses();
+  
+  // Apply pagination to filtered responses (for display only, not for statistics)
+  const paginatedResponses = filteredResponses.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   return (
     <div className="space-y-6">
       {/* Header Section */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/admin/survey/batches')}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </button>
-              <div className="h-8 w-px bg-gray-300"></div>
-              <div>
-                <div className="flex items-center space-x-3 mb-2">
-                  <h1 className="text-xl font-bold text-gray-900">
+      <HeaderMainContent
+        title={(
+          <span className="inline-flex items-center gap-2">
                     {reportBatch ? `${reportBatch.batchName} Report` : 'Survey Batch Report'}
-                  </h1>
                   {reportBatch && (
                     <Status 
                       status={reportBatch.status === 'active' ? 'active' : reportBatch.status === 'closed' ? 'closed' : 'draft'}
                       size="sm"
                       variant="pill"
-                    />
-                  )}
-                  {reportBatch && (
-                    <div className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-md border border-gray-200">
-                      ID: {reportBatch.batchId}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center space-x-4 text-sm text-gray-600">
-                  {reportBatch && reportBatch.startDate && reportBatch.endDate && (
-                    <>
-                      <div className="flex items-center">
-                        <Calendar className="w-3 h-3 mr-1" />
-                        <span>
-                          {formatDate(reportBatch.startDate)} - {formatDate(reportBatch.endDate)}
+                className="px-2 py-0.5 sm:px-3 sm:py-1"
+                customLabel={<span className="hidden sm:inline">{reportBatch.status === 'active' ? 'Active' : reportBatch.status === 'closed' ? 'Closed' : 'Draft'}</span>}
+              />
+            )}
                         </span>
-                      </div>
-                      <div className="flex items-center">
-                        <FileText className="w-3 h-3 mr-1" />
-                        <span>Survey Batch Report</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+        )}
+        leading={(
+          <button
+            onClick={() => navigate('/admin/survey/batches')}
+            aria-label="Back"
+            className="inline-flex items-center p-1 text-gray-700 text-base sm:text-sm sm:px-3 sm:py-2 sm:border sm:border-gray-300 sm:rounded-lg hover:bg-transparent sm:hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1.5 sm:mr-2" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        )}
+      >
+        {/* ID chip removed per request */}
+      </HeaderMainContent>
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -980,10 +1148,10 @@ ${bodyRows}
                 color="purple"
               />
               <Tab 
-                id="recommendations" 
-                label="Recommendations" 
-                shortLabel="Recs"
-                color="yellow"
+                id="segmentation" 
+                label="Segmentation" 
+                shortLabel="Segments"
+                color="purple"
               />
             </TabContainer>
 
@@ -1025,142 +1193,7 @@ ${bodyRows}
               </div>
             )}
 
-            {/* Controls */}
-            {viewMode === 'responses' && (
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0">
-                  <div className="flex items-center space-x-3 min-w-max">
-                    {/* Search Bar */}
-                    <div className="flex-shrink-0">
-                      <SearchBar
-                        value={searchQuery}
-                        onChange={setSearchQuery}
-                        placeholder="Search responses..." 
-                        expandOnMobile={true}
-                        showIndicator={true}
-                        indicatorText="Search"
-                        indicatorColor="blue"
-                        size="md"
-                        autoFocus={false}
-                        debounceMs={300}
-                      />
-                    </div>
-
-                    {/* Filter Button */}
-                    <button 
-                      ref={filterTriggerRef}
-                      onClick={() => setShowFilterModal(true)}
-                      className={`inline-flex items-center border rounded-lg font-medium transition-all duration-200 px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap flex-shrink-0 ${
-                        hasActiveFilters ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-2" />
-                      <span className="hidden sm:inline">Filter</span>
-                      <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1" />
-                      {hasActiveFilters && (
-                        <div className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full border border-blue-200">{activeFilterCount}</div>
-                      )}
-                    </button>
-
-                    {/* Sort Button */}
-                    <button 
-                      ref={sortModal.triggerRef}
-                      onClick={sortModal.toggleModal}
-                      className={`inline-flex items-center border rounded-lg font-medium transition-all duration-200 px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap flex-shrink-0 ${
-                        !(sortBy === 'submittedDate' && sortOrder === 'desc') ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      <ArrowUpDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-2" />
-                      <span className="hidden sm:inline">Sort</span>
-                      <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1" />
-                      {!(sortBy === 'submittedDate' && sortOrder === 'desc') && (
-                        <div className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full border border-blue-200">{sortOrder === 'asc' ? '↑' : '↓'}</div>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-3 flex-shrink-0">
-                  <div className="text-sm text-gray-600">
-                    {filteredResponses.length} response{filteredResponses.length !== 1 ? 's' : ''}
-                  </div>
-                  <ExportButton
-                    formats={['csv', 'xlsx', 'pdf']}
-                    onExport={(format) => mainExport.handleExport(format)}
-                    isExporting={mainExport.isExporting}
-                    label="Export"
-                    size="md"
-                    position="auto"
-                    responsive={true}
-                  />
-                </div>
-              </div>
-
-              {/* Sort Modal */}
-              <SortModal
-                isOpen={sortModal.isOpen}
-                onClose={sortModal.closeModal}
-                triggerRef={sortModal.triggerRef}
-                title="Sort Options"
-                sortFields={[
-                  { value: 'submittedDate', label: 'Submitted Date' },
-                  { value: 'name', label: 'Youth Name' },
-                  { value: 'status', label: 'Status' },
-                  { value: 'location', label: 'Location' }
-                ]}
-                sortBy={sortModal.sortBy}
-                sortOrder={sortModal.sortOrder}
-                onSortChange={sortModal.updateSort}
-                onReset={sortModal.resetSort}
-                defaultSortBy="submittedDate"
-                defaultSortOrder="desc"
-              />
-
-              {/* Filter Modal */}
-              <FilterModal
-                isOpen={showFilterModal}
-                onClose={() => setShowFilterModal(false)}
-                triggerRef={filterTriggerRef}
-                title="Advanced Filters"
-                filters={[
-                  {
-                    id: 'status',
-                    label: 'Status',
-                    type: 'select',
-                    placeholder: 'All Statuses',
-                    options: getStatusOptions(),
-                    description: 'Filter by response status'
-                  },
-                  {
-                    id: 'location',
-                    label: 'Barangay',
-                    type: 'select',
-                    placeholder: 'All Barangays',
-                    options: getLocationOptions(),
-                    description: 'Filter by barangay'
-                  },
-                  {
-                    // Removed generic Location filter per request
-                  }
-                ]}
-                values={filterValues}
-                onChange={setFilterValues}
-                onApply={(appliedValues) => {
-                  setStatusFilter(appliedValues.status || 'all');
-                  setLocationFilter(appliedValues.location || 'all');
-                  setCurrentPage(1);
-                }}
-                onClear={(clearedValues) => {
-                  setStatusFilter('all');
-                  setLocationFilter('all');
-                  setCurrentPage(1);
-                }}
-                applyButtonText="Apply Filters"
-                clearButtonText="Clear All"
-              />
-            </div>
-            )}
+            {/* Responses Controls replaced by extracted component */}
 
             {/* Analytics controls - show barangay filter */}
             {viewMode === 'analytics' && (
@@ -1202,68 +1235,36 @@ ${bodyRows}
               </div>
             )}
 
-            {/* Recommendations Controls - filter by barangay/location and export */}
-            {viewMode === 'recommendations' && (
-              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0">
-                    <div className="flex items-center space-x-3 min-w-max">
-                      <div className="flex items-center">
-                        <label className="sr-only" htmlFor="recLocationFilter">Location</label>
-                        <select
-                          id="recLocationFilter"
-                          value={locationFilter}
-                          onChange={(e) => { setLocationFilter(e.target.value); setCurrentPage(1); }}
-                          className="ml-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                        >
-                          <option value="all">All Locations</option>
-                          {getLocationOptions().map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-3 flex-shrink-0">
-                    <div className="text-sm text-gray-600">
-                      {getFilteredResponses().length} response{getFilteredResponses().length !== 1 ? 's' : ''}
-                    </div>
-                    <ExportButton
-                      formats={['csv','xlsx','pdf']}
-                      onExport={(format) => mainExport.handleExport(format)}
-                      isExporting={mainExport.isExporting}
-                      label="Export"
-                      size="md"
-                      position="auto"
-                      responsive={true}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Recommendations Controls removed */}
 
             {/* Content Area */}
             {isLoadingReportBatch || tabLoading || isLoadingResponses ? (
-              <LoadingSpinner 
-                variant="spinner"
-                message="Loading data..." 
-                size="md"
-                color="blue"
-                height="h-64"
-              />
+              <div className="flex items-center justify-center min-h-[400px]">
+                <div className="text-center">
+                  <div className="relative">
+                    <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-blue-600 animate-pulse" />
+                      </div>
+                    </div>
+                  <p className="text-sm text-gray-600 mt-3 font-medium">Loading data...</p>
+                  <p className="text-xs text-gray-500 mt-1">Fetching batch report information</p>
+                  </div>
+                    </div>
             ) : (
-              <div className="p-6">
+              <div className={viewMode === 'responses' ? 'p-0' : 'p-6'}>
                 {/* Overview Tab */}
                 {viewMode === 'overview' && (
                   <>
+                    {renderOverviewMeta()}
                     {renderOverviewCards()}
-                    {renderStatusBreakdown()}
+                    {renderRateBreakdownCards()}
                   </>
                 )}
 
                 {/* Responses Tab */}
                 {viewMode === 'responses' && (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto hidden">{/* replaced by card component */}
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
@@ -1291,7 +1292,7 @@ ${bodyRows}
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {filteredResponses.length === 0 ? (
+                        {paginatedResponses.length === 0 ? (
                           <tr>
                             <td colSpan="20" className="px-4 py-16 text-center">
                               <div className="flex flex-col items-center">
@@ -1309,7 +1310,7 @@ ${bodyRows}
                             </td>
                           </tr>
                         ) : (
-                          filteredResponses.map((r, idx) => {
+                          paginatedResponses.map((r, idx) => {
                             const region = r.region || r.addressRegion || '';
                             const province = r.province || r.addressProvince || '';
                             const city = r.cityMunicipality || r.city || r.municipality || r.addressCity || '';
@@ -1372,212 +1373,36 @@ ${bodyRows}
                     </table>
                   </div>
                 )}
+                {viewMode === 'responses' && (
+                  <SurveyBatchResponses
+                    responses={responses}
+                    isLoading={isLoadingResponses}
+                    defaultFilters={{ status: statusFilter, location: locationFilter }}
+                    onFiltersChange={(nf) => { setStatusFilter(nf.status || 'all'); setLocationFilter(nf.location || 'all'); setCurrentPage(1); }}
+                    onExport={(format) => mainExport.handleExport(format)}
+                  />
+                )}
 
                 {/* Analytics Tab */}
                 {viewMode === 'analytics' && (
-                  <div className="space-y-8">
-                    {(() => {
-                      const src = getFilteredResponses();
-                      const total = src.length || 1;
-
-                      const distribution = (label, items) => (
-                        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                          <h4 className="text-lg font-semibold text-gray-900 mb-4">{label}</h4>
-                          <div className="space-y-3">
-                            {items.map((i) => {
-                              const count = i.count;
-                              const pct = Math.round((count / (src.length || 1)) * 100);
-                              return (
-                                <div key={i.label} className="">
-                                  <div className="flex items-center justify-between text-sm mb-1">
-                                    <span className="text-gray-700">{i.label}</span>
-                                    <span className="text-gray-800 font-medium">{count} ({pct}%)</span>
-                                  </div>
-                                  <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${pct}%` }}></div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-
-                      const countBy = (getter, values) => {
-                        const map = new Map();
-                        (values || []).forEach(v => map.set(v, 0));
-                        src.forEach(r => {
-                          const v = getter(r);
-                          const key = (v ?? '').toString();
-                          if (!map.has(key)) map.set(key, 0);
-                          map.set(key, (map.get(key) || 0) + 1);
-                        });
-                        return Array.from(map.entries())
-                          .filter(([k]) => k !== '')
-                          .map(([k, c]) => ({ label: k, count: c }));
-                      };
-
-                      const civ = countBy(r => r.civilStatus, [
-                        'Single','Married','Widowed','Divorced','Separated','Annulled','Unknown','Live-in'
-                      ]);
-                      const youthClass = countBy(r => (r.youthClassification || r.classification), [
-                        'In School Youth','Out of School Youth','Working Youth','Youth w/Specific Needs'
-                      ]);
-                      const ageGroup = countBy(r => (r.youthAgeGroup || r.ageGroup), [
-                        'Child Youth (15-17 yrs old)','Core Youth (18-24 yrs old)','Young Adult (15-30 yrs old)'
-                      ]);
-                      const education = countBy(r => (r.education || r.highestEducationalAttainment), [
-                        'Elementary Level','Elementary Grad','High School Level','High School Grad','Vocational Grad','College Level','College Grad','Masters Level','Masters Grad','Doctorate Level','Doctorate Graduate'
-                      ]);
-                      const workStatus = countBy(r => (r.workStatus || r.employmentStatus), [
-                        'Employed','Unemployed','Self-Employed','Currently looking for a Job','Not interested looking for a job'
-                      ]);
-                      const skVoter = countBy(r => ((r.registeredVoter !== undefined ? r.registeredVoter : r.isRegisteredVoter) ? 'Yes' : 'No'), ['Yes','No']);
-                      const votedLast = countBy(r => (((r.votedLastElection !== undefined ? r.votedLastElection : r.voted_last_SK) ? 'Yes' : 'No')), ['Yes','No']);
-                      const attended = countBy(r => (((r.attendedKKAssembly !== undefined ? r.attendedKKAssembly : r.attended_KK_assembly) ? 'Yes' : 'No')), ['Yes','No']);
-                      const times = countBy(r => (r.kkAssemblyAttendanceCount || r.kkAssemblyCount || ''), ['1-2 Times','3-4 Times','5 and above']);
-
-                      return (
-                        <>
-                          {distribution('Civil Status', civ)}
-                          {distribution('Youth Classification', youthClass)}
-                          {distribution('Youth Age Group', ageGroup)}
-                          {distribution('Educational Background', education)}
-                          {distribution('Work Status', workStatus)}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {distribution('Registered SK Voter', skVoter)}
-                            {distribution('Voted Last SK Election', votedLast)}
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {distribution('Attended KK Assembly', attended)}
-                            {distribution('If Yes, How Many Times?', times)}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
+                  <SurveyBatchAnalytics 
+                    responses={getFilteredResponses()} 
+                    startDate={reportBatch?.startDate}
+                    endDate={reportBatch?.endDate}
+                  />
                 )}
 
-                {/* Recommendations Tab */}
-                {viewMode === 'recommendations' && (
-                  <div className="space-y-6">
-                    {(() => {
-                      // Build simple rules-based recommendations
-                      const source = getFilteredResponses();
-                      const recs = [];
-                      const total = source.length;
-                      const validated = source.filter(r => (r.status || '').toLowerCase() === 'validated').length;
-                      const rejected = source.filter(r => (r.status || '').toLowerCase() === 'rejected').length;
-                      const pending = source.filter(r => (r.status || '').toLowerCase() === 'pending').length;
-
-                      const byBarangay = {};
-                      source.forEach(r => {
-                        const b = r.location || r.barangay || 'Unknown';
-                        if (!byBarangay[b]) byBarangay[b] = { total: 0, validated: 0, rejected: 0, pending: 0 };
-                        byBarangay[b].total++;
-                        const s = (r.status || '').toLowerCase();
-                        if (s === 'validated') byBarangay[b].validated++;
-                        else if (s === 'rejected') byBarangay[b].rejected++;
-                        else if (s === 'pending') byBarangay[b].pending++;
-                      });
-
-                      // Global recs
-                      if (pending / (total || 1) > 0.3) {
-                        recs.push({
-                          title: 'Accelerate Validation Workflow',
-                          priority: 'High',
-                          rationale: `${pending} pending out of ${total} responses (>30%). Streamline reviewer assignments and automate reminders.`
-                        });
-                      }
-                      if (rejected > 0) {
-                        recs.push({
-                          title: 'Targeted Re-submission Guidance',
-                          priority: 'Medium',
-                          rationale: `${rejected} responses were rejected. Provide clear guidance and sample answers to improve acceptance rate.`
-                        });
-                      }
-                      if (validated / (total || 1) < 0.5 && total > 20) {
-                        recs.push({
-                          title: 'Boost Participation Campaign',
-                          priority: 'High',
-                          rationale: `Only ${validated}/${total} validated. Consider social media pushes and barangay ambassadors to increase participation quality.`
-                        });
-                      }
-
-                      // Barangay-specific recs
-                      Object.entries(byBarangay).forEach(([b, s]) => {
-                        if (locationFilter !== 'all' && b !== locationFilter) return;
-                        if (s.total >= 10 && s.pending / s.total > 0.4) {
-                          recs.push({
-                            title: `Barangay ${b}: On-site Validation Clinic`,
-                            priority: 'High',
-                            rationale: `${s.pending}/${s.total} pending. Set up a local validation day with LYDO staff support.`
-                          });
-                        }
-                        if (s.rejected >= 5) {
-                          recs.push({
-                            title: `Barangay ${b}: Orientation Session`,
-                            priority: 'Medium',
-                            rationale: `${s.rejected} rejected responses. Run a short orientation on survey requirements and proper submission.`
-                          });
-                        }
-                        if (s.validated / (s.total || 1) >= 0.7) {
-                          recs.push({
-                            title: `Barangay ${b}: Program Rollout Readiness`,
-                            priority: 'Low',
-                            rationale: `Validation is strong (${s.validated}/${s.total}). Begin planning program implementation logistics.`
-                          });
-                        }
-                      });
-
-                      if (recs.length === 0) {
-                        return (
-                          <div className="text-center py-16">
-                            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                              <FileText className="w-10 h-10 text-gray-400" />
-                            </div>
-                            <h3 className="text-xl font-semibold text-gray-900 mb-2">No recommendations yet</h3>
-                            <p className="text-gray-600 max-w-md mx-auto">Not enough data to generate recommendations. Collect more responses or adjust filters.</p>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                          {recs.map((rec, idx) => (
-                            <div key={idx} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-                              <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-lg font-semibold text-gray-900">{rec.title}</h4>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${rec.priority === 'High' ? 'bg-red-50 text-red-700 border-red-200' : rec.priority === 'Medium' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{rec.priority} Priority</span>
-                              </div>
-                              <p className="text-sm text-gray-700">{rec.rationale}</p>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </div>
+                {/* Segmentation Tab */}
+                {viewMode === 'segmentation' && (
+                  <SurveyBatchSegmentation 
+                    batchId={reportBatch?.batchId}
+                    batchName={reportBatch?.batchName}
+                  />
                 )}
               </div>
             )}
 
-            {/* Pagination */}
-            {!isLoadingReportBatch && !tabLoading && viewMode === 'responses' && filteredResponses.length > 0 && (
-              <Pagination
-                currentPage={currentPage}
-                totalItems={filteredResponses.length}
-                itemsPerPage={itemsPerPage}
-                onPageChange={pagination.handlePageChange}
-                onItemsPerPageChange={pagination.handleItemsPerPageChange}
-                itemName="response"
-                itemNamePlural="responses"
-                showItemsPerPage={true}
-                showInfo={true}
-                size="md"
-                variant="default"
-                itemsPerPageOptions={[5, 10, 20, 50]}
-              />
-            )}
+            {/* Pagination handled inside SurveyBatchResponses for Responses tab */}
           </div>
         </div>
       </div>

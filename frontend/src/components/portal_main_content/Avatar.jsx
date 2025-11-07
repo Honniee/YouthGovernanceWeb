@@ -26,10 +26,33 @@ const Avatar = ({
   alt = '',
   ...props
 }) => {
+  // URL resolution helper function
+  const getFileUrl = (path, version) => {
+    if (!path || path === '' || path === null || path === undefined) return '';
+    if (typeof path !== 'string') return '';
+    
+    // Already absolute URL
+    if (/^https?:\/\//i.test(path)) return path;
+    
+    // Relative path - resolve to full URL
+    let base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/?api\/?$/, '');
+    if (!base && window?.location && /localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+      base = 'http://localhost:3001';
+    }
+    
+    let url = `${base}${path}`;
+    if (version && !/\?/.test(url)) {
+      url += `?v=${encodeURIComponent(version)}`;
+    }
+    return url;
+  };
+
   // Extract data from user object if provided
   const displayName = name || user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.displayName || '';
   const displayEmail = email || user.email || user.personalEmail || '';
-  const displayAvatar = avatarUrl || user.avatar || user.profilePicture || user.profileImage || '';
+  const rawAvatar = avatarUrl || user.avatar || user.profilePicture || user.profileImage || '';
+  // Resolve URL for relative paths
+  const displayAvatar = rawAvatar ? getFileUrl(rawAvatar, user.updatedAt) : '';
   const displayAlt = alt || `${displayName} avatar` || 'User avatar';
 
   // Size configurations

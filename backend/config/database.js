@@ -25,11 +25,6 @@ const dbConfig = {
 // Create connection pool
 const pool = new Pool(dbConfig);
 
-// Test database connection
-pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL database');
-});
-
 pool.on('error', (err) => {
   console.error('❌ Database connection error:', err);
   // Don't exit the process - let the application handle the error gracefully
@@ -51,8 +46,18 @@ export const query = async (text, params) => {
 };
 
 // Helper function to get a client from the pool
+// Sets timezone to Asia/Manila for consistent timestamp handling
 export const getClient = async () => {
-  return await pool.connect();
+  const client = await pool.connect();
+  // Set timezone to Asia/Manila for this client connection
+  // This ensures all timestamps are in Asia/Manila timezone (UTC+8)
+  try {
+    await client.query('SET timezone = \'Asia/Manila\'');
+  } catch (err) {
+    console.error('❌ Failed to set timezone on client:', err);
+    // Continue anyway - the query will still work
+  }
+  return client;
 };
 
 // Helper function to close the pool

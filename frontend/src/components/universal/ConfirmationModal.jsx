@@ -93,14 +93,16 @@ const ConfirmationModal = ({
           </div>
 
           {/* Modal Content */}
-          <div className="mb-6">
-            <p className="text-gray-700 mb-3">
-              {message}
-            </p>
+          <div className="mb-6 space-y-3">
             {children && (
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="rounded-lg p-4 border border-gray-200 bg-white">
                 {children}
               </div>
+            )}
+            {message && (
+              <p className="text-gray-700 whitespace-pre-line">
+                {message}
+              </p>
             )}
           </div>
 
