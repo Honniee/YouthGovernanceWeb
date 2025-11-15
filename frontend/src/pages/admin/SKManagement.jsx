@@ -1316,12 +1316,32 @@ const SKManagement = () => {
         loadSKData(); // Reload data
         loadSKStats(); // Reload stats
       } else {
-        // Show detailed error message
-        const errorMessage = response.details 
-          ? `${response.message}\n\nDetails:\n• ${Array.isArray(response.details) ? response.details.join('\n• ') : response.details}`
-          : response.message || 'Failed to create SK official';
+        // Build comprehensive error message from backend validation errors
+        let errorMessage = response.message || 'Failed to create SK official';
+        
+        // Handle validation errors array (from backend) or details (from skService.handleError)
+        const errors = response.errors || response.details;
+        if (errors) {
+          if (Array.isArray(errors)) {
+            if (errors.length > 0) {
+              errorMessage += '\n\n' + errors.map(e => typeof e === 'string' ? `• ${e}` : `• ${e.msg || JSON.stringify(e)}`).join('\n');
+            }
+          } else if (typeof errors === 'string') {
+            errorMessage += '\n\n• ' + errors;
+          } else if (errors && typeof errors === 'object') {
+            // Handle details object (e.g., from position validation)
+            const detailsStr = Object.entries(errors)
+              .map(([key, value]) => `• ${key}: ${value}`)
+              .join('\n');
+            if (detailsStr) {
+              errorMessage += '\n\n' + detailsStr;
+            }
+          }
+        }
+        
         logger.error('Failed to create SK official', null, { 
           message: response.message, 
+          errors: response.errors,
           details: response.details,
           status: response.status,
           submitData: { ...submitData, personalEmail: '***' } // Hide email in logs
@@ -1335,19 +1355,46 @@ const SKManagement = () => {
         responseData: error.response?.data
       });
       
-      // Build comprehensive error message
+      // Build comprehensive error message from raw error response
       let errorMessage = 'An error occurred while creating the SK official';
       
       if (error.response?.data) {
         const data = error.response.data;
+        
+        // Get main message
         if (data.message) {
           errorMessage = data.message;
         }
+        
+        // Handle errors array (validation errors from backend)
         if (data.errors && Array.isArray(data.errors)) {
-          errorMessage += '\n\n' + data.errors.map(e => typeof e === 'string' ? e : e.msg || JSON.stringify(e)).join('\n');
-        } else if (data.details) {
-          const details = Array.isArray(data.details) ? data.details : [data.details];
-          errorMessage += '\n\nDetails:\n• ' + details.map(d => typeof d === 'string' ? d : JSON.stringify(d)).join('\n• ');
+          const errorList = data.errors.map(e => {
+            if (typeof e === 'string') return `• ${e}`;
+            if (e.msg) return `• ${e.msg}`;
+            if (e.message) return `• ${e.message}`;
+            return `• ${JSON.stringify(e)}`;
+          }).join('\n');
+          if (errorList) {
+            errorMessage += '\n\n' + errorList;
+          }
+        } 
+        // Handle details object (e.g., position validation details)
+        else if (data.details) {
+          if (typeof data.details === 'object' && !Array.isArray(data.details)) {
+            const detailsList = Object.entries(data.details)
+              .map(([key, value]) => `• ${key}: ${value}`)
+              .join('\n');
+            if (detailsList) {
+              errorMessage += '\n\n' + detailsList;
+            }
+          } else if (Array.isArray(data.details)) {
+            const detailsList = data.details.map(d => typeof d === 'string' ? `• ${d}` : `• ${JSON.stringify(d)}`).join('\n');
+            if (detailsList) {
+              errorMessage += '\n\n' + detailsList;
+            }
+          } else {
+            errorMessage += '\n\n• ' + String(data.details);
+          }
         }
       } else if (error.message) {
         errorMessage = error.message;

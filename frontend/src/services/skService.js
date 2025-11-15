@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * SK Officials Management Service

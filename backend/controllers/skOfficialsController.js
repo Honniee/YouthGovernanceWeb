@@ -553,7 +553,7 @@ const createSKOfficial = async (req, res) => {
     await createUserForSK(skId, client);
 
     await client.query('COMMIT');
-    logger.debug('SK Official creation - Database transaction committed successfully', { skId, email });
+    logger.debug('SK Official creation - Database transaction committed successfully', { skId, orgEmail });
 
     // Send welcome notification to SK Official (fire-and-forget)
     notificationService.sendSKWelcomeNotification({
