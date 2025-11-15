@@ -31,14 +31,15 @@ export const generateCSRF = (req, res, next) => {
     csrfTokens.set(token, expiry);
     
     // Set token in cookie (httpOnly: false so JavaScript can read it)
-    // Use 'lax' in development (allows cross-port cookies) and 'strict' in production
+    // For cross-origin requests: Use 'none' with secure: true
     const isProduction = process.env.NODE_ENV === 'production';
-    const sameSiteValue = isProduction ? 'strict' : 'lax';
+    const sameSiteValue = isProduction ? 'none' : 'lax';
+    const secureValue = isProduction;
     
     res.cookie('XSRF-TOKEN', token, {
       httpOnly: false, // Must be readable by JavaScript for Double Submit Cookie pattern
-      secure: isProduction,
-      sameSite: sameSiteValue, // 'lax' for dev (cross-port), 'strict' for production
+      secure: secureValue, // Required for sameSite: 'none'
+      sameSite: sameSiteValue, // 'none' for cross-origin, 'lax' for same-origin
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       path: '/'
     });

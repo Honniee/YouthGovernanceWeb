@@ -61,6 +61,10 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// SECURITY: Trust proxy for accurate IP detection behind reverse proxy (Render, etc.)
+// This is required when behind a reverse proxy to get correct client IP and avoid rate limit errors
+app.set('trust proxy', true);
+
 // Apply CORS and security headers BEFORE any other middleware (including rate limiting)
 // This ensures all responses (even errors/429) include proper CORS headers
 app.use(corsMiddleware);

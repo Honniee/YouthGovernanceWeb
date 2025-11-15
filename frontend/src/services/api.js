@@ -47,10 +47,54 @@ const CACHE_INVALIDATION_PATTERNS = {
 // Track active requests for cancellation
 const activeRequests = new Map();
 
+// CSRF token cache to avoid reading from cookie on every request
+let csrfTokenCache = null;
+let csrfTokenPromise = null;
+
+// Helper function to get CSRF token from cookie
+const getCSRFTokenFromCookie = () => {
+  try {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; XSRF-TOKEN=`);
+    if (parts.length === 2) {
+      return parts.pop().split(';').shift();
+    }
+  } catch (error) {
+    logger.error('Error reading CSRF token from cookie', error);
+  }
+  return null;
+};
+
+// Function to fetch CSRF token from server
+const fetchCSRFToken = async () => {
+  if (csrfTokenPromise) {
+    return csrfTokenPromise;
+  }
+  
+  csrfTokenPromise = api.get('/csrf-token')
+    .then(response => {
+      // Token should be set in cookie by backend
+      const token = response.data?.csrfToken || getCSRFTokenFromCookie();
+      if (token) {
+        csrfTokenCache = token;
+      }
+      csrfTokenPromise = null;
+      return token;
+    })
+    .catch(error => {
+      logger.warn('Failed to fetch CSRF token', error);
+      csrfTokenPromise = null;
+      // Try to get from cookie as fallback
+      return getCSRFTokenFromCookie();
+    });
+  
+  return csrfTokenPromise;
+};
+
 // Request interceptor - Add CSRF token and setup cancellation
 // SECURITY: Tokens are now in httpOnly cookies (sent automatically), no need to add to headers
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
     // SECURITY: Tokens are in httpOnly cookies, sent automatically by browser
     // No need to manually add Authorization header anymore
     // (Keeping backward compatibility: if token in localStorage, still send it)
@@ -60,17 +104,30 @@ api.interceptors.request.use(
     }
     
     // SECURITY: Add CSRF token for state-changing requests
-    // Get token from cookie (set by backend)
-    const getCookie = (name) => {
-      const value = `; ${document.cookie}`;
-      const parts = value.split(`; ${name}=`);
-      if (parts.length === 2) return parts.pop().split(';').shift();
-      return null;
-    };
+    const isStateChanging = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(config.method?.toUpperCase());
     
-    const csrfToken = getCookie('XSRF-TOKEN');
-    if (csrfToken && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(config.method?.toUpperCase())) {
-      config.headers['X-CSRF-Token'] = csrfToken;
+    if (isStateChanging) {
+      // Try to get token from cache first
+      let csrfToken = csrfTokenCache || getCSRFTokenFromCookie();
+      
+      // If token is not available, try to fetch it
+      if (!csrfToken) {
+        try {
+          csrfToken = await fetchCSRFToken();
+        } catch (error) {
+          logger.warn('Failed to get CSRF token for request', { url: config.url, method: config.method });
+        }
+      }
+      
+      // Add CSRF token to header if available
+      if (csrfToken) {
+        config.headers['X-CSRF-Token'] = csrfToken;
+      } else {
+        logger.warn('CSRF token not available for state-changing request', { 
+          url: config.url, 
+          method: config.method 
+        });
+      }
     }
     
     // Add request timestamp for debugging
@@ -108,6 +165,19 @@ api.interceptors.response.use(
     // Clean up active request tracking
     if (response.config.requestId) {
       activeRequests.delete(response.config.requestId);
+    }
+    
+    // Update CSRF token cache if token is received in response
+    const csrfTokenFromHeader = response.headers['x-csrf-token'];
+    const csrfTokenFromBody = response.data?.csrfToken;
+    if (csrfTokenFromHeader || csrfTokenFromBody) {
+      csrfTokenCache = csrfTokenFromHeader || csrfTokenFromBody;
+    }
+    
+    // Also check cookie for CSRF token (in case it was updated)
+    const csrfTokenFromCookie = getCSRFTokenFromCookie();
+    if (csrfTokenFromCookie && csrfTokenFromCookie !== csrfTokenCache) {
+      csrfTokenCache = csrfTokenFromCookie;
     }
     
     // Calculate request duration for debugging
@@ -173,10 +243,17 @@ api.interceptors.response.use(
           // Forbidden - insufficient permissions or CSRF error
           if (error.response?.data?.message?.includes('CSRF')) {
             logger.warn('CSRF token error', { url: error.config?.url, status });
-            // Refresh page to get new CSRF token
-            if (typeof window !== 'undefined') {
-              window.location.reload();
-            }
+            // Clear CSRF token cache and try to fetch new token
+            csrfTokenCache = null;
+            csrfTokenPromise = null;
+            // Try to fetch new CSRF token (non-blocking)
+            fetchCSRFToken()
+              .then(() => {
+                logger.info('CSRF token refreshed after error');
+              })
+              .catch((fetchError) => {
+                logger.error('Failed to refresh CSRF token', fetchError);
+              });
           } else {
             logger.warn('Insufficient permissions', { url: error.config?.url, status });
           }
