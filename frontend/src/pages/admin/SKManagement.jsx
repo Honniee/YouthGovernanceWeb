@@ -1213,11 +1213,23 @@ const SKManagement = () => {
         return;
       }
 
+      // Prepare submit data - only include fields backend expects
       const submitData = {
-        ...formData,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        middleName: formData.middleName || '',
+        suffix: formData.suffix || '',
+        position: formData.position,
         barangayId: barangayOption.id,
-        barangayName: undefined // Remove barangayName as backend expects barangayId
+        personalEmail: formData.personalEmail
       };
+
+      logger.debug('Submitting SK official creation', { 
+        hasBarangayId: !!submitData.barangayId,
+        barangayId: submitData.barangayId,
+        position: submitData.position,
+        hasEmail: !!submitData.personalEmail
+      });
 
       const response = await skService.createSKOfficial(submitData);
       if (response.success) {
@@ -1260,11 +1272,26 @@ const SKManagement = () => {
         loadSKData(); // Reload data
         loadSKStats(); // Reload stats
       } else {
-        showErrorToast('Failed to create SK official', response.message);
+        // Show detailed error message
+        const errorMessage = response.details 
+          ? `${response.message}\n\nDetails:\n• ${Array.isArray(response.details) ? response.details.join('\n• ') : response.details}`
+          : response.message || 'Failed to create SK official';
+        logger.error('Failed to create SK official', null, { 
+          message: response.message, 
+          details: response.details,
+          status: response.status,
+          submitData: { ...submitData, personalEmail: '***' } // Hide email in logs
+        });
+        showErrorToast('Failed to create SK official', errorMessage);
       }
     } catch (error) {
-      logger.error('Error creating SK official', error);
-      showErrorToast('Error creating SK official', 'An error occurred while creating the SK official');
+      logger.error('Error creating SK official', error, { 
+        formData: { ...formData, personalEmail: '***' } // Hide email in logs
+      });
+      const errorMessage = error.response?.data?.message 
+        ? `${error.response.data.message}${error.response.data.errors ? '\n\n' + error.response.data.errors.join('\n') : ''}`
+        : error.message || 'An error occurred while creating the SK official';
+      showErrorToast('Error creating SK official', errorMessage);
     }
   };
 
