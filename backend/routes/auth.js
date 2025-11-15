@@ -237,14 +237,16 @@ router.post('/login', [
     // SECURITY: Set tokens in httpOnly cookies instead of response body
     const isProduction = process.env.NODE_ENV === 'production';
     
-    // Use 'lax' in development (allows cross-port cookies) and 'strict' in production (better CSRF protection)
-    const sameSiteValue = isProduction ? 'strict' : 'lax';
+    // Use 'lax' for cross-origin support (allows cookies from same-site navigation)
+    // 'lax' provides good security while allowing cookies to work across subdomains
+    // 'none' would be needed only if frontend and backend are on completely different domains
+    const sameSiteValue = 'lax';
     
     // Access token cookie (15 minutes)
     res.cookie('accessToken', accessToken, {
       httpOnly: true,           // Not accessible to JavaScript (XSS protection)
       secure: isProduction,      // HTTPS only in production
-      sameSite: sameSiteValue,   // 'lax' for dev (cross-port), 'strict' for production
+      sameSite: sameSiteValue,   // 'lax' allows cross-origin cookies for navigation
       maxAge: 15 * 60 * 1000,   // 15 minutes
       path: '/'
     });
@@ -253,7 +255,7 @@ router.post('/login', [
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,           // Not accessible to JavaScript
       secure: isProduction,      // HTTPS only in production
-      sameSite: sameSiteValue,   // 'lax' for dev (cross-port), 'strict' for production
+      sameSite: sameSiteValue,   // 'lax' allows cross-origin cookies for navigation
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/'
     });
@@ -844,9 +846,20 @@ router.post('/logout', auth, validateCSRF, async (req, res) => {
       }
     }
     
-    // SECURITY: Clear httpOnly cookies
-    res.clearCookie('accessToken', { path: '/' });
-    res.clearCookie('refreshToken', { path: '/' });
+    // SECURITY: Clear httpOnly cookies (must match same options as when set)
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie('accessToken', { 
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax'
+    });
+    res.clearCookie('refreshToken', { 
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax'
+    });
     
     res.json({
       success: true,

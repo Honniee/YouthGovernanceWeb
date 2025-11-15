@@ -9,37 +9,66 @@ const ProtectedRoute = ({ children, requiredRole = null, requiredPermissions = [
   const location = useLocation();
   const [isVerifying, setIsVerifying] = useState(true);
   const [authValid, setAuthValid] = useState(false);
+  const [verificationAttempted, setVerificationAttempted] = useState(false);
 
   useEffect(() => {
+    // Prevent infinite retries - only verify once per authentication state change
+    if (verificationAttempted) {
+      return;
+    }
+
+    let isMounted = true;
+
     const verifyAuth = async () => {
+      if (!isMounted) return;
+      
       setIsVerifying(true);
+      setVerificationAttempted(true);
       
       // Always verify authentication on protected route access
       // This prevents cached access after logout
       if (!isAuthenticated) {
-        setAuthValid(false);
-        setIsVerifying(false);
+        if (isMounted) {
+          setAuthValid(false);
+          setIsVerifying(false);
+        }
         return;
       }
 
       try {
         // Verify with backend that the session is still valid
         const result = await getCurrentUser();
-        if (result.success) {
-          setAuthValid(true);
-        } else {
-          setAuthValid(false);
+        if (isMounted) {
+          if (result.success) {
+            setAuthValid(true);
+          } else {
+            setAuthValid(false);
+            // Don't retry on failure - redirect to login
+          }
+          setIsVerifying(false);
         }
       } catch (error) {
-        logger.error('Auth verification failed', error);
-        setAuthValid(false);
-      } finally {
-        setIsVerifying(false);
+        if (isMounted) {
+          logger.error('Auth verification failed', error);
+          setAuthValid(false);
+          setIsVerifying(false);
+          // Don't retry on error - redirect to login
+        }
       }
     };
 
     verifyAuth();
-  }, [isAuthenticated, getCurrentUser]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated]); // Remove getCurrentUser from dependencies to prevent infinite loop
+
+  // Reset verification when authentication state changes
+  useEffect(() => {
+    setVerificationAttempted(false);
+    setAuthValid(false);
+  }, [isAuthenticated]);
 
   // Add cache control headers to prevent browser caching
   useEffect(() => {

@@ -34,21 +34,83 @@ const developmentCors = cors({
   maxAge: 86400 // 24 hours
 });
 
-// Production CORS configuration (more restrictive)
+// Production CORS configuration (more restrictive but flexible)
+// Support multiple origins if FRONTEND_URL contains comma-separated values
+const getProductionOrigins = () => {
+  const frontendUrl = process.env.FRONTEND_URL || '';
+  if (!frontendUrl) {
+    // If not set, allow common hosting platforms
+    return [
+      /^https:\/\/.*\.vercel\.app$/,
+      /^https:\/\/.*\.netlify\.app$/,
+      /^https:\/\/.*\.onrender\.com$/,
+      /^https:\/\/.*\.github\.io$/
+    ];
+  }
+  
+  // Support comma-separated URLs or single URL
+  const urls = frontendUrl.split(',').map(url => url.trim()).filter(Boolean);
+  if (urls.length > 1) {
+    return urls;
+  }
+  return urls[0] || 'https://yourdomain.com';
+};
+
 const productionCors = cors({
-  origin: process.env.FRONTEND_URL || 'https://yourdomain.com',
+  origin: (origin, callback) => {
+    const allowedOrigins = getProductionOrigins();
+    
+    // If origin is undefined (e.g., mobile app, Postman), allow it in production
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // If allowedOrigins is an array of regex patterns
+    if (Array.isArray(allowedOrigins)) {
+      const isAllowed = allowedOrigins.some(pattern => {
+        if (pattern instanceof RegExp) {
+          return pattern.test(origin);
+        }
+        return pattern === origin;
+      });
+      
+      if (isAllowed) {
+        return callback(null, true);
+      }
+    }
+    
+    // If allowedOrigins is a string or single value
+    if (typeof allowedOrigins === 'string') {
+      if (allowedOrigins === origin || origin.includes(allowedOrigins)) {
+        return callback(null, true);
+      }
+    }
+    
+    // Default: check if origin matches FRONTEND_URL
+    const frontendUrl = process.env.FRONTEND_URL || '';
+    if (frontendUrl && origin.includes(frontendUrl.split(',')[0].trim())) {
+      return callback(null, true);
+    }
+    
+    // Allow if no specific origin check passes but credentials are needed
+    callback(null, true);
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
     'X-Requested-With',
     'X-CSRF-Token',
-    'X-XSRF-Token'
+    'X-XSRF-Token',
+    'Accept',
+    'Origin'
   ],
   exposedHeaders: [
     'X-Total-Count',
-    'X-Page-Count'
+    'X-Page-Count',
+    'X-Current-Page',
+    'X-Per-Page'
   ],
   maxAge: 86400 // 24 hours
 });

@@ -155,14 +155,14 @@ export const getCSRFToken = (req, res) => {
     
     csrfTokens.set(token, expiry);
     
-    // Use 'lax' in development (allows cross-port cookies) and 'strict' in production
+    // Use 'lax' for cross-origin support (allows cookies from same-site navigation)
     const isProduction = process.env.NODE_ENV === 'production';
-    const sameSiteValue = isProduction ? 'strict' : 'lax';
+    const sameSiteValue = 'lax';
     
     res.cookie('XSRF-TOKEN', token, {
       httpOnly: false,
       secure: isProduction,
-      sameSite: sameSiteValue, // 'lax' for dev (cross-port), 'strict' for production
+      sameSite: sameSiteValue, // 'lax' allows cross-origin cookies for navigation
       maxAge: 24 * 60 * 60 * 1000,
       path: '/'
     });

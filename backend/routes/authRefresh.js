@@ -125,13 +125,13 @@ router.post('/refresh', async (req, res) => {
 
     // Set new access token in httpOnly cookie
     const isProduction = process.env.NODE_ENV === 'production';
-    // Use 'lax' in development (allows cross-port cookies) and 'strict' in production
-    const sameSiteValue = isProduction ? 'strict' : 'lax';
+    // Use 'lax' for cross-origin support (allows cookies from same-site navigation)
+    const sameSiteValue = 'lax';
     
     res.cookie('accessToken', newAccessToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: sameSiteValue, // 'lax' for dev (cross-port), 'strict' for production
+      sameSite: sameSiteValue, // 'lax' allows cross-origin cookies for navigation
       maxAge: 15 * 60 * 1000, // 15 minutes
       path: '/'
     });
