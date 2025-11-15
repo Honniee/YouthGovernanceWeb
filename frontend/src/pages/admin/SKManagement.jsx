@@ -145,7 +145,7 @@ const SKManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('last_name');
   const [sortOrder, setSortOrder] = useState('asc');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
   // Search expand state is now handled by the SearchBar component
   // Action menu state is now handled by the ActionMenu component
@@ -1607,7 +1607,7 @@ const SKManagement = () => {
           )}
 
           {/* Content Area */}
-          {tabLoading ? (
+          {(tabLoading || isLoading) ? (
             <LoadingSpinner 
               variant="spinner"
               message="Loading SK officials data..." 
@@ -1666,7 +1666,7 @@ const SKManagement = () => {
           )}
 
             {/* Pagination - Always visible */}
-            {!tabLoading && hasActiveTerm && (
+            {!(tabLoading || isLoading) && hasActiveTerm && (
               <Pagination
                 currentPage={currentPage}
                 totalItems={totalSK}

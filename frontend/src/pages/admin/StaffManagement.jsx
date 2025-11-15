@@ -56,7 +56,7 @@ const StaffManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('last_name');
   const [sortOrder, setSortOrder] = useState('asc');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
   // Search expand state is now handled by the SearchBar component
   // Action menu state is now handled by the ActionMenu component
@@ -1198,7 +1198,7 @@ ${rowXml}
             )}
 
           {/* Content Area */}
-          {tabLoading ? (
+          {(tabLoading || isLoading) ? (
             <LoadingSpinner 
               variant="spinner"
               message="Loading staff data..." 
@@ -1244,7 +1244,7 @@ ${rowXml}
           )}
 
             {/* Pagination - Always visible */}
-            {!tabLoading && (
+            {!(tabLoading || isLoading) && (
               <Pagination
                 currentPage={currentPage}
                 totalItems={totalStaff}

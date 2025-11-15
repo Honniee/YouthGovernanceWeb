@@ -30,7 +30,7 @@ const VoterListUpload = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [sortBy, setSortBy] = useState('last_name');
   const [sortOrder, setSortOrder] = useState('asc');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
 
   // Filters
@@ -1143,7 +1143,7 @@ const problemRows = hasValidation ? (validationResult.rows || []).filter(row => 
             />
 
             {/* Content Area */}
-            {tabLoading ? (
+            {(tabLoading || isLoading) ? (
               <LoadingSpinner 
                 variant="spinner"
                 message="Loading voter data..." 
@@ -1175,7 +1175,7 @@ const problemRows = hasValidation ? (validationResult.rows || []).filter(row => 
             )}
 
             {/* Pagination */}
-            {!tabLoading && (
+            {!(tabLoading || isLoading) && (
               <Pagination
                 key={`pagination-${activeTab}-${totalItemsForTab}-${itemsPerPage}`}
                 currentPage={currentPage}
