@@ -22,13 +22,34 @@ setInterval(() => {
 /**
  * Generate and return CSRF token
  * Token is stored in memory and sent to client
+ * SECURITY: Reuse existing valid token from cookie if available to prevent token mismatch
  */
 export const generateCSRF = (req, res, next) => {
   try {
-    const token = generateCSRFToken();
-    const expiry = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+    // Check if there's already a valid token in the cookie
+    const existingToken = req.cookies?.['XSRF-TOKEN'];
+    let token = null;
     
-    csrfTokens.set(token, expiry);
+    if (existingToken) {
+      // Check if the existing token is still valid (not expired)
+      const tokenExpiry = csrfTokens.get(existingToken);
+      if (tokenExpiry && tokenExpiry > Date.now()) {
+        // Reuse existing valid token
+        token = existingToken;
+        logger.debug('Reusing existing CSRF token from cookie', { 
+          hasToken: !!token,
+          expiresIn: tokenExpiry - Date.now()
+        });
+      }
+    }
+    
+    // If no valid token exists, generate a new one
+    if (!token) {
+      token = generateCSRFToken();
+      const expiry = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+      csrfTokens.set(token, expiry);
+      logger.debug('Generated new CSRF token', { hasToken: !!token });
+    }
     
     // Set token in cookie (httpOnly: false so JavaScript can read it)
     // For cross-origin requests: Use 'none' with secure: true
@@ -113,7 +134,13 @@ export const validateCSRF = (req, res, next) => {
     if (cookieToken !== submittedToken) {
       logger.warn('CSRF validation failed: Token mismatch', { 
         ip: req.ip, 
-        url: req.originalUrl 
+        url: req.originalUrl,
+        cookieTokenLength: cookieToken?.length,
+        submittedTokenLength: submittedToken?.length,
+        cookieTokenPrefix: cookieToken?.substring(0, 10),
+        submittedTokenPrefix: submittedToken?.substring(0, 10),
+        hasCookieToken: !!cookieToken,
+        hasSubmittedToken: !!submittedToken
       });
       return res.status(403).json({ 
         success: false, 
@@ -151,27 +178,33 @@ export const validateCSRF = (req, res, next) => {
 /**
  * Get CSRF token endpoint
  * Returns token for frontend to use
+ * NOTE: generateCSRF middleware already sets req.csrfToken, so we use that
  */
 export const getCSRFToken = (req, res) => {
   try {
-    const token = req.csrfToken || generateCSRFToken();
-    const expiry = Date.now() + (24 * 60 * 60 * 1000);
+    // The generateCSRF middleware already set req.csrfToken and the cookie
+    // So we just return the token that was already set
+    const token = req.csrfToken;
     
-    csrfTokens.set(token, expiry);
+    if (!token) {
+      logger.error('CSRF token not found in request (should be set by generateCSRF middleware)');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'CSRF token not available' 
+      });
+    }
     
-    // For cross-origin requests: Use 'none' with secure: true
-    const isProduction = process.env.NODE_ENV === 'production';
-    const sameSiteValue = isProduction ? 'none' : 'lax';
-    const secureValue = isProduction;
+    // Ensure token is in our store (should already be set by generateCSRF)
+    const tokenExpiry = csrfTokens.get(token);
+    if (!tokenExpiry || tokenExpiry < Date.now()) {
+      // Token not in store or expired, add/refresh it
+      const expiry = Date.now() + (24 * 60 * 60 * 1000);
+      csrfTokens.set(token, expiry);
+      logger.debug('Refreshed CSRF token expiry', { hasToken: !!token });
+    }
     
-    res.cookie('XSRF-TOKEN', token, {
-      httpOnly: false,
-      secure: secureValue, // Required for sameSite: 'none'
-      sameSite: sameSiteValue, // 'none' for cross-origin, 'lax' for same-origin
-      maxAge: 24 * 60 * 60 * 1000,
-      path: '/'
-    });
-    
+    // Cookie and header are already set by generateCSRF middleware
+    // Just return the token in the response body
     res.json({ 
       success: true, 
       csrfToken: token 

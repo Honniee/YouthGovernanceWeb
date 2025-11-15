@@ -52,15 +52,24 @@ let csrfTokenCache = null;
 let csrfTokenPromise = null;
 
 // Helper function to get CSRF token from cookie
+// NOTE: In cross-origin scenarios (production), cookies might not be readable via JavaScript
+// due to sameSite: 'none' restrictions. We rely on server response headers/body instead.
 const getCSRFTokenFromCookie = () => {
   try {
+    // Only try to read cookie in same-origin scenarios (development)
+    // In production (cross-origin), cookies are sent automatically but not readable
+    if (import.meta.env.PROD) {
+      // In production, we can't reliably read cross-origin cookies
+      return null;
+    }
+    
     const value = `; ${document.cookie}`;
     const parts = value.split(`; XSRF-TOKEN=`);
     if (parts.length === 2) {
       return parts.pop().split(';').shift();
     }
   } catch (error) {
-    logger.error('Error reading CSRF token from cookie', error);
+    logger.debug('Cannot read CSRF token from cookie (expected in cross-origin)', error);
   }
   return null;
 };
@@ -71,29 +80,36 @@ const fetchCSRFToken = async () => {
     return csrfTokenPromise;
   }
   
-  csrfTokenPromise = api.get('/csrf-token')
+  csrfTokenPromise = api.get('/csrf-token', { skipCache: true })
     .then(response => {
-      // Token should be set in cookie by backend
-      // Priority: response header > response body > cookie
+      // In cross-origin scenarios, we can't read cookies via JavaScript
+      // So we MUST get the token from the response header or body
+      // Priority: response header > response body (cookie not readable in cross-origin)
       const token = response.headers['x-csrf-token'] || 
-                    response.data?.csrfToken || 
-                    getCSRFTokenFromCookie();
-      if (token) {
+                    response.headers['X-CSRF-Token'] ||
+                    response.data?.csrfToken;
+      
+      if (!token) {
+        logger.warn('CSRF token not found in response header or body', {
+          hasHeader: !!response.headers['x-csrf-token'],
+          hasBody: !!response.data?.csrfToken
+        });
+      } else {
         csrfTokenCache = token;
-        logger.debug('CSRF token fetched and cached', { hasToken: !!token });
+        logger.debug('CSRF token fetched and cached', { 
+          hasToken: !!token,
+          source: response.headers['x-csrf-token'] ? 'header' : 'body',
+          tokenLength: token?.length 
+        });
       }
+      
       csrfTokenPromise = null;
-      return token;
+      return token || null;
     })
     .catch(error => {
-      logger.warn('Failed to fetch CSRF token', error);
+      logger.error('Failed to fetch CSRF token', error);
       csrfTokenPromise = null;
-      // Try to get from cookie as fallback
-      const cookieToken = getCSRFTokenFromCookie();
-      if (cookieToken) {
-        csrfTokenCache = cookieToken;
-      }
-      return cookieToken;
+      return null;
     });
   
   return csrfTokenPromise;
@@ -115,20 +131,35 @@ api.interceptors.request.use(
     const isStateChanging = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(config.method?.toUpperCase());
     
     if (isStateChanging) {
-      // Always try to get fresh token from cookie first (most reliable)
-      let csrfToken = getCSRFTokenFromCookie();
+      // In cross-origin scenarios, we can't read cookies via JavaScript
+      // So we MUST use the cached token from a previous fetch or fetch it now
+      let csrfToken = csrfTokenCache;
       
-      // If not in cookie, try cache
+      // If not in cache, try to read from cookie (only works in same-origin/dev)
       if (!csrfToken) {
-        csrfToken = csrfTokenCache;
+        csrfToken = getCSRFTokenFromCookie();
+        if (csrfToken) {
+          csrfTokenCache = csrfToken;
+        }
       }
       
-      // If still not available, fetch it (this will wait if already fetching)
+      // If still not available, fetch it from server (this will wait if already fetching)
+      // This is critical in cross-origin scenarios where cookies aren't readable
       if (!csrfToken) {
         try {
           csrfToken = await fetchCSRFToken();
+          if (!csrfToken) {
+            logger.error('Failed to get CSRF token for state-changing request', { 
+              url: config.url, 
+              method: config.method 
+            });
+          }
         } catch (error) {
-          logger.warn('Failed to get CSRF token for request', { url: config.url, method: config.method, error: error.message });
+          logger.error('Failed to fetch CSRF token for request', { 
+            url: config.url, 
+            method: config.method, 
+            error: error.message 
+          });
         }
       }
       
@@ -144,7 +175,7 @@ api.interceptors.request.use(
           tokenLength: csrfToken?.length 
         });
       } else {
-        logger.warn('CSRF token not available for state-changing request', { 
+        logger.error('CSRF token not available for state-changing request - request will likely fail', { 
           url: config.url, 
           method: config.method 
         });
@@ -189,19 +220,25 @@ api.interceptors.response.use(
     }
     
     // Update CSRF token cache if token is received in response
-    // Priority: response header > response body > cookie
+    // Priority: response header > response body (cookie not reliable in cross-origin)
     const csrfTokenFromHeader = response.headers['x-csrf-token'] || response.headers['X-CSRF-Token'];
     const csrfTokenFromBody = response.data?.csrfToken;
-    const csrfTokenFromCookie = getCSRFTokenFromCookie();
     
-    // Use the most recent token available
-    const newToken = csrfTokenFromHeader || csrfTokenFromBody || csrfTokenFromCookie;
-    if (newToken && newToken !== csrfTokenCache) {
-      csrfTokenCache = newToken;
-      logger.debug('CSRF token cache updated from response', { 
-        source: csrfTokenFromHeader ? 'header' : csrfTokenFromBody ? 'body' : 'cookie',
-        hasToken: !!newToken 
-      });
+    // Use the most recent token available (prefer header over body)
+    const newToken = csrfTokenFromHeader || csrfTokenFromBody;
+    if (newToken) {
+      // Always update cache if we have a new token (even if same, to ensure freshness)
+      if (newToken !== csrfTokenCache) {
+        csrfTokenCache = newToken;
+        logger.debug('CSRF token cache updated from response', { 
+          source: csrfTokenFromHeader ? 'header' : 'body',
+          hasToken: !!newToken,
+          tokenLength: newToken?.length
+        });
+      } else {
+        // Token is same, but ensure cache is set
+        csrfTokenCache = newToken;
+      }
     }
     
     // Calculate request duration for debugging
