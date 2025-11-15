@@ -571,21 +571,14 @@ router.delete('/me/profile-picture', auth, validateCSRF, async (req, res) => {
 // SECURITY: CSRF protection applied
 router.put('/me', auth, validateCSRF, async (req, res) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    if (!token) {
+    // SECURITY: req.user is already set by auth middleware (from httpOnly cookie)
+    // No need to decode token from header - auth middleware already validated it
+    if (!req.user) {
       return res.status(401).json({ success: false, message: 'Authentication required. Please log in again.' });
     }
 
-    // Strict validation: Fail fast if JWT_SECRET is not set in production
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret && process.env.NODE_ENV === 'production') {
-      throw new Error('JWT_SECRET must be set in production environment');
-    }
-    const secret = jwtSecret || (process.env.NODE_ENV === 'test' ? 'test-jwt-secret' : 'development-fallback-secret');
-    const decoded = jwt.verify(token, secret);
-
     // Support LYDO/admin and SK officials for profile updates
-    if (!(decoded.userType === 'lydo_staff' || decoded.userType === 'admin' || decoded.userType === 'sk_official')) {
+    if (!(req.user.userType === 'lydo_staff' || req.user.userType === 'admin' || req.user.userType === 'sk_official')) {
       return res.status(403).json({ success: false, message: 'Profile updates not supported for this user type.' });
     }
 
@@ -604,7 +597,7 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
     // Handle SK profiling fields separately
     let skProfilingUpdates = [];
     let skProfilingValues = [];
-    if (decoded.userType === 'sk_official') {
+    if (req.user.userType === 'sk_official') {
       skProfilingFields.forEach((field) => {
         if (req.body[field] !== undefined) {
           skProfilingUpdates.push(`${field} = $${skProfilingUpdates.length + 1}`);
@@ -624,13 +617,13 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
       return res.status(400).json({ success: false, message: 'No valid fields provided to update.' });
     }
 
-    // Push user ID as the last parameter
-    values.push(decoded.userId || decoded.user_id);
+    // Push user ID as the last parameter (from req.user set by auth middleware)
+    values.push(req.user.id);
 
     let updateQuery, roleQuery;
     let result;
     
-    if (decoded.userType === 'sk_official') {
+    if (req.user.userType === 'sk_official') {
       // Update SK_Officials table
       if (updates.length > 0) {
         updateQuery = `
@@ -645,7 +638,7 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
       
       // Update SK_Officials_Profiling table if needed
       if (skProfilingUpdates.length > 0) {
-        skProfilingValues.push(decoded.userId || decoded.user_id);
+        skProfilingValues.push(req.user.id);
         const profilingQuery = `
           UPDATE "SK_Officials_Profiling"
           SET ${skProfilingUpdates.join(', ')}, updated_at = NOW()
@@ -662,10 +655,25 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
         }
       }
       
+      // If no main table updates were made, fetch user data for response
+      if (!result || result.rows.length === 0) {
+        const fetchQuery = `
+          SELECT sk_id as id, email, first_name, last_name, middle_name, suffix, personal_email, profile_picture,
+                 is_active, email_verified, created_at, updated_at, role_id
+          FROM "SK_Officials"
+          WHERE sk_id = $1
+        `;
+        result = await query(fetchQuery, [req.user.id]);
+        if (!result || result.rows.length === 0) {
+          return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+      }
+      
       roleQuery = `
         SELECT r.role_name, r.permissions FROM "SK_Officials" s JOIN "Roles" r ON s.role_id = r.role_id WHERE s.sk_id = $1
       `;
     } else {
+      // LYDO/admin users
       updateQuery = `
         UPDATE "LYDO"
         SET ${updates.join(', ')}, updated_at = NOW()
@@ -674,15 +682,15 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
                   is_active, email_verified, created_at, updated_at, role_id;
       `;
       result = await query(updateQuery, values);
+      if (!result || result.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
+      }
       roleQuery = `
         SELECT r.role_name, r.permissions FROM "LYDO" l JOIN "Roles" r ON l.role_id = r.role_id WHERE l.lydo_id = $1
       `;
     }
 
     const user = result.rows[0];
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
 
     // Fetch role info for response
     const roleResult = await query(roleQuery, [user.id]);
@@ -704,7 +712,7 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
         createdAt: user.created_at,
         updatedAt: user.updated_at,
         roleId: user.role_id,
-        userType: decoded.userType,
+        userType: req.user.userType,
         role: roleInfo.role_name,
         permissions: roleInfo.permissions,
         // Include SK profiling fields if available
@@ -715,7 +723,7 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
 
     // Log profile update
     try {
-      await activityLogService.logUserActivity(user.id, decoded.userType, activityLogService.logActions.PROFILE_UPDATE, {
+      await activityLogService.logUserActivity(user.id, req.user.userType, activityLogService.logActions.PROFILE_UPDATE, {
         targetUserId: user.id,
         targetUserType: 'user',
         changes: Object.keys(req.body || {}).reduce((acc, k) => { acc[k] = 'updated'; return acc; }, {}),
@@ -733,13 +741,14 @@ router.put('/me', auth, validateCSRF, async (req, res) => {
   } catch (error) {
     logger.error('Update user error', { error: error.message, stack: error.stack, userId: req.user?.id });
     try {
-      const token = req.header('Authorization')?.replace('Bearer ', '');
-      const decoded = token ? jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') : null;
-      await activityLogService.logUserActivity(decoded?.userId, decoded?.userType, activityLogService.logActions.PROFILE_UPDATE, {
-        targetUserId: decoded?.userId,
-        targetUserType: 'user',
-        metadata: { error: error.message || 'update_failed' }
-      });
+      // Use req.user if available (set by auth middleware)
+      if (req.user) {
+        await activityLogService.logUserActivity(req.user.id, req.user.userType, activityLogService.logActions.PROFILE_UPDATE, {
+          targetUserId: req.user.id,
+          targetUserType: 'user',
+          metadata: { error: error.message || 'update_failed' }
+        });
+      }
     } catch {}
     return res.status(500).json({ success: false, message: 'Failed to update profile.' });
   }
