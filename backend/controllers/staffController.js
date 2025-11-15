@@ -516,13 +516,14 @@ export const updateStatus = async (req, res) => {
 
 		// Send admin notifications about staff status change (with req.user context fix)
 		const currentUser = req.user;
+		const newStatus = data.status; // Capture status in closure scope
 		setTimeout(async () => {
 			try {
-				logger.debug('Sending staff status change notification', { userId: currentUser.id, userType: currentUser.userType, staffId: req.params.id, status });
-				const oldStatus = data.status === 'active' ? 'deactivated' : 'active';
+				logger.debug('Sending staff status change notification', { userId: currentUser.id, userType: currentUser.userType, staffId: req.params.id, status: newStatus });
+				const oldStatus = newStatus === 'active' ? 'deactivated' : 'active';
 				await notificationService.notifyAdminsAboutStaffStatusChange(result.rows[0], oldStatus, currentUser);
 			} catch (notifError) {
-				logger.error('Staff status notification error', { error: notifError.message, stack: notifError.stack, staffId: req.params.id, status });
+				logger.error('Staff status notification error', { error: notifError.message, stack: notifError.stack, staffId: req.params.id, status: newStatus });
 			}
 		}, 100);
 
