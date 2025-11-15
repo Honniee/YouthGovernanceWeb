@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import logger from './logger.js';
 
 /**
  * Generates a secure random password for new staff members
@@ -31,11 +32,11 @@ export const generateSecurePassword = (length = 12) => {
     // Shuffle the password to make it more random
     password = shuffleString(password);
     
-    console.log(`🔐 Generated secure password (${length} characters)`);
+    logger.debug(`Generated secure password (${length} characters)`, { length });
     return password;
     
   } catch (error) {
-    console.error('❌ Error generating password:', error);
+    logger.error('Error generating password', { error: error.message, stack: error.stack, length });
     // Fallback to a simple password if generation fails
     return generateFallbackPassword(length);
   }

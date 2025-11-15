@@ -25,8 +25,20 @@ const dbConfig = {
 // Create connection pool
 const pool = new Pool(dbConfig);
 
-pool.on('error', (err) => {
-  console.error('❌ Database connection error:', err);
+pool.on('error', async (err) => {
+  // Use logger if available, fallback to console (only for critical startup errors)
+  try {
+    const logger = (await import('../utils/logger.js')).default;
+    logger.error('Database connection error', {
+      message: err.message,
+      stack: err.stack,
+      code: err.code
+    });
+  } catch {
+    // Fallback for critical startup errors when logger isn't available yet
+    // This is acceptable as it's a process-level error handler
+    console.error('❌ Database connection error:', err);
+  }
   // Don't exit the process - let the application handle the error gracefully
   // The connection pool will automatically retry connections
 });
@@ -37,10 +49,27 @@ export const query = async (text, params) => {
   try {
     const res = await pool.query(text, params);
     const duration = Date.now() - start;
-    console.log('📊 Query executed:', { text, duration, rows: res.rowCount });
+    // Only log queries in development or if QUERY_LOGGING is enabled
+    if (process.env.NODE_ENV === 'development' || process.env.QUERY_LOGGING === 'true') {
+      try {
+        const logger = (await import('../utils/logger.js')).default;
+        logger.debug(`Query executed: ${text.substring(0, 100)}...`, { duration, rows: res.rowCount });
+      } catch {
+        // Fallback removed - logger should always be available at this point
+      }
+    }
     return res;
   } catch (error) {
-    console.error('❌ Query error:', error);
+    try {
+      const logger = (await import('../utils/logger.js')).default;
+      logger.error('Query error', {
+        message: error.message,
+        code: error.code,
+        query: text.substring(0, 200)
+      });
+    } catch {
+      // Fallback removed - logger should always be available at this point
+    }
     throw error;
   }
 };
@@ -54,7 +83,12 @@ export const getClient = async () => {
   try {
     await client.query('SET timezone = \'Asia/Manila\'');
   } catch (err) {
-    console.error('❌ Failed to set timezone on client:', err);
+    try {
+      const logger = (await import('../utils/logger.js')).default;
+      logger.warn('Failed to set timezone on client', { message: err.message });
+    } catch {
+      // Fallback removed - logger should always be available at this point
+    }
     // Continue anyway - the query will still work
   }
   return client;
@@ -63,7 +97,12 @@ export const getClient = async () => {
 // Helper function to close the pool
 export const closePool = async () => {
   await pool.end();
-  console.log('🔒 Database pool closed');
+  try {
+    const logger = (await import('../utils/logger.js')).default;
+    logger.info('Database pool closed');
+  } catch {
+    // Fallback removed - logger should always be available at this point
+  }
 };
 
 export default pool; 

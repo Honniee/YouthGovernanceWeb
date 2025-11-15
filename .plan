@@ -1,0 +1,31 @@
+# Align SK Bulk Import UX
+
+1. Backend Validation
+- Implement SK-specific bulk validation with identity rules (e.g., barangay + position + name/email), returning row statuses and duplicate info; expose via `/sk-officials/bulk/validate`.
+
+2. Import Logic
+- Update SK bulk import route to use validation output, support duplicate strategies (skip/update/restore), and produce detailed summaries/logs akin to voters/staff.
+
+3. Frontend Parity
+- Refresh `SKManagement` bulk-import UI to match voters/staff: stepper, validation summary, duplicate options, downloadable reports, accurate toasts.
+
+### To-dos
+- [x] Add SK bulk validation helper + endpoint
+- [x] Enhance SK bulk import route to respect duplicate strategy
+- [x] Update SKManagement UI to consume new responses
+# Mirror Staff Bulk Import UX
+
+1. Backend Validation Endpoint
+- Build a staff bulk validation helper that normalizes rows and flags hard errors vs duplicates using identity key (first/last + personal email, and middle/suffix when present); expose via `/staff/bulk/validate`.
+
+2. Import Path Updates
+- Update `/staff/bulk/import` to call the validator, accept `duplicateStrategy`, and perform skip/update/restore logic aligned with voter import.
+
+3. Frontend UI Parity
+- Refresh `StaffManagement` bulk-import panel to match voter workflow: validation summary, duplicate-handling radios, CSV report downloads, and accurate toasts/summaries using new API responses.
+
+### To-dos
+- [x] Add staff duplicate-aware validation helper + endpoint
+- [x] Enhance staff bulk import route to respect duplicate strategy
+- [x] Update StaffManagement bulk import UI to consume new responses
+

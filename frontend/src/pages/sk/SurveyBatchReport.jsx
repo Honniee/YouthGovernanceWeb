@@ -34,9 +34,10 @@ import skService from '../../services/skService.js';
 import SurveyBatchSegmentation from './SurveyBatchSegmentation';
 import SurveyBatchAnalytics from './SurveyBatchAnalytics';
 import { useAuth } from '../../context/AuthContext';
+import logger from '../../utils/logger.js';
 
 const SurveyBatchReport = () => {
-  console.log('🔍 SurveyBatchReport component rendering...');
+  logger.debug('SurveyBatchReport component rendering');
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -47,8 +48,7 @@ const SurveyBatchReport = () => {
   // Get SK user's barangay for filtering
   const skBarangay = user?.barangayName || user?.barangay_name || user?.barangay_id || user?.barangayId || null;
   
-  console.log('🔍 SurveyBatchReport - batchIdParam:', batchIdParam);
-  console.log('🔍 SurveyBatchReport - location:', location);
+  logger.debug('SurveyBatchReport initialization', { batchIdParam, hasLocation: !!location });
 
   // State management
   const [reportBatch, setReportBatch] = useState(null);
@@ -120,18 +120,18 @@ const SurveyBatchReport = () => {
 
   // Load batch data when component mounts
   useEffect(() => {
-    console.log('🔍 useEffect - batchIdParam changed:', batchIdParam);
+    logger.debug('useEffect - batchIdParam changed', { batchIdParam });
     if (batchIdParam) {
       const loadBatch = async () => {
         try {
           setIsLoadingReportBatch(true);
-          console.log('🔍 Loading batch data for batchIdParam:', batchIdParam);
+          logger.debug('Loading batch data for batchIdParam', { batchIdParam });
           
           // Load batch details with statistics
           const batchResp = await surveyBatchesService.getSurveyBatchById(batchIdParam, true);
           const batch = batchResp?.data?.data || batchResp?.data || batchResp;
-          console.log('🔍 Batch response:', batchResp);
-          console.log('🔍 Processed batch:', batch);
+          logger.debug('Batch response', { success: batchResp?.success, hasData: !!batch });
+          logger.debug('Processed batch', { batchId: batch?.batchId || batch?.batch_id || batch?.id });
           
           if (batch) {
             // Extract statistics from the batch data (these will be overwritten by barangay-filtered stats for SK users)
@@ -161,12 +161,8 @@ const SurveyBatchReport = () => {
               targetAgeMax: batch.targetAgeMax || batch.target_age_max,
               statistics: statistics
             };
-            console.log('🔍 Setting reportBatch:', reportBatchData);
-            console.log('🔍 Batch name extracted:', batchName, 'from batch:', { 
-              batchName: batch.batchName, 
-              batch_name: batch.batch_name, 
-              name: batch.name 
-            });
+            logger.debug('Setting reportBatch', { batchId: reportBatchData.batchId, batchName });
+            logger.debug('Batch name extracted', { batchName, fromBatch: { batchName: batch.batchName, batch_name: batch.batch_name, name: batch.name } });
             setReportBatch(reportBatchData);
             
             // Preload responses first, then calculate statistics from filtered responses
@@ -175,14 +171,14 @@ const SurveyBatchReport = () => {
               // After loading responses, calculate statistics from barangay-filtered responses
               // This will be done in a separate useEffect that watches responses
             } catch (e) {
-              console.warn('⚠️ Preload responses failed (non-blocking):', e?.message || e);
+              logger.warn('Preload responses failed (non-blocking)', null, { message: e?.message || e });
             }
             
             // Set initial statistics (will be updated after responses load for SK users)
             setBatchStatistics(statistics);
           }
         } catch (error) {
-          console.error('❌ Error loading batch:', error);
+          logger.error('Error loading batch', error, { batchIdParam });
           showErrorToast('Failed to load batch data', error.message);
         } finally {
           setIsLoadingReportBatch(false);
@@ -201,18 +197,19 @@ const SurveyBatchReport = () => {
     
     try {
       setIsLoadingResponses(true);
-      console.log('🔍 Loading responses for batchId:', effectiveBatchId);
+      logger.debug('Loading responses', { batchId: effectiveBatchId, skBarangay });
       
       // Request ALL responses by setting a high limit, filtered by SK user's barangay
       const responsesResp = await surveyBatchesService.getBatchResponses(effectiveBatchId, {
         limit: 10000, // High limit to get all responses
         barangay: skBarangay || undefined // Filter by SK user's barangay
       });
-      console.log('🔍 Responses response:', responsesResp);
-      console.log('🔍 Responses response success:', responsesResp?.success);
-      console.log('🔍 Responses response data:', responsesResp?.data);
-      console.log('🔍 Responses response data type:', typeof responsesResp?.data);
-      console.log('🔍 Responses response data keys:', responsesResp?.data ? Object.keys(responsesResp.data) : 'no data');
+      logger.debug('Responses response', { 
+        success: responsesResp?.success, 
+        hasData: !!responsesResp?.data,
+        dataType: typeof responsesResp?.data,
+        dataKeys: responsesResp?.data ? Object.keys(responsesResp.data) : []
+      });
       
       if (responsesResp?.success) {
         const items = Array.isArray(responsesResp?.data?.data)
@@ -224,16 +221,14 @@ const SurveyBatchReport = () => {
               : Array.isArray(responsesResp?.data?.items)
                 ? responsesResp.data.items
                 : [];
-        console.log('🔍 Extracted items:', items);
-        console.log('🔍 Items length:', items.length);
+        logger.debug('Extracted items', { count: items.length });
         setResponses(items);
       } else {
-        console.error('❌ Failed to load responses:', responsesResp?.message);
-        console.error('❌ Full error response:', responsesResp);
+        logger.error('Failed to load responses', null, { message: responsesResp?.message, response: responsesResp });
         setResponses([]);
       }
     } catch (error) {
-      console.error('❌ Error loading responses:', error);
+      logger.error('Error loading responses', error, { batchId: effectiveBatchId });
       setResponses([]);
     } finally {
       setIsLoadingResponses(false);
@@ -271,7 +266,7 @@ const SurveyBatchReport = () => {
         validationRate: total > 0 ? Math.round((validated / total) * 100) : 0
       };
       
-      console.log('🔍 Updating statistics from barangay-filtered responses:', {
+      logger.debug('Updating statistics from barangay-filtered responses', {
         original: batchStatistics,
         filtered: filteredStatistics,
         responsesCount: responses.length

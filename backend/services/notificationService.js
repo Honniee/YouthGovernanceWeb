@@ -1,6 +1,7 @@
 import { query } from '../config/database.js';
 import emailService from './emailService.js';
 import { generateLogId, generateNotificationId } from '../utils/idGenerator.js';
+import logger from '../utils/logger.js';
 
 /**
  * Notification Service for Staff Management
@@ -41,11 +42,11 @@ class NotificationService {
         [notificationId, userId, userType, title, message, type, priority, isRead, createdBy]
       );
 
-      console.log(`✅ Notification created: ${result.rows[0].notification_id}`);
+      logger.debug('Notification created', { notificationId: result.rows[0].notification_id });
       return result.rows[0];
 
     } catch (error) {
-      console.error('❌ Failed to create notification:', error);
+      logger.error('Failed to create notification', { error: error.message, stack: error.stack });
       throw new Error('Failed to create notification');
     }
   }
@@ -85,7 +86,7 @@ class NotificationService {
       if (userResult.rows.length > 0) {
         realUserId = userResult.rows[0].user_id;
       } else {
-        console.log(`⚠️ Staff member ${lydoId} not found in Users table, creating notification without user_id`);
+        logger.warn('Staff member not found in Users table, creating notification without user_id', { lydoId });
       }
 
       // Get creator's User ID if available
@@ -111,31 +112,43 @@ class NotificationService {
         createdBy: creatorUserId || realUserId || 'USR001' // Fallback to admin
       });
 
-      // Ensure email service is initialized
-      await this.emailService.ready;
-      
-      // Send welcome email with credentials
-      console.log(`📧 Attempting to send welcome email to ${firstName} ${lastName} at ${personalEmail}`);
-      const emailSent = await this.emailService.sendWelcomeEmail({
-        firstName,
-        lastName,
-        personalEmail,
-        orgEmail,
-        password,
-        lydoId
-      });
-
-      if (emailSent) {
-        console.log(`✅ Welcome email successfully sent to ${firstName} ${lastName} at ${personalEmail}`);
+      // Validate personalEmail before sending
+      if (!personalEmail || typeof personalEmail !== 'string' || personalEmail.trim() === '') {
+        logger.error('Invalid personalEmail for staff member', { 
+          firstName, 
+          lastName, 
+          personalEmail, 
+          lydoId,
+          orgEmail,
+          hasPassword: !!password
+        });
       } else {
-        console.log(`❌ Welcome email failed to send to ${firstName} ${lastName} at ${personalEmail}`);
+        // Ensure email service is initialized
+        await this.emailService.ready;
+        
+        // Send welcome email with credentials
+        logger.debug('Attempting to send welcome email', { firstName, lastName, personalEmail: personalEmail.trim() });
+        const emailSent = await this.emailService.sendWelcomeEmail({
+          firstName,
+          lastName,
+          personalEmail: personalEmail.trim(),
+          orgEmail,
+          password,
+          lydoId
+        });
+
+        if (emailSent) {
+          logger.info('Welcome email successfully sent', { firstName, lastName, personalEmail: personalEmail.trim() });
+        } else {
+          logger.warn('Welcome email failed to send', { firstName, lastName, personalEmail: personalEmail.trim() });
+        }
       }
 
-      console.log(`✅ Welcome notification sent to ${firstName} ${lastName}`);
+      logger.info('Welcome notification sent', { firstName, lastName, lydoId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to send welcome notification:', error);
+      logger.error('Failed to send welcome notification', { error: error.message, stack: error.stack, firstName, lastName, lydoId });
       return false;
     }
   }
@@ -154,15 +167,15 @@ class NotificationService {
       );
 
       if (result.rowCount > 0) {
-        console.log(`✅ Notification ${notificationId} marked as read`);
+        logger.debug('Notification marked as read', { notificationId, userId });
         return true;
       } else {
-        console.log(`⚠️ Notification ${notificationId} not found or access denied`);
+        logger.warn('Notification not found or access denied', { notificationId, userId });
         return false;
       }
 
     } catch (error) {
-      console.error('❌ Failed to mark notification as read:', error);
+      logger.error('Failed to mark notification as read', { error: error.message, stack: error.stack, notificationId, userId });
       return false;
     }
   }
@@ -179,11 +192,11 @@ class NotificationService {
         [userId]
       );
 
-      console.log(`✅ ${result.rowCount} notifications marked as read for user ${userId}`);
+      logger.debug('Notifications marked as read', { count: result.rowCount, userId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to mark all notifications as read:', error);
+      logger.error('Failed to mark all notifications as read', { error: error.message, stack: error.stack, userId });
       return false;
     }
   }
@@ -228,7 +241,7 @@ class NotificationService {
       return result.rows;
 
     } catch (error) {
-      console.error('❌ Failed to get user notifications:', error);
+      logger.error('Failed to get user notifications', { error: error.message, stack: error.stack, userId });
       throw new Error('Failed to get notifications');
     }
   }
@@ -248,7 +261,7 @@ class NotificationService {
       return parseInt(result.rows[0].count);
 
     } catch (error) {
-      console.error('❌ Failed to get unread count:', error);
+      logger.error('Failed to get unread count', { error: error.message, stack: error.stack, userId });
       return 0;
     }
   }
@@ -265,11 +278,11 @@ class NotificationService {
         [daysOld]
       );
 
-      console.log(`✅ Cleaned up ${result.rowCount} old notifications`);
+      logger.info('Cleaned up old notifications', { count: result.rowCount, daysOld });
       return result.rowCount;
 
     } catch (error) {
-      console.error('❌ Failed to cleanup old notifications:', error);
+      logger.error('Failed to cleanup old notifications', { error: error.message, stack: error.stack, daysOld });
       return 0;
     }
   }
@@ -331,11 +344,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ System notification sent to ${users.length} users`);
+      logger.info('System notification sent', { count: users.length, targetUsers });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to send system notification:', error);
+      logger.error('Failed to send system notification', { error: error.message, stack: error.stack, targetUsers });
       return false;
     }
   }
@@ -362,7 +375,7 @@ class NotificationService {
       return statsResult.rows[0];
 
     } catch (error) {
-      console.error('❌ Failed to get notification stats:', error);
+      logger.error('Failed to get notification stats', { error: error.message, stack: error.stack, userId });
       return {
         total: 0,
         unread: 0,
@@ -384,8 +397,7 @@ class NotificationService {
    */
   async notifyAdminsAboutSKCreation(skOfficial, creator) {
     try {
-      console.log('🔔 Notifying admins about SK Official creation:', skOfficial);
-      console.log('🔔 Creator context received:', creator);
+      logger.debug('Notifying admins about SK Official creation', { skId: skOfficial.sk_id, creator: creator?.user_id || creator?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -395,22 +407,19 @@ class NotificationService {
          WHERE u.user_type = 'admin'`
       );
 
-      console.log(`🔔 Found ${adminsResult.rows.length} admin users:`, adminsResult.rows.map(admin => admin.user_id));
+      logger.debug('Found admin users for SK creation notification', { count: adminsResult.rows.length });
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK creation notification');
         return false;
       }
 
       const fullName = `${skOfficial.first_name} ${skOfficial.last_name}`;
       const createdByUserId = creator?.user_id || creator?.id || 'SYSTEM';
       const creatorName = creator ? `${creator.firstName} ${creator.lastName}` : 'System';
-      console.log('🔔 Using createdBy:', createdByUserId);
-      console.log('🔔 Creator name:', creatorName);
       
       // Create notifications for each admin
       const notificationPromises = adminsResult.rows.map(admin => {
-        console.log(`🔔 Creating notification for admin: ${admin.user_id}`);
         return this.createNotification({
           userId: admin.user_id,
           userType: 'admin',
@@ -423,11 +432,11 @@ class NotificationService {
       });
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK creation notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK creation notifications sent to admins', { count: adminsResult.rows.length, skId: skOfficial.sk_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK creation:', error);
+      logger.error('Failed to notify admins about SK creation', { error: error.message, stack: error.stack, skId: skOfficial?.sk_id });
       return false;
     }
   }
@@ -441,7 +450,7 @@ class NotificationService {
    */
   async notifyAdminsAboutSKUpdate(updatedOfficial, originalOfficial, updater) {
     try {
-      console.log('🔔 Notifying admins about SK Official update:', updatedOfficial);
+      logger.debug('Notifying admins about SK Official update', { skId: updatedOfficial.sk_id, updater: updater?.user_id || updater?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -452,7 +461,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK update notification');
         return false;
       }
 
@@ -491,11 +500,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK update notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK update notifications sent to admins', { count: adminsResult.rows.length, skId: updatedOfficial.sk_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK update:', error);
+      logger.error('Failed to notify admins about SK update', { error: error.message, stack: error.stack, skId: updatedOfficial?.sk_id });
       return false;
     }
   }
@@ -508,7 +517,7 @@ class NotificationService {
    */
   async notifyAdminsAboutSKDeletion(skOfficial, deleter) {
     try {
-      console.log('🔔 Notifying admins about SK Official deletion:', skOfficial);
+      logger.debug('Notifying admins about SK Official deletion', { skId: skOfficial.sk_id, deleter: deleter?.user_id || deleter?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -519,7 +528,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK deletion notification');
         return false;
       }
 
@@ -540,11 +549,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK deletion notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK deletion notifications sent to admins', { count: adminsResult.rows.length, skId: skOfficial.sk_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK deletion:', error);
+      logger.error('Failed to notify admins about SK deletion', { error: error.message, stack: error.stack, skId: skOfficial?.sk_id });
       return false;
     }
   }
@@ -558,7 +567,7 @@ class NotificationService {
    */
   async notifyAdminsAboutSKStatusChange(skOfficial, oldStatus, updater) {
     try {
-      console.log('🔔 Notifying admins about SK status change:', skOfficial);
+      logger.debug('Notifying admins about SK status change', { skId: skOfficial.sk_id, oldStatus, newStatus: skOfficial.status, updater: updater?.user_id || updater?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -569,7 +578,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK status change notification');
         return false;
       }
 
@@ -591,11 +600,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK status change notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK status change notifications sent to admins', { count: adminsResult.rows.length, skId: skOfficial.sk_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK status change:', error);
+      logger.error('Failed to notify admins about SK status change', { error: error.message, stack: error.stack, skId: skOfficial?.sk_id });
       return false;
     }
   }
@@ -607,7 +616,7 @@ class NotificationService {
    */
   async sendSKWelcomeNotification(skOfficial) {
     try {
-      console.log('🔔 Sending welcome notification to SK Official:', skOfficial);
+      logger.debug('Sending welcome notification to SK Official', { skId: skOfficial.sk_id, email: skOfficial.email });
 
       // Get the User ID from Users table for the SK Official
       const userResult = await query(
@@ -616,7 +625,7 @@ class NotificationService {
       );
 
       if (userResult.rows.length === 0) {
-        console.log(`⚠️ SK Official ${skOfficial.sk_id} not found in Users table`);
+        logger.warn('SK Official not found in Users table', { skId: skOfficial.sk_id });
         return false;
       }
 
@@ -637,11 +646,11 @@ class NotificationService {
       // Send welcome email with SK-specific credentials
       await this.emailService.sendSKWelcomeEmail(skOfficial);
 
-      console.log(`✅ Welcome notification sent to SK Official ${fullName}`);
+      logger.info('Welcome notification sent to SK Official', { skId: skOfficial.sk_id, fullName });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to send SK welcome notification:', error);
+      logger.error('Failed to send SK welcome notification', { error: error.message, stack: error.stack, skId: skOfficial?.sk_id });
       return false;
     }
   }
@@ -656,7 +665,7 @@ class NotificationService {
    */
   async notifyAdminsAboutTermCreation(term, creator) {
     try {
-      console.log('🔔 Notifying admins about SK Term creation:', term);
+      logger.debug('Notifying admins about SK Term creation', { termId: term.term_id, termName: term.term_name, creator: creator?.user_id || creator?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -667,7 +676,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK Term creation notification');
         return false;
       }
 
@@ -687,11 +696,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK Term creation notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK Term creation notifications sent to admins', { count: adminsResult.rows.length, termId: term.term_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK Term creation:', error);
+      logger.error('Failed to notify admins about SK Term creation', { error: error.message, stack: error.stack, termId: term?.term_id });
       return false;
     }
   }
@@ -705,7 +714,7 @@ class NotificationService {
    */
   async notifyAdminsAboutTermUpdate(updatedTerm, originalTerm, updater) {
     try {
-      console.log('🔔 Notifying admins about SK Term update:', updatedTerm);
+      logger.debug('Notifying admins about SK Term update', { termId: updatedTerm.term_id, updater: updater?.user_id || updater?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -716,7 +725,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK Term update notification');
         return false;
       }
 
@@ -751,11 +760,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK Term update notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK Term update notifications sent to admins', { count: adminsResult.rows.length, termId: updatedTerm.term_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK Term update:', error);
+      logger.error('Failed to notify admins about SK Term update', { error: error.message, stack: error.stack, termId: updatedTerm?.term_id });
       return false;
     }
   }
@@ -768,7 +777,7 @@ class NotificationService {
    */
   async notifyAdminsAboutTermDeletion(term, deleter) {
     try {
-      console.log('🔔 Notifying admins about SK Term deletion:', term);
+      logger.debug('Notifying admins about SK Term deletion', { termId: term.term_id, deleter: deleter?.user_id || deleter?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -779,7 +788,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK Term deletion notification');
         return false;
       }
       
@@ -797,11 +806,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK Term deletion notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK Term deletion notifications sent to admins', { count: adminsResult.rows.length, termId: term.term_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK Term deletion:', error);
+      logger.error('Failed to notify admins about SK Term deletion', { error: error.message, stack: error.stack, termId: term?.term_id });
       return false;
     }
   }
@@ -814,7 +823,7 @@ class NotificationService {
    */
   async notifyAdminsAboutTermActivation(term, activator) {
     try {
-      console.log('🔔 Notifying admins about SK Term activation:', term);
+      logger.debug('Notifying admins about SK Term activation', { termId: term.term_id, activator: activator?.user_id || activator?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -825,7 +834,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK Term deletion notification');
         return false;
       }
       
@@ -843,11 +852,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK Term activation notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK Term activation notifications sent to admins', { count: adminsResult.rows.length, termId: term.term_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK Term activation:', error);
+      logger.error('Failed to notify admins about SK Term activation', { error: error.message, stack: error.stack, termId: term?.term_id });
       return false;
     }
   }
@@ -860,7 +869,7 @@ class NotificationService {
    */
   async notifyAdminsAboutTermDeactivation(term, deactivator) {
     try {
-      console.log('🔔 Notifying admins about SK Term deactivation:', term);
+      logger.debug('Notifying admins about SK Term deactivation', { termId: term.term_id, deactivator: deactivator?.user_id || deactivator?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -871,7 +880,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK Term deletion notification');
         return false;
       }
       
@@ -889,11 +898,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK Term deactivation notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK Term deactivation notifications sent to admins', { count: adminsResult.rows.length, termId: term.term_id });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK Term deactivation:', error);
+      logger.error('Failed to notify admins about SK Term deactivation', { error: error.message, stack: error.stack, termId: term?.term_id });
       return false;
     }
   }
@@ -908,8 +917,7 @@ class NotificationService {
    */
   async notifyAdminsAboutStaffCreation(staff, creator) {
     try {
-      console.log('🔔 Notifying admins about Staff creation:', staff);
-      console.log('🔔 Creator context received:', creator);
+      logger.debug('Notifying admins about Staff creation', { staffId: staff.lydoId, creator: creator?.user_id || creator?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -919,22 +927,20 @@ class NotificationService {
          WHERE u.user_type = 'admin'`
       );
 
-      console.log(`🔔 Found ${adminsResult.rows.length} admin users:`, adminsResult.rows.map(admin => admin.user_id));
+      logger.debug('Found admin users for Staff creation notification', { count: adminsResult.rows.length });
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for SK Term deletion notification');
         return false;
       }
 
       const fullName = `${staff.first_name} ${staff.last_name}`;
       const createdByUserId = creator?.user_id || creator?.id || 'SYSTEM';
       const creatorName = creator ? `${creator.firstName} ${creator.lastName}` : 'System';
-      console.log('🔔 Using createdBy:', createdByUserId);
-      console.log('🔔 Creator name:', creatorName);
+      logger.debug('Creating Staff notification', { createdByUserId, creatorName });
       
       // Create notifications for each admin
       const notificationPromises = adminsResult.rows.map(admin => {
-        console.log(`🔔 Creating notification for admin: ${admin.user_id}`);
         return this.createNotification({
           userId: admin.user_id,
           userType: 'admin',
@@ -947,11 +953,11 @@ class NotificationService {
       });
 
       await Promise.all(notificationPromises);
-      console.log(`✅ Staff creation notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('Staff creation notifications sent to admins', { count: adminsResult.rows.length, staffId: staff.lydoId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about Staff creation:', error);
+      logger.error('Failed to notify admins about Staff creation', { error: error.message, stack: error.stack, staffId: staff?.lydoId });
       return false;
     }
   }
@@ -965,7 +971,7 @@ class NotificationService {
    */
   async notifyAdminsAboutStaffUpdate(updatedStaff, originalStaff, updater) {
     try {
-      console.log('🔔 Notifying admins about Staff update:', updatedStaff);
+      logger.debug('Notifying admins about Staff update', { staffId: updatedStaff.lydoId, updater: updater?.user_id || updater?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -976,7 +982,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for Staff update notification');
         return false;
       }
 
@@ -1015,11 +1021,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ Staff update notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('Staff update notifications sent to admins', { count: adminsResult.rows.length, staffId: updatedStaff.lydoId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about Staff update:', error);
+      logger.error('Failed to notify admins about Staff update', { error: error.message, stack: error.stack, staffId: updatedStaff?.lydoId });
       return false;
     }
   }
@@ -1033,7 +1039,7 @@ class NotificationService {
    */
   async notifyAdminsAboutStaffStatusChange(staff, oldStatus, updater) {
     try {
-      console.log('🔔 Notifying admins about Staff status change:', staff);
+      logger.debug('Notifying admins about Staff status change', { staffId: staff.lydoId, oldStatus, newStatus: staff.is_active, updater: updater?.user_id || updater?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -1044,7 +1050,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for Staff status change notification');
         return false;
       }
 
@@ -1066,11 +1072,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ Staff status change notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('Staff status change notifications sent to admins', { count: adminsResult.rows.length, staffId: staff.lydoId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about Staff status change:', error);
+      logger.error('Failed to notify admins about Staff status change', { error: error.message, stack: error.stack, staffId: staff?.lydoId });
       return false;
     }
   }
@@ -1083,7 +1089,7 @@ class NotificationService {
    */
   async notifyAdminsAboutStaffDeletion(staff, deleter) {
     try {
-      console.log('🔔 Notifying admins about Staff deletion:', staff);
+      logger.debug('Notifying admins about Staff deletion', { staffId: staff.lydoId, deleter: deleter?.user_id || deleter?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -1094,7 +1100,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for Staff deletion notification');
         return false;
       }
 
@@ -1115,11 +1121,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ Staff deletion notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('Staff deletion notifications sent to admins', { count: adminsResult.rows.length, staffId: staff.lydoId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about Staff deletion:', error);
+      logger.error('Failed to notify admins about Staff deletion', { error: error.message, stack: error.stack, staffId: staff?.lydoId });
       return false;
     }
   }
@@ -1133,7 +1139,7 @@ class NotificationService {
    */
   async notifyAdminsAboutBulkStaffOperation(staffIds, action, operator) {
     try {
-      console.log('🔔 Notifying admins about bulk Staff operation:', { staffIds, action });
+      logger.debug('Notifying admins about bulk Staff operation', { action, count: staffIds.length, operator: operator?.user_id || operator?.id });
 
       // Get all admin users
       const adminsResult = await query(
@@ -1144,7 +1150,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for bulk Staff operation notification');
         return false;
       }
 
@@ -1165,11 +1171,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ Bulk Staff operation notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('Bulk Staff operation notifications sent to admins', { count: adminsResult.rows.length, action, staffCount: staffIds.length });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about bulk Staff operation:', error);
+      logger.error('Failed to notify admins about bulk Staff operation', { error: error.message, stack: error.stack, action, staffCount: staffIds?.length });
       return false;
     }
   }
@@ -1182,7 +1188,7 @@ class NotificationService {
    */
   async notifyAdminsAboutStaffBulkImport(importSummary, importer) {
     try {
-      console.log('🔔 Notifying admins about Staff bulk import:', importSummary);
+      logger.debug('Notifying admins about Staff bulk import', { importer: importer?.user_id || importer?.id, fileName: importSummary?.fileName, totalRows: importSummary?.totalRows });
 
       // Get all admin users
       const adminsResult = await query(
@@ -1193,7 +1199,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found for Staff bulk import notification');
         return false;
       }
 
@@ -1214,11 +1220,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ Staff bulk import notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('Staff bulk import notifications sent to admins', { count: adminsResult.rows.length, importedRecords, totalRows, errors, fileName });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about Staff bulk import:', error);
+      logger.error('Failed to notify admins about Staff bulk import', { error: error.message, stack: error.stack, fileName: importSummary?.fileName });
       return false;
     }
   }
@@ -1231,7 +1237,7 @@ class NotificationService {
    */
   async notifyAdminsAboutSKBulkImport(results, importer) {
     try {
-      console.log('🔔 Notifying admins about SK bulk import:', results.summary);
+      logger.debug('Notifying admins about SK bulk import', { importer: importer?.user_id || importer?.id, summary: results.summary });
 
       // Get all admin users
       const adminsResult = await query(
@@ -1242,7 +1248,7 @@ class NotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found for SK bulk import notification');
+        logger.warn('No admin users found for SK bulk import notification');
         return false;
       }
 
@@ -1263,11 +1269,11 @@ class NotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ SK bulk import notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info('SK bulk import notifications sent to admins', { count: adminsResult.rows.length, importedRecords: results.summary?.importedRecords, totalRows: results.summary?.totalRows, errors: results.summary?.errors });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to notify admins about SK bulk import:', error);
+      logger.error('Failed to notify admins about SK bulk import', { error: error.message, stack: error.stack, summary: results?.summary });
       return false;
     }
   }

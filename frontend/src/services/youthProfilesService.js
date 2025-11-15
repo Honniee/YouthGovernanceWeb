@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger.js';
 
 /**
  * Youth Profiles Service
@@ -13,7 +14,7 @@ export const checkYouthProfile = async (profileData) => {
     const response = await api.post('/youth-profiles/check', profileData);
     return response.data;
   } catch (error) {
-    console.error('Error checking youth profile:', error);
+      logger.error('Error checking youth profile', error, { profileDataKeys: Object.keys(profileData || {}) });
     throw error;
   }
 };
@@ -26,7 +27,7 @@ export const createYouthProfile = async (profileData) => {
     const response = await api.post('/youth-profiles', profileData);
     return response.data;
   } catch (error) {
-    console.error('Error creating youth profile:', error);
+      logger.error('Error creating youth profile', error, { profileDataKeys: Object.keys(profileData || {}) });
     throw error;
   }
 };
@@ -39,7 +40,7 @@ export const getYouthProfile = async (youthId) => {
     const response = await api.get(`/youth-profiles/${youthId}`);
     return response.data;
   } catch (error) {
-    console.error('Error getting youth profile:', error);
+      logger.error('Error getting youth profile', error, { youthId });
     throw error;
   }
 };
@@ -52,7 +53,7 @@ export const updateYouthProfile = async (youthId, profileData) => {
     const response = await api.put(`/youth-profiles/${youthId}`, profileData);
     return response.data;
   } catch (error) {
-    console.error('Error updating youth profile:', error);
+      logger.error('Error updating youth profile', error, { youthId });
     throw error;
   }
 };

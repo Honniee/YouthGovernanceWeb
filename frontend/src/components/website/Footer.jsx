@@ -36,6 +36,7 @@ const Footer = () => {
     { label: 'Privacy Policy', path: '/privacy' },
     { label: 'Terms of Service', path: '/terms' },
     { label: 'Data Protection', path: '/data-protection' },
+    { label: 'Data Subject Rights', path: '/data-subject-rights' },
     { label: 'Accessibility', path: '/accessibility' },
   ];
 

@@ -4,6 +4,7 @@
  */
 
 import { query } from '../config/database.js';
+import logger from './logger.js';
 
 /**
  * Format user role for display
@@ -55,7 +56,7 @@ const getUserName = async (userId, userType) => {
       }
     }
   } catch (error) {
-    console.error('Error fetching user name:', error);
+    logger.error('Error fetching user name', { error: error.message, stack: error.stack, userId, userType });
   }
 
   return 'Unknown User';
@@ -251,6 +252,8 @@ export const generateActivityMessage = async (action, userInfo, resourceInfo = {
       ? `${userRole} ${userName} created council role '${resourceInfo.name || details.role_name || 'Unknown'}'`
       : details.resourceType === 'council-member'
       ? `${userRole} ${userName} added '${resourceInfo.name || details.member_name || 'Unknown'}' as '${details.role_name || 'member'}' to council`
+      : details.resourceType === 'staff'
+      ? `${userRole} ${userName} created staff member '${details.staffName || resourceInfo.name || 'Unknown'}'`
       : details.resourceType === 'council-page'
       ? `${userRole} ${userName} updated council page settings`
       : details.skName || resourceInfo.name
@@ -265,6 +268,8 @@ export const generateActivityMessage = async (action, userInfo, resourceInfo = {
       ? `${userRole} ${userName} updated council role '${resourceInfo.name || details.role_name || 'Unknown'}'`
       : details.resourceType === 'council-member'
       ? `${userRole} ${userName} updated council member '${resourceInfo.name || details.member_name || 'Unknown'}'`
+      : details.resourceType === 'staff'
+      ? `${userRole} ${userName} updated staff member '${details.staffName || resourceInfo.name || 'Unknown'}'`
       : details.resourceType === 'council-page'
       ? `${userRole} ${userName} updated council page settings`
       : details.skName || resourceInfo.name
@@ -302,6 +307,8 @@ export const generateActivityMessage = async (action, userInfo, resourceInfo = {
       ? `${userRole} ${userName} deleted council role '${resourceInfo.name || details.role_name || 'Unknown'}'`
       : details.resourceType === 'council-member'
       ? `${userRole} ${userName} removed '${resourceInfo.name || details.member_name || 'Unknown'}' from council`
+      : details.resourceType === 'staff'
+      ? `${userRole} ${userName} deleted staff member '${details.staffName || resourceInfo.name || 'Unknown'}'`
       : details.skName || resourceInfo.name
       ? `${userRole} ${userName} deleted SK official '${details.skName || resourceInfo.name}'`
       : `${userRole} ${userName} deleted SK official`,

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { saveSurveyResponse, getSurveyResponse, submitSurveyResponse, checkSubmissionStatus } from '../services/surveyResponsesService';
+import logger from '../utils/logger.js';
 
 /**
  * Custom hook for survey auto-save functionality
@@ -50,11 +51,11 @@ export const useSurveyAutoSave = (batchId, youthId) => {
         if (result.success) {
           setResponse(result.response);
           lastSavedDataRef.current = dataString;
-          console.log('Survey auto-saved successfully');
+          logger.debug('Survey auto-saved successfully', { batchId, youthId });
         }
       } catch (err) {
         setError(err.message || 'Failed to auto-save survey');
-        console.error('Auto-save failed:', err);
+        logger.error('Auto-save failed', err, { batchId, youthId });
       } finally {
         setSaving(false);
       }
@@ -72,20 +73,20 @@ export const useSurveyAutoSave = (batchId, youthId) => {
    */
   const retrieveResponse = useCallback(async () => {
     if (!batchId || !youthId) {
-      console.log('❌ Cannot retrieve response: missing batchId or youthId', { batchId, youthId });
+      logger.debug('Cannot retrieve response: missing batchId or youthId', { batchId, youthId });
       return null;
     }
 
-    console.log('🔍 Retrieving response for:', { batchId, youthId });
+    logger.debug('Retrieving response', { batchId, youthId });
     setLoading(true);
     setError(null);
 
     try {
       const result = await getSurveyResponse(batchId, youthId);
-      console.log('🔍 API response:', result);
+      logger.debug('API response received', { success: result.success, exists: result.exists });
       
       if (result.success && result.exists) {
-        console.log('✅ Found existing response:', result.response_data);
+        logger.debug('Found existing response', { hasData: !!result.response_data, status: result.status });
         setResponse(result);
         lastSavedDataRef.current = JSON.stringify(result.response_data);
         
@@ -96,12 +97,12 @@ export const useSurveyAutoSave = (batchId, youthId) => {
         
         return result.response_data;
       } else {
-        console.log('❌ No existing response found');
+        logger.debug('No existing response found', { batchId, youthId });
         setResponse(null);
         return null;
       }
     } catch (err) {
-      console.error('❌ Error retrieving response:', err);
+      logger.error('Error retrieving response', err, { batchId, youthId });
       setError(err.message || 'Failed to retrieve survey response');
       return null;
     } finally {
@@ -176,7 +177,7 @@ export const useSurveyAutoSave = (batchId, youthId) => {
         }
       }
     } catch (err) {
-      console.error('Failed to check submission status:', err);
+      logger.error('Failed to check submission status', err, { batchId, youthId });
       return null;
     }
   }, [batchId, youthId]);

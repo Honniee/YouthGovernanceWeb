@@ -98,9 +98,9 @@ const AnnouncementCreate = () => {
         showInfoToast && showInfoToast('Draft restored', 'We loaded your saved draft.');
         draftToastShownRef.current = true;
       }
-      console.log('🧩 Loaded announcement draft from storage:', saved);
+      logger.debug('Loaded announcement draft from storage', { draft: saved });
     } catch (e) {
-      console.warn('Failed to load announcement draft from storage:', e);
+      logger.warn('Failed to load announcement draft from storage', e);
     } finally {
       setDraftLoaded(true);
     }
@@ -220,8 +220,8 @@ const AnnouncementCreate = () => {
       setImageFile(file);
       const imageUrl = URL.createObjectURL(file);
       setImagePreview(imageUrl);
-    } catch (error) {
-      console.error('Error processing image:', error);
+        } catch (error) {
+          logger.error('Error processing announcement image', error);
       setError('Failed to process image. Please try again.');
     } finally {
       setImageUploading(false);
@@ -330,11 +330,11 @@ const AnnouncementCreate = () => {
         imageFile: imageFile // Include the image file for upload
       };
 
-      console.log('🔍 Creating announcement with data:', formData);
+      logger.debug('Creating announcement', { formData });
       
       // Create announcement
       const response = await createAnnouncement(formData);
-      console.log('✅ Announcement created successfully:', response);
+      logger.debug('Announcement created successfully', { response });
       
       
       // Navigate back to announcements and show toast there via flash state
@@ -350,7 +350,7 @@ const AnnouncementCreate = () => {
       });
       
     } catch (error) {
-      console.error('❌ Error creating announcement:', error);
+      logger.error('Error creating announcement', error);
       const message = error?.response?.data?.message || error.message || 'Failed to create announcement. Please try again.';
       setError(message);
       showErrorToast && showErrorToast('Create failed', message);

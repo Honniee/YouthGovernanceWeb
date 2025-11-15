@@ -1,4 +1,5 @@
 import { createAuditLog } from './auditLogger.js';
+import logger from '../utils/logger.js';
 
 /**
  * Comprehensive Error Handling Middleware
@@ -53,8 +54,8 @@ export const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log error details
-  console.error('🚨 Error occurred:', {
+  // Log error details using Winston logger
+  logger.error('Error occurred', {
     message: err.message,
     stack: err.stack,
     url: req.originalUrl,
@@ -82,7 +83,7 @@ export const errorHandler = (err, req, res, next) => {
     userAgent: req.get('User-Agent'),
     status: 'error',
     errorMessage: err.message
-  }).catch(logErr => console.error('Failed to log error:', logErr));
+  }).catch(logErr => logger.error('Failed to create audit log', { error: logErr.message, stack: logErr.stack }));
 
   // Mongoose bad ObjectId
   if (err.name === 'CastError') {
@@ -135,11 +136,35 @@ export const errorHandler = (err, req, res, next) => {
     error = new AppError('Too many requests', 429);
   }
 
+  // SECURITY FIX: Sanitize error messages in production
+  const sanitizeErrorMessage = (message) => {
+    if (process.env.NODE_ENV === 'production') {
+      // Remove sensitive information from error messages
+      return message
+        .replace(/password/gi, '[REDACTED]')
+        .replace(/token/gi, '[REDACTED]')
+        .replace(/secret/gi, '[REDACTED]')
+        .replace(/key/gi, '[REDACTED]')
+        .replace(/sql/i, '[REDACTED]')
+        .replace(/database/i, '[REDACTED]')
+        .replace(/connection/i, '[REDACTED]')
+        .replace(/at.*\(.*\)/g, '') // Remove stack trace locations
+        .replace(/:\d+:\d+/g, ''); // Remove line numbers
+    }
+    return message;
+  };
+
   // Default error response
   const errorResponse = {
     success: false,
-    message: error.message || 'Internal server error',
-    ...(error.errors && { errors: error.errors }),
+    message: process.env.NODE_ENV === 'production' 
+      ? sanitizeErrorMessage(error.message || 'Internal server error')
+      : (error.message || 'Internal server error'),
+    ...(error.errors && { 
+      errors: process.env.NODE_ENV === 'production'
+        ? error.errors.map(e => typeof e === 'string' ? sanitizeErrorMessage(e) : e)
+        : error.errors
+    }),
     ...(process.env.NODE_ENV === 'development' && {
       stack: err.stack,
       details: {
@@ -172,16 +197,16 @@ export const notFoundHandler = (req, res, next) => {
 // Graceful shutdown handler
 export const gracefulShutdown = (server) => {
   return (signal) => {
-    console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+    logger.info(`Received ${signal}. Starting graceful shutdown...`);
     
     server.close(() => {
-      console.log('✅ HTTP server closed');
+      logger.info('HTTP server closed');
       process.exit(0);
     });
 
     // Force close after 10 seconds
     setTimeout(() => {
-      console.error('❌ Could not close connections in time, forcefully shutting down');
+      logger.error('Could not close connections in time, forcefully shutting down');
       process.exit(1);
     }, 10000);
   };
@@ -189,8 +214,10 @@ export const gracefulShutdown = (server) => {
 
 // Unhandled promise rejection handler
 export const handleUnhandledRejection = (err) => {
-  console.error('🚨 Unhandled Promise Rejection:', err);
-  console.error('Stack:', err.stack);
+  logger.error('Unhandled Promise Rejection', {
+    error: err,
+    stack: err.stack
+  });
   
   // Close server and exit process
   process.exit(1);
@@ -198,8 +225,10 @@ export const handleUnhandledRejection = (err) => {
 
 // Uncaught exception handler
 export const handleUncaughtException = (err) => {
-  console.error('🚨 Uncaught Exception:', err);
-  console.error('Stack:', err.stack);
+  logger.error('Uncaught Exception', {
+    error: err,
+    stack: err.stack
+  });
   
   // Close server and exit process
   process.exit(1);

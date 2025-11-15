@@ -15,6 +15,7 @@ import {
 } from '../controllers/announcementsController.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { apiLimiter } from '../middleware/rateLimiter.js';
+import { validateCSRF } from '../middleware/csrf.js';
 
 const router = express.Router();
 
@@ -45,18 +46,18 @@ router.get('/:id', getAnnouncementById); // Public announcement details
 // Protected routes (authentication required)
 router.use(authenticateToken);
 
-// Admin/Staff routes
-router.post('/', upload.single('image'), createAnnouncement);
+// Admin/Staff routes - SECURITY: CSRF protection applied
+router.post('/', validateCSRF, upload.single('image'), createAnnouncement);
 
-router.put('/:id', updateAnnouncement);
-router.put('/:id/image', upload.single('image'), uploadAnnouncementImage);
-router.delete('/:id', deleteAnnouncement);
+router.put('/:id', validateCSRF, updateAnnouncement);
+router.put('/:id/image', validateCSRF, upload.single('image'), uploadAnnouncementImage);
+router.delete('/:id', validateCSRF, deleteAnnouncement);
 
-// Statistics route (admin only)
+// Statistics route (admin only) - GET request, no CSRF needed
 router.get('/admin/statistics', getAnnouncementStatistics);
 
-// Bulk operations
-router.patch('/bulk/status', bulkUpdateAnnouncementStatus);
+// Bulk operations - SECURITY: CSRF protection applied
+router.patch('/bulk/status', validateCSRF, bulkUpdateAnnouncementStatus);
 
 // Error handling middleware for file uploads
 router.use((error, req, res, next) => {

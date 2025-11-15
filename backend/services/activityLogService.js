@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import { generateLogId } from '../utils/idGenerator.js';
+import logger from '../utils/logger.js';
 
 /**
  * Activity Logging Service
@@ -149,11 +150,11 @@ class ActivityLogService {
       const result = await query(insertQuery, values);
       const logEntry = result.rows[0];
 
-      console.log(`📋 Activity logged: ${category}.${action} by ${userType}:${userId}`);
+      logger.debug(`Activity logged: ${category}.${action} by ${userType}:${userId}`, { logId: logEntry.log_id, category, action, userType, userId });
       return logEntry;
 
     } catch (error) {
-      console.error('❌ Failed to create activity log:', error);
+      logger.error('Failed to create activity log', { error: error.message, stack: error.stack, category, action, userId });
       throw new Error('Failed to create activity log');
     }
   }
@@ -531,7 +532,7 @@ class ActivityLogService {
       };
 
     } catch (error) {
-      console.error('❌ Failed to get activity logs:', error);
+      logger.error('Failed to get activity logs', { error: error.message, stack: error.stack });
       throw new Error('Failed to get activity logs');
     }
   }
@@ -625,7 +626,7 @@ class ActivityLogService {
       };
 
     } catch (error) {
-      console.error('❌ Failed to get activity statistics:', error);
+      logger.error('Failed to get activity statistics', { error: error.message, stack: error.stack });
       throw new Error('Failed to get activity statistics');
     }
   }
@@ -641,11 +642,11 @@ class ActivityLogService {
       `;
 
       const result = await query(deleteQuery, [daysOld]);
-      console.log(`🧹 Cleaned up ${result.rowCount} activity logs older than ${daysOld} days`);
+      logger.info(`Cleaned up ${result.rowCount} activity logs older than ${daysOld} days`, { rowCount: result.rowCount, daysOld });
       return result.rowCount;
 
     } catch (error) {
-      console.error('❌ Failed to cleanup old logs:', error);
+      logger.error('Failed to cleanup old logs', { error: error.message, stack: error.stack, daysOld });
       throw new Error('Failed to cleanup old logs');
     }
   }

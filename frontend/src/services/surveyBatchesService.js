@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * Survey Batches Management Service
@@ -20,7 +21,7 @@ class SurveyBatchesService {
    */
   async getSurveyBatches(params = {}, customEndpoint = '') {
     try {
-      console.log('🔍 Service - getSurveyBatches called with params:', params);
+      logger.debug('getSurveyBatches called', { params, customEndpoint });
       
       const queryParams = new URLSearchParams();
       
@@ -34,14 +35,13 @@ class SurveyBatchesService {
       if (params.dateCreated) queryParams.append('dateCreated', params.dateCreated);
 
       const url = `/survey-batches${customEndpoint}?${queryParams.toString()}`;
-      console.log('🔍 Service - Making API call to:', url);
-      console.log('🔍 Service - Query params:', queryParams.toString());
+      logger.debug('Making API call', { url, queryParams: queryParams.toString() });
 
       const response = await api.get(url);
-      console.log('🔍 Service - API response:', response.data);
+      logger.debug('API response received', { url, dataLength: response.data?.data?.length });
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('🔍 Service - API error:', error);
+      logger.error('API error in getSurveyBatches', error, { params, customEndpoint });
       return this.handleError(error, 'Failed to load survey batches');
     }
   }
@@ -73,7 +73,7 @@ class SurveyBatchesService {
    */
   async getBatchResponses(batchId, params = {}) {
     try {
-      console.log('🔍 Service - getBatchResponses called with batchId:', batchId, 'params:', params);
+      logger.debug('getBatchResponses called', { batchId, params });
       
       const queryParams = new URLSearchParams();
       if (params.page) queryParams.append('page', params.page);
@@ -86,12 +86,13 @@ class SurveyBatchesService {
       const url = qs
         ? `/survey-batches/${batchId}/responses?${qs}`
         : `/survey-batches/${batchId}/responses`;
-      console.log('🔍 Service - Making API call to:', url);
+      logger.debug('Making API call', { url, batchId });
 
       const response = await api.get(url);
-      console.log('🔍 Service - API response:', response.data);
+      logger.debug('API response received', { batchId, dataLength: response.data?.data?.length });
       return { success: true, data: response.data.data || response.data };
     } catch (error) {
+      logger.error('Error in getBatchResponses', error, { batchId, params });
       return this.handleError(error, 'Failed to load batch responses');
     }
   }
@@ -109,18 +110,16 @@ class SurveyBatchesService {
    */
   async createSurveyBatch(batchData) {
     try {
-      console.log('🔍 Service - Creating batch with data:', batchData);
+      logger.debug('Creating batch', { batchName: batchData.batchName });
       const response = await api.post('/survey-batches', batchData);
-      console.log('🔍 Service - Create batch success response:', response.data);
+      logger.debug('Create batch success', { batchId: response.data?.data?.batchId });
       return { success: true, data: response.data.data, message: response.data.message };
     } catch (error) {
-      console.log('🔍 Service - Create batch error:', error);
+      logger.debug('Create batch error', { error: error.message });
       try {
         // Handle validation errors from the backend first
         if (error.message && error.message.includes('Validation failed')) {
-          console.log('🔍 Service - Validation error detected');
-          console.log('🔍 Service - Error data:', error.data);
-          console.log('🔍 Service - Error errors:', error.errors);
+          logger.warn('Validation error detected', { errorData: error.data, errors: error.errors });
           
           // Check if there are specific validation errors in the errors array
           let specificError = error.message;
@@ -144,7 +143,7 @@ class SurveyBatchesService {
         
         // Handle custom error objects directly
         if (error.status && error.message) {
-          console.log('🔍 Service - Custom error object detected');
+          logger.debug('Custom error object detected', { status: error.status, message: error.message });
           return {
             success: false,
             message: error.message,
@@ -155,10 +154,10 @@ class SurveyBatchesService {
         }
         
         const errorResult = this.handleError(error, 'Failed to create survey batch');
-        console.log('🔍 Service - HandleError result:', errorResult);
+        logger.debug('HandleError result', { success: errorResult.success });
         return errorResult;
       } catch (handleError) {
-        console.error('🔍 Service - HandleError failed:', handleError);
+        logger.error('HandleError failed', handleError, { batchData });
         return {
           success: false,
           message: 'Failed to create survey batch',
@@ -203,14 +202,14 @@ class SurveyBatchesService {
    */
   async getBatchStats() {
     try {
-      console.log('🔍 Service - getBatchStats called');
+      logger.debug('getBatchStats called');
       
       const response = await api.get('/survey-batches/statistics/dashboard');
-      console.log('🔍 Service - Stats API response:', response.data);
+      logger.debug('Stats API response received', { dataKeys: Object.keys(response.data || {}) });
       
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('🔍 Service - Stats API error:', error);
+      logger.error('Stats API error', error);
       return this.handleError(error, 'Failed to load batch statistics');
     }
   }
@@ -440,7 +439,7 @@ class SurveyBatchesService {
    * @returns {Object} Formatted error response
    */
   handleError(error, defaultMessage) {
-    console.error('SurveyBatchesService Error:', error);
+    logger.error('SurveyBatchesService Error', error, { defaultMessage });
 
     // Our axios interceptor rejects with a plain object: { status, message, errors, data }
     if (error && typeof error === 'object' && 'status' in error && !error.response) {
@@ -519,7 +518,7 @@ class SurveyBatchesService {
       const response = await api.get(`/survey-batches/export?${queryParams.toString()}`);
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('Error logging export:', error);
+      logger.error('Error logging export', error, { params });
       // Don't fail the export if logging fails
       return { success: false, error: 'Export logging failed' };
     }
@@ -601,7 +600,7 @@ class SurveyBatchesService {
    * @returns {Object} Formatted error response
    */
   handleError(error, defaultMessage) {
-    console.error('SurveyBatchesService Error:', error);
+    logger.error('SurveyBatchesService Error', error, { defaultMessage });
 
     // Interceptor-shaped error
     if (error && typeof error === 'object' && 'status' in error && !error.response) {

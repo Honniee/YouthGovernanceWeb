@@ -19,6 +19,8 @@ import {
 import { HeaderMainContent, ActionMenu, LoadingSpinner } from '../../components/portal_main_content';
 import { getAnnouncementById } from '../../services/announcementsService';
 import { useRealtime } from '../../realtime/useRealtime';
+import DOMPurify from 'dompurify';
+import logger from '../../utils/logger.js';
 
 // Mock data - in real app this would come from API
 const mockAnnouncement = {
@@ -202,11 +204,11 @@ const AnnouncementDetail = () => {
     switch (action) {
       case 'share':
         // Handle share functionality
-        console.log('Share announcement');
+        logger.debug('Share announcement', { announcementId: id });
         break;
       case 'download':
         // Handle download PDF
-        console.log('Download PDF');
+        logger.debug('Download PDF', { announcementId: id });
         break;
       case 'print':
         window.print();
@@ -511,9 +513,9 @@ const AnnouncementDetail = () => {
                 )}
               </div>
 
-              {/* Content */}
+              {/* Content - SECURITY: Sanitized with DOMPurify to prevent XSS */}
               <div className="prose prose-sm sm:prose-base lg:prose-lg max-w-none">
-                <div dangerouslySetInnerHTML={{ __html: announcement.content }} />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(announcement.content || '') }} />
               </div>
 
               {/* Footer */}

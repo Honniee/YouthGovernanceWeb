@@ -23,6 +23,7 @@ import {
 import { createUserForStaff, createUserForAdmin } from '../utils/usersTableHelper.js';
 import notificationService from '../services/notificationService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 const DEFAULT_ROLE_ID = 'ROL002'; // lydo_staff
 
@@ -90,11 +91,12 @@ export const listStaff = async (req, res) => {
 
 		const whereSQL = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-		// Add role filter to only show LYDO staff (not admins)
-		const roleFilter = `role_id = '${DEFAULT_ROLE_ID}'`;
-		const finalWhereSQL = whereClauses.length 
-			? `WHERE ${roleFilter} AND ${whereClauses.join(' AND ')}`
-			: `WHERE ${roleFilter}`;
+		// Add role filter to only show LYDO staff (not admins) - SECURITY FIX: Use parameterized query
+		whereClauses.push(`role_id = $${idx}`);
+		params.push(DEFAULT_ROLE_ID);
+		idx++;
+
+		const finalWhereSQL = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
 		const sql = `
 			SELECT * FROM "LYDO"
@@ -104,9 +106,11 @@ export const listStaff = async (req, res) => {
 		`;
 		params.push(limit, offset);
 
+		// Count query uses same params (excluding limit/offset)
+		const countParams = params.slice(0, -2);
 		const [rowsResult, countResult] = await Promise.all([
 			query(sql, params),
-			query(`SELECT COUNT(*) as count FROM "LYDO" ${finalWhereSQL}`, params.slice(0, idx - 1))
+			query(`SELECT COUNT(*) as count FROM "LYDO" ${finalWhereSQL}`, countParams)
 		]);
 
 		const total = parseInt(countResult.rows[0]?.count || '0');
@@ -122,7 +126,7 @@ export const listStaff = async (req, res) => {
 			hasPrevPage: page > 1
 		});
 	} catch (error) {
-		console.error('listStaff error:', error);
+		logger.error('listStaff error', { error: error.message, stack: error.stack });
 		return res.status(500).json({ 
 			success: false,
 			message: 'Failed to list staff',
@@ -156,7 +160,7 @@ export const getStaffById = async (req, res) => {
 			staff: mapStaffRow(result.rows[0]) 
 		});
 	} catch (error) {
-		console.error('getStaffById error:', error);
+		logger.error('getStaffById error', { error: error.message, stack: error.stack, staffId: req.params.id });
 		return res.status(500).json({ 
 			success: false,
 			message: 'Failed to get staff',
@@ -252,20 +256,23 @@ export const createStaff = async (req, res) => {
 			const created = mapStaffRow(result.rows[0]);
 
 			// CRITICAL: Create Users table entry for notifications system
-			console.log('👤 Creating Users table entry for notifications...');
+			logger.debug('Creating Users table entry for notifications', { lydoId });
 			const userType = (data.roleId === 'ROL001' || data.firstName === 'Admin') ? 'admin' : 'staff';
 			
+			let userResult;
 			if (userType === 'admin') {
-				await createUserForAdmin(lydoId, client);
+				userResult = await createUserForAdmin(lydoId, client);
 			} else {
-				await createUserForStaff(lydoId, client);
+				userResult = await createUserForStaff(lydoId, client);
 			}
-			console.log('✅ Users table entry created successfully');
+			if (userResult?.rows?.[0]?.user_id) {
+				logger.debug('Users table entry created successfully', { userId: userResult.rows[0].user_id, lydoId });
+			}
 
 			await client.query('COMMIT');
 
 			// Fire-and-forget notifications/emails (don't block response)
-			console.log('📧 Attempting to send welcome notification with data:', {
+			logger.debug('Attempting to send welcome notification', {
 				lydoId,
 				firstName: data.firstName,
 				lastName: data.lastName,
@@ -284,16 +291,16 @@ export const createStaff = async (req, res) => {
 				orgEmail,
 				password,
 				createdBy: createdBy || 'SYSTEM'
-			}).catch(err => console.error('❌ Welcome notification failed:', err));
+			}).catch(err => logger.error('Welcome notification failed', { error: err.message, stack: err.stack, lydoId }));
 
 			// Send admin notifications about staff creation (with req.user context fix)
 			const currentUser = req.user;
 			setTimeout(async () => {
 				try {
-					console.log('🔔 Sending staff creation notification with user context:', currentUser);
+					logger.debug('Sending staff creation notification', { userId: currentUser.id, userType: currentUser.userType, staffId: lydoId });
 					await notificationService.notifyAdminsAboutStaffCreation(created, currentUser);
 				} catch (notifError) {
-					console.error('Admin notification error:', notifError);
+					logger.error('Admin notification error', { error: notifError.message, stack: notifError.stack, staffId: lydoId });
 				}
 			}, 100);
 
@@ -317,7 +324,7 @@ export const createStaff = async (req, res) => {
 				ipAddress: req.ip,
 				userAgent: req.get('User-Agent'),
 				status: 'success'
-			}).catch(err => console.error('Audit log failed:', err));
+			}).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'CREATE', resourceType: 'staff' }));
 
 			return res.status(201).json({
 				success: true,
@@ -346,7 +353,7 @@ export const createStaff = async (req, res) => {
 					message: 'Unique constraint violation' 
 				});
 			}
-			console.error('createStaff tx error:', txErr);
+			logger.error('createStaff transaction error', { error: txErr.message, stack: txErr.stack });
 			return res.status(500).json({ 
 				success: false,
 				message: 'Failed to create staff',
@@ -356,7 +363,7 @@ export const createStaff = async (req, res) => {
 			client.release();
 		}
 	} catch (error) {
-		console.error('createStaff error:', error);
+		logger.error('createStaff error', { error: error.message, stack: error.stack });
 		return res.status(500).json({ 
 			success: false,
 			message: 'Failed to create staff',
@@ -424,11 +431,11 @@ export const updateStaff = async (req, res) => {
 		const currentUser = req.user;
 		setTimeout(async () => {
 			try {
-				console.log('🔔 Sending staff update notification with user context:', currentUser);
+				logger.debug('Sending staff update notification', { userId: currentUser.id, userType: currentUser.userType, staffId: req.params.id });
 				// We need the original staff data for comparison, but for now just send updated data
 				await notificationService.notifyAdminsAboutStaffUpdate(result.rows[0], {}, currentUser);
 			} catch (notifError) {
-				console.error('Staff update notification error:', notifError);
+				logger.error('Staff update notification error', { error: notifError.message, stack: notifError.stack, staffId: req.params.id });
 			}
 		}, 100);
 
@@ -449,7 +456,7 @@ export const updateStaff = async (req, res) => {
 			ipAddress: req.ip,
 			userAgent: req.get('User-Agent'),
 			status: 'success'
-		}).catch(err => console.error('Audit log failed:', err));
+		}).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'UPDATE', resourceType: 'staff' }));
 
 		return res.json({ 
 			success: true,
@@ -457,7 +464,7 @@ export const updateStaff = async (req, res) => {
 			staff: mapStaffRow(result.rows[0]) 
 		});
 	} catch (error) {
-		console.error('updateStaff error:', error);
+		logger.error('updateStaff error', { error: error.message, stack: error.stack, staffId: req.params.id });
 		return res.status(500).json({ 
 			success: false,
 			message: 'Failed to update staff',
@@ -511,11 +518,11 @@ export const updateStatus = async (req, res) => {
 		const currentUser = req.user;
 		setTimeout(async () => {
 			try {
-				console.log('🔔 Sending staff status change notification with user context:', currentUser);
+				logger.debug('Sending staff status change notification', { userId: currentUser.id, userType: currentUser.userType, staffId: req.params.id, status });
 				const oldStatus = data.status === 'active' ? 'deactivated' : 'active';
 				await notificationService.notifyAdminsAboutStaffStatusChange(result.rows[0], oldStatus, currentUser);
 			} catch (notifError) {
-				console.error('Staff status notification error:', notifError);
+				logger.error('Staff status notification error', { error: notifError.message, stack: notifError.stack, staffId: req.params.id, status });
 			}
 		}, 100);
 
@@ -537,7 +544,7 @@ export const updateStatus = async (req, res) => {
 			ipAddress: req.ip,
 			userAgent: req.get('User-Agent'),
 			status: 'success'
-		}).catch(err => console.error('Audit log failed:', err));
+		}).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'UPDATE', resourceType: 'staff' }));
 
 		return res.json({ 
 			success: true,
@@ -545,7 +552,7 @@ export const updateStatus = async (req, res) => {
 			staff: mapStaffRow(result.rows[0]) 
 		});
 	} catch (error) {
-		console.error('updateStatus error:', error);
+		logger.error('updateStatus error', { error: error.message, stack: error.stack, staffId: req.params.id });
 		return res.status(500).json({ 
 			success: false,
 			message: 'Failed to update status',
@@ -582,10 +589,10 @@ export const deleteStaffSoft = async (req, res) => {
 		const currentUser = req.user;
 		setTimeout(async () => {
 			try {
-				console.log('🔔 Sending staff deletion notification with user context:', currentUser);
+				logger.debug('Sending staff deletion notification', { userId: currentUser.id, userType: currentUser.userType, staffId: req.params.id });
 				await notificationService.notifyAdminsAboutStaffDeletion(result.rows[0], currentUser);
 			} catch (notifError) {
-				console.error('Staff deletion notification error:', notifError);
+				logger.error('Staff deletion notification error', { error: notifError.message, stack: notifError.stack, staffId: req.params.id });
 			}
 		}, 100);
 
@@ -606,7 +613,7 @@ export const deleteStaffSoft = async (req, res) => {
 			ipAddress: req.ip,
 			userAgent: req.get('User-Agent'),
 			status: 'success'
-		}).catch(err => console.error('Audit log failed:', err));
+		}).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'UPDATE', resourceType: 'staff' }));
 
 		return res.json({ 
 			success: true,
@@ -614,7 +621,7 @@ export const deleteStaffSoft = async (req, res) => {
 			staff: mapStaffRow(result.rows[0]) 
 		});
 	} catch (error) {
-		console.error('deleteStaffSoft error:', error);
+		logger.error('deleteStaffSoft error', { error: error.message, stack: error.stack, staffId: req.params.id });
 		return res.status(500).json({ 
 			success: false,
 			message: 'Failed to delete staff',
@@ -627,13 +634,11 @@ export const deleteStaffSoft = async (req, res) => {
 export const bulkUpdateStatus = async (req, res) => {
 	try {
 		const rawData = req.body || {};
-		console.log('🔍 Backend bulk operation - Raw data:', rawData);
 		
 		const data = sanitizeInput(rawData);
-		console.log('🔍 Backend bulk operation - Sanitized data:', data);
 
 		const { isValid, errors } = validateBulkOperation(data);
-		console.log('🔍 Backend validation result:', { isValid, errors });
+		logger.debug('Bulk operation validation', { rawDataLength: rawData?.ids?.length, sanitizedCount: data?.ids?.length, isValid, errorCount: errors?.length });
 		
 		if (!isValid) {
 			return res.status(400).json({ 
@@ -673,10 +678,10 @@ export const bulkUpdateStatus = async (req, res) => {
 			const currentUser = req.user;
 			setTimeout(async () => {
 				try {
-					console.log('🔔 Sending bulk staff operation notification with user context:', currentUser);
+					logger.debug('Sending bulk staff operation notification', { userId: currentUser.id, userType: currentUser.userType, action, count: ids.length });
 					await notificationService.notifyAdminsAboutBulkStaffOperation(ids, action, currentUser);
 				} catch (notifError) {
-					console.error('Bulk staff operation notification error:', notifError);
+					logger.error('Bulk staff operation notification error', { error: notifError.message, stack: notifError.stack, action, count: ids.length });
 				}
 			}, 100);
 
@@ -700,7 +705,7 @@ export const bulkUpdateStatus = async (req, res) => {
 				ipAddress: req.ip,
 				userAgent: req.get('User-Agent'),
 				status: 'success'
-			}).catch(err => console.error('Audit log failed:', err));
+			}).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'CREATE', resourceType: 'staff' }));
 
 			return res.json({
 				success: true,
@@ -711,7 +716,7 @@ export const bulkUpdateStatus = async (req, res) => {
 
 		} catch (txErr) {
 			await client.query('ROLLBACK');
-			console.error('bulkUpdateStatus tx error:', txErr);
+			logger.error('bulkUpdateStatus transaction error', { error: txErr.message, stack: txErr.stack, action });
 			return res.status(500).json({ 
 				success: false,
 				message: 'Failed to perform bulk operation',
@@ -721,7 +726,7 @@ export const bulkUpdateStatus = async (req, res) => {
 			client.release();
 		}
 	} catch (error) {
-		console.error('bulkUpdateStatus error:', error);
+		logger.error('bulkUpdateStatus error', { error: error.message, stack: error.stack });
 		return res.status(500).json({ 
 			success: false,
 			message: 'Failed to perform bulk operation',
@@ -737,7 +742,7 @@ export const exportStaff = async (req, res) => {
 		// logFormat is the actual format exported (for logging), format is the response format
 		const actualFormat = logFormat || format;
 		
-		console.log('🔍 Export request received:', { format, actualFormat, status, selectedIds, queryParams: req.query });
+		logger.debug('Export request received', { format, actualFormat, status, hasSelectedIds: !!selectedIds, userId: req.user?.id });
 		
 		if (!['csv', 'json', 'pdf'].includes(format)) {
 			return res.status(400).json({ 
@@ -763,12 +768,12 @@ export const exportStaff = async (req, res) => {
 				const placeholders = sanitizedIds.map((_, index) => `$${index + 1}`).join(',');
 				whereClause += ` AND lydo_id IN (${placeholders})`;
 				exportType = 'selected';
-				console.log(`✅ Exporting ${sanitizedIds.length} selected staff members:`, sanitizedIds);
+				logger.debug('Exporting selected staff members', { count: sanitizedIds.length });
 				
 				// Store sanitized IDs for the query
 				whereClause = { clause: whereClause, params: sanitizedIds };
 			} else {
-				console.log('⚠️ selectedIds provided but no valid IDs found:', selectedIds);
+				logger.warn('selectedIds provided but no valid IDs found', { selectedIds });
 			}
 		} else {
 			// Apply status filter only when not filtering by specific IDs
@@ -779,7 +784,7 @@ export const exportStaff = async (req, res) => {
 				whereClause += ` AND (is_active = false OR deactivated = true)`;
 				exportType = 'deactivated';
 			}
-			console.log(`📋 Exporting ${exportType} staff with status filter:`, status);
+			logger.debug('Exporting staff with status filter', { exportType, status });
 		}
 
 		let sql, result;
@@ -810,16 +815,10 @@ export const exportStaff = async (req, res) => {
 		}
 		
 		const staff = result.rows.map(mapStaffRow);
-		console.log(`📊 Export query returned ${staff.length} staff members for ${exportType} export`);
+		logger.debug('Export query completed', { count: staff.length, exportType, format });
 
 		// Debug: Log user info
-		console.log('🔍 Export - req.user:', req.user ? {
-			id: req.user.id,
-			lydo_id: req.user.lydo_id,
-			user_id: req.user.user_id,
-			userType: req.user.userType,
-			user_type: req.user.user_type
-		} : 'No user');
+		logger.debug('Export user context', { userId: req.user?.id || req.user?.lydo_id || req.user?.user_id || 'SYSTEM', userType: req.user?.userType || req.user?.user_type || 'admin' });
 
 		// Create detailed export list for audit log (used in all formats)
 		const exportedStaffNames = staff.map(s => `${s.firstName} ${s.lastName} (${s.lydoId})`);
@@ -837,7 +836,7 @@ export const exportStaff = async (req, res) => {
 		// Create meaningful resource name for export
 		const resourceName = `Staff Export - ${actualFormat.toUpperCase()} (${staff.length} ${staff.length === 1 ? 'member' : 'members'})`;
 		
-		console.log('🔍 Export - Will create audit log with:', { userId, userType, format: actualFormat, count: staff.length, resourceName, action, exportType });
+		logger.debug('Creating export audit log', { userId, userType, format: actualFormat, count: staff.length, action, exportType });
 
 		if (format === 'json') {
 
@@ -864,12 +863,12 @@ export const exportStaff = async (req, res) => {
 					category: 'Data Export'
 				});
 				if (logId) {
-					console.log(`✅ Export audit log created: ${logId} - JSON export of ${staff.length} staff members`);
+					logger.debug('Export audit log created', { logId, format: 'json', count: staff.length });
 				} else {
-					console.error('❌ Export audit log returned null');
+					logger.warn('Export audit log returned null', { format: 'json' });
 				}
 			} catch (err) {
-				console.error('❌ Export audit log failed:', err);
+				logger.error('Export audit log failed', { error: err.message, stack: err.stack, format: 'json' });
 			}
 
 			return res.json({
@@ -926,12 +925,12 @@ export const exportStaff = async (req, res) => {
 					category: 'Data Export'
 				});
 				if (logId) {
-					console.log(`✅ Export audit log created: ${logId} - CSV export of ${staff.length} staff members`);
+					logger.debug('Export audit log created', { logId, format: 'csv', count: staff.length });
 				} else {
-					console.error('❌ Export audit log returned null');
+					logger.warn('Export audit log returned null', { format: 'csv' });
 				}
 			} catch (err) {
-				console.error('❌ Export audit log failed:', err);
+				logger.error('Export audit log failed', { error: err.message, stack: err.stack, format: 'csv' });
 			}
 
 			res.setHeader('Content-Type', 'text/csv');
@@ -998,19 +997,19 @@ export const exportStaff = async (req, res) => {
 					category: 'Data Export'
 				});
 				if (logId) {
-					console.log(`✅ Export audit log created: ${logId} - PDF export of ${staff.length} staff members`);
+					logger.debug('Export audit log created', { logId, format: 'pdf', count: staff.length, pdfStyle });
 				} else {
-					console.error('❌ Export audit log returned null');
+					logger.warn('Export audit log returned null', { format: 'pdf' });
 				}
 			} catch (err) {
-				console.error('❌ Export audit log failed:', err);
+				logger.error('Export audit log failed', { error: err.message, stack: err.stack, format: 'pdf' });
 			}
 
 			doc.end();
 			return;
 		}
 	} catch (error) {
-		console.error('exportStaff error:', error);
+		logger.error('exportStaff error', { error: error.message, stack: error.stack, format, status });
 
 		// Create audit log for failed export
 		const userId = req.user?.id || req.user?.lydo_id || req.user?.user_id || 'SYSTEM';
@@ -1038,12 +1037,12 @@ export const exportStaff = async (req, res) => {
 				category: 'Data Export'
 			});
 			if (logId) {
-				console.log(`✅ Export error audit log created: ${logId}`);
+				logger.debug('Export error audit log created', { logId });
 			} else {
-				console.error('❌ Export error audit log returned null');
+				logger.warn('Export error audit log returned null');
 			}
 		} catch (err) {
-			console.error('❌ Export error audit log failed:', err);
+			logger.error('Export error audit log failed', { error: err.message, stack: err.stack });
 		}
 
 		return res.status(500).json({ 

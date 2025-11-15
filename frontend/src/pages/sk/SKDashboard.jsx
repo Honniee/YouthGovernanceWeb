@@ -46,6 +46,7 @@ import activityService from '../../services/activityService';
 import skService from '../../services/skService';
 import api from '../../services/api';
 import { useActiveTerm } from '../../hooks/useActiveTerm';
+import logger from '../../utils/logger.js';
 import {
   ResponsiveContainer,
   BarChart,
@@ -261,7 +262,7 @@ const SKDashboard = () => {
           setActiveSurveyBatch(null);
         }
       } catch (error) {
-        console.error('Error fetching active survey batch:', error);
+        logger.error('Error fetching active survey batch', error);
         setActiveSurveyBatch(null);
       }
     };
@@ -285,9 +286,9 @@ const SKDashboard = () => {
 
   // Load SK barangay completion stats (only for SK user's barangay)
   const loadSKBarangayCompletion = async (activeOfficialsCount = null) => {
-    console.log('📊 loadSKBarangayCompletion called', { hasActiveTerm, activeTerm, activeOfficialsCount, skBarangayId });
+    logger.debug('loadSKBarangayCompletion called', { hasActiveTerm, hasActiveTerm: !!activeTerm?.termId, activeOfficialsCount, skBarangayId });
     if (!hasActiveTerm || !activeTerm?.termId || !skBarangayId) {
-      console.log('📊 No active term or barangay, skipping loadSKBarangayCompletion');
+      logger.debug('No active term or barangay, skipping loadSKBarangayCompletion');
       setSkBarangayCompletion({ completed: 0, total: 1, isLoading: false });
       setSkPositionFilledRate({ filled: 0, total: 10, percentage: 0, isLoading: false });
       return;
@@ -300,7 +301,7 @@ const SKDashboard = () => {
       // Get vacancies for SK user's barangay only
       const vacanciesResp = await skService.getAllBarangayVacancies(activeTerm.termId);
       
-      console.log('📊 SK Barangay Completion Debug - Vacancies Response:', vacanciesResp);
+      logger.debug('SK Barangay Completion Debug - Vacancies Response', { success: vacanciesResp.success, hasData: !!vacanciesResp.data });
       
       // Get active officials count - use parameter first, then state, then fallback
       const currentStats = stats.sk;
@@ -308,7 +309,7 @@ const SKDashboard = () => {
         ? activeOfficialsCount 
         : (currentStats?.activeOfficials || currentStats?.totalOfficials || 0);
       
-      console.log('📊 Active Officials Count:', { activeOfficialsCount, fromState: currentStats?.activeOfficials, final: activeOfficials });
+      logger.debug('Active Officials Count', { activeOfficialsCount, fromState: currentStats?.activeOfficials, final: activeOfficials });
       
       if (vacanciesResp.success && vacanciesResp.data) {
         // POSITION_LIMITS: Chairperson=1, Secretary=1, Treasurer=1, Councilor=7
@@ -330,7 +331,7 @@ const SKDashboard = () => {
         if (barangayData) {
           const vacancies = barangayData?.vacancies || {};
           
-          console.log(`📊 Processing SK user's barangay ${skBarangayId}:`, { barangayData, vacancies });
+          logger.debug('Processing SK user\'s barangay', { skBarangayId, hasVacancies: !!vacancies });
           
           // Check if all positions are filled
           let allPositionsFilled = true;
@@ -341,7 +342,7 @@ const SKDashboard = () => {
             const required = POSITION_LIMITS[position];
             const current = positionData?.current || 0;
             
-            console.log(`  Position ${position}: current=${current}, required=${required}`);
+            logger.debug('Position check', { position, current, required });
             
             totalFilledPositions += current;
             barangayFilledCount += current;
@@ -355,12 +356,12 @@ const SKDashboard = () => {
             completedCount = 1;
           }
 
-          console.log('📊 SK User Barangay Completion Stats:', {
+          logger.debug('SK User Barangay Completion Stats', {
             barangayId: skBarangayId,
             completed: completedCount,
-          totalFilledPositions,
-          activeOfficialsFromStats: activeOfficials
-        });
+            totalFilledPositions,
+            activeOfficialsFromStats: activeOfficials
+          });
 
         setSkBarangayCompletion({
           completed: completedCount,
@@ -381,13 +382,13 @@ const SKDashboard = () => {
           ? Math.round((finalFilledPositions / totalPossiblePositions) * 100) 
           : 0;
 
-          console.log('📊 SK User Barangay Position Filled Rate:', {
-          totalFilledPositions,
-          finalFilledPositions,
-          totalPossiblePositions,
-          filledPercentage,
-          activeOfficials
-        });
+          logger.debug('SK User Barangay Position Filled Rate', {
+            totalFilledPositions,
+            finalFilledPositions,
+            totalPossiblePositions,
+            filledPercentage,
+            activeOfficials
+          });
 
         setSkPositionFilledRate({
           filled: finalFilledPositions,
@@ -397,7 +398,7 @@ const SKDashboard = () => {
         });
         } else {
           // No data for SK user's barangay
-          console.warn('📊 No vacancy data for SK user barangay, using fallback');
+          logger.warn('No vacancy data for SK user barangay, using fallback', { skBarangayId });
           const totalPossiblePositions = 10;
           const filledPositions = activeOfficials;
           const filledPercentage = totalPossiblePositions > 0 
@@ -413,7 +414,7 @@ const SKDashboard = () => {
           });
         }
       } else {
-        console.warn('📊 No vacancy data received, using stats fallback');
+        logger.warn('No vacancy data received, using stats fallback');
         // Fallback: use stats if available
         const totalPossiblePositions = 10;
         const filledPositions = activeOfficials;
@@ -430,7 +431,7 @@ const SKDashboard = () => {
         });
       }
     } catch (error) {
-      console.error('Error loading SK barangay completion:', error);
+      logger.error('Error loading SK barangay completion', error, { skBarangayId, termId: activeTerm?.termId });
       setSkBarangayCompletion({ completed: 0, total: 1, isLoading: false });
       setSkPositionFilledRate({ filled: 0, total: 10, percentage: 0, isLoading: false });
     }
@@ -448,7 +449,7 @@ const SKDashboard = () => {
 
   const fetchDashboardData = async () => {
     if (!skBarangayId) {
-      console.warn('📊 SK Dashboard: No barangay ID available, skipping data fetch');
+      logger.warn('SK Dashboard: No barangay ID available, skipping data fetch');
       setIsLoadingStats(false);
       return;
     }
@@ -475,10 +476,7 @@ const SKDashboard = () => {
         skService.getSKStatistics({ barangayId: skBarangayId, termId: activeTerm?.termId }).catch(() => ({ success: false, data: {} }))
       ]);
 
-      console.log('📊 SK Dashboard fetch results:', {
-        barangay: skBarangay,
-        barangayId: skBarangayId
-      });
+      logger.debug('SK Dashboard fetch results', { barangay: skBarangay, barangayId: skBarangayId });
 
       // Update stats with barangay-specific data
       // Get youth stats from barangay response
@@ -576,7 +574,7 @@ const SKDashboard = () => {
         const activeOfficials = skData.active || 0;
         const totalOfficials = skData.total || 0;
         
-        console.log('📊 SK Statistics received:', { activeOfficials, totalOfficials, skData });
+        logger.debug('SK Statistics received', { activeOfficials, totalOfficials, hasData: !!skData });
         
         setStats(prev => ({
           ...prev,
@@ -596,8 +594,8 @@ const SKDashboard = () => {
        
       // Load barangay distribution for SK user's barangay only
       const loadBarangayDistribution = async () => {
-        console.log('📊 Loading barangay distribution...', {
-          barangayResp: barangayResp?.data,
+        logger.debug('Loading barangay distribution', {
+          hasBarangayResp: !!barangayResp?.data,
           skBarangayId,
           skBarangay
         });
@@ -606,7 +604,7 @@ const SKDashboard = () => {
           const barangayData = barangayResp.data.data;
           const youthStats = barangayData.statistics?.youth || {};
           
-          console.log('📊 Youth Stats from API:', youthStats);
+          logger.debug('Youth Stats from API', { hasStats: !!youthStats });
           
           // Parse the counts - handle both string and number types
           const male = parseInt(youthStats.male_count || youthStats.male || 0, 10) || 0;
@@ -615,13 +613,12 @@ const SKDashboard = () => {
           const totalFromStats = parseInt(youthStats.total_count || youthStats.total || youthStats.active_count || 0, 10) || 0;
           const total = totalFromGender > 0 ? totalFromGender : totalFromStats;
           
-          console.log('📊 Processed counts:', { 
+          logger.debug('Processed counts', { 
             male, 
             female, 
             totalFromGender, 
             totalFromStats, 
-            total,
-            youthStats
+            total
           });
           
           if (total > 0) {
@@ -636,14 +633,14 @@ const SKDashboard = () => {
               count: total
             }];
             
-            console.log('✅ SK Barangay Distribution data set:', chartData);
+            logger.debug('SK Barangay Distribution data set', { chartDataCount: chartData.length });
             setBarangayDistribution(chartData);
           } else {
-            console.warn('⚠️ No youth data found (total is 0)');
+            logger.warn('No youth data found (total is 0)', { skBarangayId });
             setBarangayDistribution([]);
           }
         } else {
-          console.warn('⚠️ Barangay API response failed or missing:', {
+          logger.warn('Barangay API response failed or missing', {
             success: barangayResp?.data?.success,
             hasData: !!barangayResp?.data?.data,
             error: barangayResp?.data?.message
@@ -659,7 +656,7 @@ const SKDashboard = () => {
                                   0;
             
             if (anyYouthTotal > 0) {
-              console.log('📊 Using fallback from barangay data:', anyYouthTotal);
+              logger.debug('Using fallback from barangay data', { anyYouthTotal });
               const chartData = [{
                 name: String(barangayData.barangay_name || skBarangay || 'Your Barangay'),
                 Male: Math.floor(anyYouthTotal * 0.5),
@@ -668,7 +665,7 @@ const SKDashboard = () => {
               }];
               setBarangayDistribution(chartData);
             } else {
-              console.warn('⚠️ No youth data available in any form');
+              logger.warn('No youth data available in any form', { skBarangayId });
               setBarangayDistribution([]);
             }
           } else {
@@ -695,7 +692,7 @@ const SKDashboard = () => {
       setSystemAlerts(alerts);
       
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      logger.error('Error fetching dashboard data', error, { skBarangayId });
     } finally {
       setIsLoadingStats(false);
     }
@@ -743,8 +740,8 @@ const SKDashboard = () => {
         setActiveSurveyBatch(null);
         setActiveSurveyResponses([]);
       }
-    } catch (error) {
-      console.error('Error fetching active survey:', error);
+      } catch (error) {
+        logger.error('Error fetching active survey', error);
       setActiveSurveyBatch(null);
       setActiveSurveyResponses([]);
     } finally {
@@ -762,7 +759,7 @@ const SKDashboard = () => {
 
   // Apply filters function (SK users only filter by search, no barangay filter)
   const applyFilters = () => {
-    console.log('Filters applied:', { searchQuery, dateRange });
+    logger.debug('Filters applied', { searchQuery, dateRange });
     
     // SK users only see their barangay, so no barangay filtering needed
     // Search and date range filters would require backend API calls
@@ -1254,7 +1251,7 @@ const SKDashboard = () => {
         const daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
         return daysRemaining;
       } catch (error) {
-        console.error('Error calculating term days remaining:', error);
+        logger.error('Error calculating term days remaining', error);
         return null;
       }
     };
@@ -1271,7 +1268,7 @@ const SKDashboard = () => {
         const daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
         return daysRemaining;
       } catch (error) {
-        console.error('Error calculating survey days remaining:', error);
+        logger.error('Error calculating survey days remaining', error);
         return null;
       }
     };

@@ -5,6 +5,7 @@ import { authService } from '../../services/auth.js';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import Cropper from 'react-easy-crop';
 import { HeaderMainContent, TabContainer, Tab } from '../../components/portal_main_content';
+import logger from '../../utils/logger.js';
 
 const Field = ({ label, children, description }) => (
   <div className="flex flex-col gap-1.5">
@@ -215,7 +216,7 @@ const SKProfile = () => {
 
   useEffect(() => {
     if (user) {
-      console.log('🔍 SK User object from AuthContext:', user);
+      logger.debug('SK User object from AuthContext', { userId: user?.id, userType: user?.userType });
       setProfile({
         sk_id: user.sk_id || user.id || '',
         first_name: user.firstName || user.first_name || '',
@@ -521,7 +522,7 @@ const SKProfile = () => {
   };
 
   const handleSaveSettings = async () => {
-    console.log('🔘 Save clicked');
+    logger.debug('Save clicked');
     showInfoToast && showInfoToast('Saving', 'Opening confirmation…');
     if (!validSettings) {
       const firstError = settingsErrors.first_name || settingsErrors.last_name || settingsErrors.personal_email || settingsErrors.contact_number || settingsErrors.school_or_company || 'Please review the highlighted fields';
@@ -581,11 +582,11 @@ const SKProfile = () => {
         updateUser?.(res.user);
         showSuccessToast && showSuccessToast('Profile updated', 'Your profile information has been saved.');
       } else {
-        console.warn('Update failed', res.message);
+        logger.warn('Update failed', null, { message: res.message });
         showErrorToast && showErrorToast('Update failed', res.message || 'Please try again');
       }
     } catch (e) {
-      console.error('Failed to save profile settings', e);
+      logger.error('Failed to save profile settings', e);
       showErrorToast && showErrorToast('Update failed', e.message || 'Unable to save changes');
     } finally {
       setIsSavingSettings(false);

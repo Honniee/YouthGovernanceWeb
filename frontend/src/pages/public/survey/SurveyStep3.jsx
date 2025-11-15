@@ -30,6 +30,7 @@ import {
   RadioGroup
 } from '../../../components/survey';
 import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
+import logger from '../../../utils/logger.js';
 
 const SurveyStep3 = () => {
   const navigate = useNavigate();
@@ -149,12 +150,23 @@ const SurveyStep3 = () => {
   };
 
   const toggleDemoMode = () => {
-    setIsDemoMode(!isDemoMode);
-    setFormData(isDemoMode ? emptyData : demoData);
     if (!isDemoMode) {
+      // Load demo data
+      setIsDemoMode(true);
+      setFormData(demoData);
       setExpandedSections({ 
         civicEngagement: true
       });
+      // Save to localStorage
+      const draft = { step3: demoData };
+      localStorage.setItem('kk_survey_draft_v1', JSON.stringify(draft));
+      logger.debug('Demo data loaded and saved');
+    } else {
+      // Clear demo data
+      setIsDemoMode(false);
+      setFormData(emptyData);
+      localStorage.removeItem('kk_survey_draft_v1');
+      logger.debug('Demo data cleared');
     }
   };
 
@@ -179,7 +191,7 @@ const SurveyStep3 = () => {
     const recaptchaVerified = sessionStorage.getItem('recaptcha_verified');
     
     if (!recaptchaVerified) {
-      console.log('🚫 No reCAPTCHA verification found, redirecting to survey landing');
+      logger.debug('No reCAPTCHA verification found, redirecting to survey landing');
       navigate('/kk-survey', { replace: true });
       return;
     }
@@ -190,13 +202,13 @@ const SurveyStep3 = () => {
     const thirtyMinutes = 30 * 60 * 1000;
     
     if (currentTime - verificationTime > thirtyMinutes) {
-      console.log('⏰ reCAPTCHA verification expired, redirecting to survey landing');
+      logger.debug('reCAPTCHA verification expired, redirecting to survey landing');
       sessionStorage.removeItem('recaptcha_verified');
       navigate('/kk-survey', { replace: true });
       return;
     }
 
-    console.log('✅ reCAPTCHA verification valid, allowing access to civic engagement page');
+    logger.debug('reCAPTCHA verification valid, allowing access to civic engagement page');
   }, [navigate]);
 
   // Load saved data on mount
@@ -209,7 +221,7 @@ const SurveyStep3 = () => {
           setFormData(data.step3);
         }
       } catch (e) {
-        console.error('Error loading saved data:', e);
+        logger.error('Error loading saved data', e);
       }
     }
   }, []);
@@ -219,7 +231,7 @@ const SurveyStep3 = () => {
     // Save to localStorage before navigating
     const draft = { step3: formData };
     localStorage.setItem('kk_survey_draft_v1', JSON.stringify(draft));
-    console.log('💾 Civic engagement saved, navigating to review');
+    logger.debug('Civic engagement saved, navigating to review');
     navigate('/kk-survey/step-5'); // Go to Review (SurveyReview)
   };
 
@@ -227,7 +239,7 @@ const SurveyStep3 = () => {
     // Save to localStorage before going back
     const draft = { step3: formData };
     localStorage.setItem('kk_survey_draft_v1', JSON.stringify(draft));
-    console.log('💾 Civic engagement saved, navigating back to demographics');
+    logger.debug('Civic engagement saved, navigating back to demographics');
     navigate('/kk-survey/step-3'); // Go back to Demographics (SurveyStep2)
   };
 
@@ -324,7 +336,23 @@ const SurveyStep3 = () => {
       <div className="bg-gray-50">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Header Section */}
-          <div className="bg-gray-50 text-center py-8 mb-8 rounded-xl">
+          <div className="bg-gray-50 text-center py-8 mb-8 rounded-xl relative">
+            {/* Demo Button */}
+            <div className="absolute top-4 right-4">
+              <button
+                onClick={toggleDemoMode}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isDemoMode
+                    ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'
+                }`}
+                title={isDemoMode ? 'Clear demo data' : 'Load demo data'}
+              >
+                <FlaskConical size={16} />
+                {isDemoMode ? 'Clear Demo' : 'Load Demo'}
+              </button>
+            </div>
+
             <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold mb-4">
               KK Demographic Survey 2025
             </div>

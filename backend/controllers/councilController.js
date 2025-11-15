@@ -1,6 +1,7 @@
 import { query } from '../config/database.js';
 import { generateCouncilMemberId, generateCouncilRoleId } from '../utils/idGenerator.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 // ============================================================================
 // COUNCIL ROLES - Manage role definitions
@@ -13,7 +14,7 @@ export const getCouncilRoles = async (req, res) => {
     );
     return res.json({ success: true, data: result.rows });
   } catch (error) {
-    console.error('Failed to fetch council roles:', error);
+    logger.error('Failed to fetch council roles', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to fetch council roles' });
   }
 };
@@ -52,7 +53,7 @@ export const createCouncilRole = async (req, res) => {
 
     return res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
-    console.error('Failed to create council role:', error);
+    logger.error('Failed to create council role', { error: error.message, stack: error.stack, roleName: req.body?.role_name });
     return res.status(500).json({ success: false, message: 'Failed to create council role' });
   }
 };
@@ -94,7 +95,7 @@ export const updateCouncilRole = async (req, res) => {
 
     return res.json({ success: true, data: result.rows[0] });
   } catch (error) {
-    console.error('Failed to update council role:', error);
+    logger.error('Failed to update council role', { error: error.message, stack: error.stack, roleId: req.params.id });
     return res.status(500).json({ success: false, message: 'Failed to update council role' });
   }
 };
@@ -120,7 +121,7 @@ export const deleteCouncilRole = async (req, res) => {
 
     return res.json({ success: true });
   } catch (error) {
-    console.error('Failed to delete council role:', error);
+    logger.error('Failed to delete council role', { error: error.message, stack: error.stack, roleId: req.params.id });
     return res.status(500).json({ success: false, message: 'Failed to delete council role' });
   }
 };
@@ -145,7 +146,7 @@ export const getCouncilMembers = async (req, res) => {
     );
     return res.json({ success: true, data: result.rows });
   } catch (error) {
-    console.error('Failed to fetch council members:', error);
+    logger.error('Failed to fetch council members', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to fetch council members' });
   }
 };
@@ -200,7 +201,7 @@ export const createCouncilMember = async (req, res) => {
 
     return res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
-    console.error('Failed to create council member:', error);
+    logger.error('Failed to create council member', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to create council member' });
   }
 };
@@ -306,7 +307,7 @@ export const updateCouncilMember = async (req, res) => {
 
     return res.json({ success: true, data: result.rows[0] });
   } catch (error) {
-    console.error('Failed to update council member:', error);
+    logger.error('Failed to update council member', { error: error.message, stack: error.stack, memberId: req.params.id });
     return res.status(500).json({ success: false, message: 'Failed to update council member' });
   }
 };
@@ -332,7 +333,7 @@ export const deleteCouncilMember = async (req, res) => {
 
     return res.json({ success: true });
   } catch (error) {
-    console.error('Failed to delete council member:', error);
+    logger.error('Failed to delete council member', { error: error.message, stack: error.stack, memberId: req.params.id });
     return res.status(500).json({ success: false, message: 'Failed to delete council member' });
   }
 };
@@ -358,7 +359,7 @@ export const bulkUpdateCouncilMembers = async (req, res) => {
           await query('DELETE FROM "LYDO_Council_Members" WHERE id = $1', [id]);
           results.push(id);
         } catch (error) {
-          console.error(`Failed to delete member ${id}:`, error);
+          logger.error('Failed to delete member in bulk operation', { error: error.message, stack: error.stack, memberId: id });
           errors.push({ id, error: error.message });
         }
       }
@@ -372,7 +373,7 @@ export const bulkUpdateCouncilMembers = async (req, res) => {
           );
           results.push(id);
         } catch (error) {
-          console.error(`Failed to ${action} member ${id}:`, error);
+          logger.error('Failed to perform bulk operation on member', { error: error.message, stack: error.stack, action, memberId: id });
           errors.push({ id, error: error.message });
         }
       }
@@ -405,7 +406,7 @@ export const bulkUpdateCouncilMembers = async (req, res) => {
         status: errors.length === 0 ? 'success' : (results.length > 0 ? 'partial' : 'error')
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for bulk operation:', logError);
+      logger.error('Failed to log activity for bulk operation', { error: logError.message, stack: logError.stack, action, count: results.length });
       // Don't fail the request if logging fails
     }
 
@@ -416,7 +417,7 @@ export const bulkUpdateCouncilMembers = async (req, res) => {
       errors: errors.length > 0 ? errors : undefined
     });
   } catch (error) {
-    console.error('Failed to perform bulk operation:', error);
+    logger.error('Failed to perform bulk operation', { error: error.message, stack: error.stack, action });
     return res.status(500).json({ success: false, message: 'Failed to perform bulk operation' });
   }
 };
@@ -434,7 +435,7 @@ export const getCouncilPage = async (req, res) => {
     const row = result.rows[0] || { hero_url_1: null, hero_url_2: null, hero_url_3: null };
     return res.json({ success: true, data: row });
   } catch (error) {
-    console.error('Failed to fetch council page:', error);
+    logger.error('Failed to fetch council page', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to fetch council page' });
   }
 };
@@ -567,13 +568,13 @@ export const updateCouncilPage = async (req, res) => {
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for update council page:', logError);
+      logger.error('Failed to log activity for update council page', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
     return res.json({ success: true, data: result.rows[0] });
   } catch (error) {
-    console.error('Failed to update council page:', error);
+    logger.error('Failed to update council page', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to update council page' });
   }
 };
@@ -611,13 +612,13 @@ export const logCouncilExport = async (req, res) => {
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log export activity:', logError);
+      logger.error('Failed to log export activity', { error: logError.message, stack: logError.stack, format });
       // Don't fail the request if logging fails
     }
 
     return res.json({ success: true });
   } catch (error) {
-    console.error('Failed to log council export:', error);
+    logger.error('Failed to log council export', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to log export' });
   }
 };

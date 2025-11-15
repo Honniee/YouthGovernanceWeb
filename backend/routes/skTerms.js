@@ -2,6 +2,7 @@ import express from 'express';
 import skTermsController from '../controllers/skTermsController.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleCheck.js';
+import { validateCSRF } from '../middleware/csrf.js';
 
 const router = express.Router();
 
@@ -21,15 +22,16 @@ router.get('/export', skTermsController.exportSKTerms);
 
 // === INDIVIDUAL TERM ROUTES ===
 router.get('/:id', skTermsController.getTermById);
-router.post('/', requireRole(['admin']), skTermsController.createTerm);
-router.put('/:id', requireRole(['admin']), skTermsController.updateTerm);
-router.delete('/:id', requireRole(['admin']), skTermsController.deleteTerm);
+// SECURITY: CSRF protection applied to all state-changing routes
+router.post('/', requireRole(['admin']), validateCSRF, skTermsController.createTerm);
+router.put('/:id', requireRole(['admin']), validateCSRF, skTermsController.updateTerm);
+router.delete('/:id', requireRole(['admin']), validateCSRF, skTermsController.deleteTerm);
 
 // === TERM STATUS MANAGEMENT ===
-router.patch('/:id/status', requireRole(['admin']), skTermsController.updateTermStatus);
-router.patch('/:id/activate', requireRole(['admin']), skTermsController.activateTerm);
-router.patch('/:id/complete', requireRole(['admin']), skTermsController.completeTerm);
-router.patch('/:id/extend', requireRole(['admin']), skTermsController.extendTerm);
+router.patch('/:id/status', requireRole(['admin']), validateCSRF, skTermsController.updateTermStatus);
+router.patch('/:id/activate', requireRole(['admin']), validateCSRF, skTermsController.activateTerm);
+router.patch('/:id/complete', requireRole(['admin']), validateCSRF, skTermsController.completeTerm);
+router.patch('/:id/extend', requireRole(['admin']), validateCSRF, skTermsController.extendTerm);
 
 // === DEBUG ROUTES ===
 router.get('/debug/status', requireRole(['admin']), skTermsController.debugTermStatus);

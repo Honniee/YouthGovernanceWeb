@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import logger from '../../utils/logger.js';
 
 /**
  * Custom hook for managing export operations
@@ -18,7 +19,7 @@ const useExport = ({
   // Handle export operation
   const handleExport = useCallback(async (format, ...args) => {
     if (!exportFunction) {
-      console.warn('useExport: No export function provided');
+      logger.warn('useExport: No export function provided');
       return;
     }
 
@@ -35,7 +36,7 @@ const useExport = ({
       
       return result;
     } catch (error) {
-      console.error('Export error:', error);
+      logger.error('Export error', error, { format });
       setExportError(error);
       onError?.(error, format, ...args);
       throw error;
@@ -92,7 +93,7 @@ export const useStaffExport = ({
       throw new Error('Staff service is required');
     }
     
-    console.log('Starting export with format:', format, 'style:', style, 'statusFilter:', statusFilter);
+    logger.debug('Starting export', { format, style, statusFilter });
     const response = await staffService.exportStaff(format, statusFilter, [], style);
     
     if (!response.success) {
@@ -105,15 +106,15 @@ export const useStaffExport = ({
   return useExport({
     exportFunction,
     onSuccess: (result, format) => {
-      console.log('Export completed successfully:', format);
+      logger.info('Export completed successfully', { format });
       onSuccess?.(result, format);
     },
     onError: (error, format) => {
-      console.error('Export failed:', format, error);
+      logger.error('Export failed', error, { format });
       onError?.(error, format);
     },
     onStart: (format) => {
-      console.log('Export started:', format);
+      logger.debug('Export started', { format });
     }
   });
 };
@@ -137,7 +138,7 @@ export const useBulkExport = ({
     // If items are selected, export only selected items
     // Otherwise, export based on current filter
     if (selectedItems.length > 0) {
-      console.log('Starting bulk export for selected items:', selectedItems, 'format:', format, 'style:', style);
+      logger.debug('Starting bulk export for selected items', { selectedItemsCount: selectedItems.length, format, style });
       const response = await staffService.exportStaff(format, statusFilter, selectedItems, style);
       
       if (!response.success) {
@@ -146,7 +147,7 @@ export const useBulkExport = ({
       
       return response;
     } else {
-      console.log('Starting bulk export for all items with filter:', statusFilter, 'format:', format, 'style:', style);
+      logger.debug('Starting bulk export for all items', { statusFilter, format, style });
       const response = await staffService.exportStaff(format, statusFilter, [], style);
       
       if (!response.success) {
@@ -161,11 +162,11 @@ export const useBulkExport = ({
     exportFunction,
     onSuccess: (result, format) => {
       const itemCount = selectedItems.length > 0 ? selectedItems.length : 'all';
-      console.log(`Bulk export completed successfully: ${itemCount} items as ${format}`);
+      logger.info('Bulk export completed successfully', { itemCount, format });
       onSuccess?.(result, format);
     },
     onError: (error, format) => {
-      console.error('Bulk export failed:', format, error);
+      logger.error('Bulk export failed', error, { format });
       onError?.(error, format);
     }
   });

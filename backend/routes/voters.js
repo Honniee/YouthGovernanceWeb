@@ -8,6 +8,7 @@ import voterController from '../controllers/voterController.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleCheck.js';
 import { apiLimiter, bulkOperationLimiter, exportLimiter } from '../middleware/rateLimiter.js';
+import { validateCSRF } from '../middleware/csrf.js';
 
 const router = express.Router();
 
@@ -61,40 +62,55 @@ router.get('/:id',
   voterController.getVoterById
 );
 
-// Create new voter
+// Create new voter - SECURITY: CSRF protection applied
 router.post('/', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   apiLimiter,
   voterController.createVoter
 );
 
-// Update voter
+// Update voter - SECURITY: CSRF protection applied
 router.put('/:id', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   apiLimiter,
   voterController.updateVoter
 );
 
-// Soft delete voter (archive)
-router.delete('/:id', 
-  requireRole(['admin', 'lydo_staff']),
+// Hard delete voter (permanent removal) - admin only - SECURITY: CSRF protection applied
+// Must come before generic /:id route to avoid route conflicts
+router.delete('/:id/hard-delete', 
+  requireRole('admin'),
+  validateCSRF,
   apiLimiter,
-  voterController.deleteVoter
+  voterController.hardDeleteVoter
 );
 
-// Restore archived voter
+// Restore archived voter - SECURITY: CSRF protection applied
 router.patch('/:id/restore', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   apiLimiter,
   voterController.restoreVoter
 );
 
+// Soft delete voter (archive) - SECURITY: CSRF protection applied
+router.delete('/:id', 
+  requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
+  apiLimiter,
+  voterController.deleteVoter
+);
+
 // === BULK OPERATIONS ROUTES ===
 // NOTE: Bulk routes must come BEFORE parameterized routes to avoid conflicts
+// SECURITY: CSRF protection applied to all bulk operations
 
 // Bulk status update (archive/restore)
 router.post('/bulk', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   bulkOperationLimiter,
   voterController.bulkUpdateStatus
 );
@@ -102,6 +118,7 @@ router.post('/bulk',
 // Bulk import
 router.post('/bulk/import', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   bulkOperationLimiter,
   upload.single('file'),
   voterController.bulkImportVoters
@@ -110,6 +127,7 @@ router.post('/bulk/import',
 // Bulk validation
 router.post('/bulk/validate',
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   bulkOperationLimiter,
   upload.single('file'),
   voterController.validateBulkImportFile

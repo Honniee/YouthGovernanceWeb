@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { authService } from '../services/auth.js';
+import logger from '../utils/logger.js';
+import api from '../services/api.js';
 
 // Initial state
 const initialState = {
@@ -109,61 +111,77 @@ export const AuthProvider = ({ children }) => {
 
   // Session restoration on app load
   useEffect(() => {
+    // SECURITY: Get CSRF token on app load
+    const getCSRFToken = async () => {
+      try {
+        await api.get('/csrf-token');
+        logger.debug('CSRF token obtained');
+      } catch (error) {
+        logger.warn('Failed to get CSRF token', error);
+      }
+    };
+    getCSRFToken();
+
     const restoreSession = async () => {
       try {
-        console.log('🔄 Starting session restoration...');
+        logger.debug('Starting session restoration');
         dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
         
         const storedUser = authService.getStoredUser();
         const storedToken = authService.getStoredToken();
         const rememberMe = authService.getRememberMe();
 
-        console.log('📦 Stored data:', {
+        logger.debug('Stored data', {
           hasUser: !!storedUser,
           hasToken: !!storedToken,
           rememberMe
         });
 
-        if (storedUser && storedToken) {
-          console.log('🔐 Found stored session, verifying with backend...');
-          // Verify token with backend
+        // SECURITY: Tokens are in httpOnly cookies (not accessible to JavaScript)
+        // If we have stored user data, try to verify session with backend
+        // Backend will check cookies automatically
+        if (storedUser) {
+          logger.debug('Found stored user data, verifying session with backend');
+          // Verify session with backend (tokens in httpOnly cookies sent automatically)
           const userResponse = await authService.getCurrentUser();
           
           if (userResponse.success) {
-            console.log('✅ Session restored successfully:', userResponse.user.email);
-            console.log('🔍 Restored user object:', userResponse.user);
+            // SECURITY: Don't log email addresses - only log in development
+            logger.debug('Session restored successfully', { userId: userResponse.user.id, userType: userResponse.user.userType });
             
-            // Store token in localStorage for API interceptor
-            localStorage.setItem('authToken', storedToken);
+            // SECURITY: Tokens are in httpOnly cookies, only store user data
             localStorage.setItem('user', JSON.stringify(userResponse.user));
             
             dispatch({
               type: AUTH_ACTIONS.RESTORE_SESSION,
               payload: {
                 user: userResponse.user,
-                token: storedToken,
+                token: null, // Token is in httpOnly cookie, not accessible
                 rememberMe
               }
             });
           } else {
-            console.log('❌ Token invalid, clearing session');
-            // Token invalid, clear storage
-            localStorage.removeItem('authToken');
+            logger.warn('Session invalid, clearing storage', { 
+              reason: userResponse.message || 'Backend verification failed' 
+            });
+            // Session invalid, clear storage
+            localStorage.removeItem('authToken'); // Clear for backward compatibility
             localStorage.removeItem('user');
-            await authService.logout();
+            // Don't call logout() here to avoid unnecessary API call
+            // Cookies will be cleared by browser or on next login
             dispatch({ type: AUTH_ACTIONS.LOGOUT });
           }
         } else {
-          console.log('📭 No stored session found');
+          logger.debug('No stored user data found');
           // No stored session, set loading to false
           dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
         }
       } catch (error) {
-        console.error('💥 Session restoration failed:', error);
+        logger.error('Session restoration failed', error);
         await authService.logout();
         dispatch({ type: AUTH_ACTIONS.LOGOUT });
       } finally {
-        console.log('🏁 Session restoration completed');
+        logger.debug('Session restoration completed');
         // Ensure loading is always set to false, even if there's an error
         dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
       }
@@ -178,17 +196,16 @@ export const AuthProvider = ({ children }) => {
       const response = await authService.login(email, password, rememberMe, recaptchaToken);
 
       if (response.success) {
-        console.log('🔍 Login response user object:', response.user);
+        logger.debug('Login response user object', { userId: response.user.id, userType: response.user.userType });
         
-        // Store token in localStorage for API interceptor
-        localStorage.setItem('authToken', response.token);
+        // SECURITY: Tokens are in httpOnly cookies (set by backend), only store user data
         localStorage.setItem('user', JSON.stringify(response.user));
         
         dispatch({
           type: AUTH_ACTIONS.LOGIN_SUCCESS,
           payload: {
             user: response.user,
-            token: response.token,
+            token: null, // Token is in httpOnly cookie, not accessible to JavaScript
             rememberMe
           }
         });
@@ -202,7 +219,7 @@ export const AuthProvider = ({ children }) => {
         };
       }
     } catch (error) {
-      console.error('Login error:', error);
+      logger.error('Login error', error, { email });
       
       const errorMessage = error.message || 'An unexpected error occurred during login';
       
@@ -227,7 +244,7 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true };
     } catch (error) {
-      console.error('Logout error:', error);
+      logger.error('Logout error', error, { source });
       // Force logout even if API call fails
       
       // Clear localStorage even on error
@@ -265,7 +282,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false, message: response.message };
       }
     } catch (error) {
-      console.error('Get current user error:', error);
+      logger.error('Get current user error', error);
       return { success: false, message: error.message };
     }
   }, [updateUser]);

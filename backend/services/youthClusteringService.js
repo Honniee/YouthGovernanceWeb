@@ -4,6 +4,7 @@ import { generateId } from '../utils/idGenerator.js';
 import dataQualityService from './dataQualityService.js';
 import segmentAnalysisService from './segmentAnalysisService.js';
 import recommendationService from './recommendationService.js';
+import logger from '../utils/logger.js';
 
 /**
  * Youth Clustering Service
@@ -34,8 +35,7 @@ class YouthClusteringService {
    * @param {string} [batchId=null] - Optional: Filter by specific survey batch
    */
   async getSurveyResponses(scope, barangayId = null, batchId = null) {
-    console.log('\n📊 PHASE 1: Fetching Survey Responses...');
-    console.log('━'.repeat(50));
+    logger.info('PHASE 1: Fetching Survey Responses', { scope, barangayId, batchId });
     
     try {
       let queryText = `
@@ -80,15 +80,17 @@ class YouthClusteringService {
 
       const result = await query(queryText, params);
       
-      console.log(`✅ Retrieved ${result.rows.length} validated responses`);
-      console.log(`   Age Groups: ${this.countUnique(result.rows, 'youth_age_group')} categories`);
-      console.log(`   Work Status: ${this.countUnique(result.rows, 'work_status')} categories`);
-      console.log(`   Education Levels: ${this.countUnique(result.rows, 'educational_background')} levels`);
+      logger.info('Retrieved validated responses', {
+        count: result.rows.length,
+        ageGroups: this.countUnique(result.rows, 'youth_age_group'),
+        workStatus: this.countUnique(result.rows, 'work_status'),
+        educationLevels: this.countUnique(result.rows, 'educational_background')
+      });
       
       return result.rows;
       
     } catch (error) {
-      console.error('❌ Failed to fetch survey responses:', error);
+      logger.error('Failed to fetch survey responses', { error: error.message, stack: error.stack });
       throw new Error('Database error while fetching responses');
     }
   }
@@ -110,8 +112,7 @@ class YouthClusteringService {
    * 6. Civil Status (Binary: Single=0, Other=1)
    */
   extractFeatures(responses) {
-    console.log('\n🔧 PHASE 2: Feature Engineering...');
-    console.log('━'.repeat(50));
+    logger.info('PHASE 2: Feature Engineering', { responseCount: responses.length });
     
     const features = [];
     const metadata = []; // Store original data for analysis later
@@ -196,16 +197,16 @@ class YouthClusteringService {
         });
 
       } catch (error) {
-        console.warn(`⚠️  Skipping response ${index}: ${error.message}`);
+        logger.warn(`Skipping response ${index}`, { error: error.message, stack: error.stack });
       }
     });
 
-    console.log(`✅ Extracted ${features.length} feature vectors`);
-    console.log(`   Dimensions: 9 weighted features per youth`);
-    console.log(`   Features: Age(1.0x), Education(1.2x), Work(2.0x), Civic(1.5x),`);
-    console.log(`             Civil(0.8x), Classification(1.3x), Gender(0.5x),`);
-    console.log(`             Special Needs(1.0x), Motivation(1.2x)`);
-    console.log(`   Normalization: All values scaled to 0-1 range, then weighted`);
+    logger.info('Extracted feature vectors', {
+      count: features.length,
+      dimensions: 9,
+      features: 'Age(1.0x), Education(1.2x), Work(2.0x), Civic(1.5x), Civil(0.8x), Classification(1.3x), Gender(0.5x), Special Needs(1.0x), Motivation(1.2x)',
+      normalization: 'All values scaled to 0-1 range, then weighted'
+    });
 
     return { features, metadata };
   }
@@ -223,12 +224,12 @@ class YouthClusteringService {
    * @returns {Object} Clustering results with quality metrics
    */
   async runClustering(features, k) {
-    console.log(`\n🎯 PHASE 3: Running K-Means Clustering...`);
-    console.log('━'.repeat(50));
-    console.log(`   Number of clusters (k): ${k}`);
-    console.log(`   Data points: ${features.length}`);
-    console.log(`   Feature dimensions: ${features[0].length}`);
-    console.log(`   Initialization: K-Means++`);
+    logger.info('PHASE 3: Running K-Means Clustering', {
+      k,
+      dataPoints: features.length,
+      featureDimensions: features[0]?.length,
+      initialization: 'K-Means++'
+    });
     
     try {
       const startTime = Date.now();
@@ -242,23 +243,20 @@ class YouthClusteringService {
 
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
       
-      console.log(`✅ Clustering completed in ${duration}s`);
-      console.log(`   Iterations: ${result.iterations}`);
-      console.log(`   Converged: ${result.iterations < 100 ? 'Yes' : 'No'}`);
-      
-      // Calculate cluster quality (Silhouette Score)
       const silhouetteScore = this.calculateSilhouetteScore(features, result.clusters);
-      
-      console.log(`\n📈 Cluster Quality Metrics:`);
-      console.log(`   Silhouette Score: ${silhouetteScore.toFixed(4)}`);
-      console.log(`   Interpretation: ${this.interpretSilhouetteScore(silhouetteScore)}`);
-      
-      // Show cluster sizes
       const clusterSizes = this.calculateClusterSizes(result.clusters, k);
-      console.log(`\n📊 Cluster Distribution:`);
-      clusterSizes.forEach((size, i) => {
-        const pct = ((size / features.length) * 100).toFixed(1);
-        console.log(`   Cluster ${i}: ${size} youth (${pct}%)`);
+      
+      logger.info('Clustering completed', {
+        duration: `${duration}s`,
+        iterations: result.iterations,
+        converged: result.iterations < 100,
+        silhouetteScore: silhouetteScore.toFixed(4),
+        interpretation: this.interpretSilhouetteScore(silhouetteScore),
+        clusterDistribution: clusterSizes.map((size, i) => ({
+          cluster: i,
+          size,
+          percentage: ((size / features.length) * 100).toFixed(1)
+        }))
       });
 
       return {
@@ -270,7 +268,7 @@ class YouthClusteringService {
       };
 
     } catch (error) {
-      console.error('❌ K-Means clustering failed:', error);
+      logger.error('K-Means clustering failed', { error: error.message, stack: error.stack });
       throw new Error('Clustering algorithm failed: ' + error.message);
     }
   }
@@ -283,8 +281,7 @@ class YouthClusteringService {
    * Analyze each cluster to create segment profiles
    */
   async analyzeSegments(responses, features, metadata, clusterResult, k) {
-    console.log('\n📊 PHASE 4: Analyzing Segments...');
-    console.log('━'.repeat(50));
+    logger.info('PHASE 4: Analyzing Segments', { k });
     
     const segments = [];
     
@@ -295,7 +292,7 @@ class YouthClusteringService {
         .filter(idx => idx !== -1);
       
       if (indices.length === 0) {
-        console.log(`⚠️  Cluster ${clusterNum}: Empty (no youth assigned)`);
+        logger.warn(`Cluster ${clusterNum} is empty`, { clusterNum });
         continue;
       }
 
@@ -316,14 +313,17 @@ class YouthClusteringService {
       
       segments.push(segment);
       
-      console.log(`✅ Cluster ${clusterNum}: ${segment.name}`);
-      console.log(`   Youth Count: ${segment.youthCount}`);
-      console.log(`   Avg Age: ${segment.avgAge.toFixed(1)} years`);
-      console.log(`   Employment Rate: ${(segment.employmentRate * 100).toFixed(1)}%`);
-      console.log(`   Priority: ${segment.priority}`);
+      logger.debug(`Cluster ${clusterNum} analyzed`, {
+        clusterNum,
+        name: segment.name,
+        youthCount: segment.youthCount,
+        avgAge: segment.avgAge.toFixed(1),
+        employmentRate: (segment.employmentRate * 100).toFixed(1),
+        priority: segment.priority
+      });
     }
 
-    console.log(`\n✅ Created ${segments.length} segment profiles`);
+    logger.info(`Created ${segments.length} segment profiles`);
     return segments;
   }
 
@@ -335,8 +335,7 @@ class YouthClusteringService {
    * Generate program recommendations for each segment
    */
   async generateRecommendations(segments) {
-    console.log('\n💡 PHASE 5: Generating Program Recommendations...');
-    console.log('━'.repeat(50));
+    logger.info('PHASE 5: Generating Program Recommendations', { segmentCount: segments.length });
     
     const allRecommendations = [];
     
@@ -344,10 +343,10 @@ class YouthClusteringService {
       const recommendations = await recommendationService.generateForSegment(segment);
       allRecommendations.push(...recommendations);
       
-      console.log(`✅ ${segment.name}: ${recommendations.length} programs recommended`);
+      logger.debug(`${segment.name} recommendations`, { segmentName: segment.name, count: recommendations.length });
     }
 
-    console.log(`\n✅ Total recommendations generated: ${allRecommendations.length}`);
+    logger.info(`Total recommendations generated`, { count: allRecommendations.length });
     return allRecommendations;
   }
 
@@ -379,16 +378,14 @@ class YouthClusteringService {
     try {
       await client.query('BEGIN');
       
-      console.log('\n');
-      console.log('═'.repeat(60));
-      console.log('🚀 YOUTH CLUSTERING PIPELINE STARTED');
-      console.log('═'.repeat(60));
-      console.log(`   Run Type: ${runType}`);
-      console.log(`   Scope: ${scope}`);
-      console.log(`   Barangay ID: ${barangayId || 'N/A (Municipality-wide)'}`);
-      console.log(`   Batch ID: ${batchId || 'N/A (All batches)'}`);
-      console.log(`   Initiated by: ${userId}`);
-      console.log(`   Started at: ${new Date().toISOString()}`);
+      logger.info('YOUTH CLUSTERING PIPELINE STARTED', {
+        runType,
+        scope,
+        barangayId: barangayId || 'N/A (Municipality-wide)',
+        batchId: batchId || 'N/A (All batches)',
+        userId,
+        startedAt: new Date().toISOString()
+      });
       
       // Create run record
       runId = await generateId('CLR');
@@ -408,8 +405,10 @@ class YouthClusteringService {
       
       // Warn if sample size is small but proceed
       if (responses.length < 50) {
-        console.log(`⚠️  Small sample size (${responses.length} responses). Results may be less reliable.`);
-        console.log(`   Recommendation: Collect 50+ responses for best clustering quality.`);
+        logger.warn('Small sample size', {
+          responseCount: responses.length,
+          recommendation: 'Collect 50+ responses for best clustering quality'
+        });
       }
 
       // Check Data Quality
@@ -431,9 +430,11 @@ class YouthClusteringService {
       const kSelection = await this.determineOptimalKIntelligent(features, responses.length, scope);
       const k = kSelection.k;
       
-      console.log(`\n🎯 Using K=${k} clusters`);
-      console.log(`   Selection Method: ${kSelection.method}`);
-      console.log(`   Reasoning: ${kSelection.reasoning}`);
+      logger.info('Using K clusters', {
+        k,
+        method: kSelection.method,
+        reasoning: kSelection.reasoning
+      });
 
       // PHASE 3: Cluster (use the final K value)
       const selectedResult = kSelection.allResults.find(r => r.k === k);
@@ -479,20 +480,16 @@ class YouthClusteringService {
 
       await client.query('COMMIT');
       
-      console.log('\n');
-      console.log('═'.repeat(60));
-      console.log('✅ PIPELINE COMPLETED SUCCESSFULLY');
-      console.log('═'.repeat(60));
-      console.log(`   Run ID: ${runId}`);
-      console.log(`   Scope: ${scope}`);
-      console.log(`   Barangay ID: ${barangayId || 'N/A'}`);
-      console.log(`   Total Youth Analyzed: ${responses.length}`);
-      console.log(`   Segments Created: ${segments.length}`);
-      console.log(`   Programs Recommended: ${recommendations.length}`);
-      console.log(`   Silhouette Score: ${clusterResult.silhouetteScore.toFixed(4)}`);
-      console.log(`   Data Quality: ${(qualityReport.qualityScore * 100).toFixed(1)}%`);
-      console.log('═'.repeat(60));
-      console.log('\n');
+      logger.info('PIPELINE COMPLETED SUCCESSFULLY', {
+        runId,
+        scope,
+        barangayId: barangayId || 'N/A',
+        totalYouthAnalyzed: responses.length,
+        segmentsCreated: segments.length,
+        programsRecommended: recommendations.length,
+        silhouetteScore: clusterResult.silhouetteScore.toFixed(4),
+        dataQuality: (qualityReport.qualityScore * 100).toFixed(1)
+      });
       
       return {
         success: true,
@@ -517,7 +514,7 @@ class YouthClusteringService {
 
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('\n❌ PIPELINE FAILED:', error.message);
+      logger.error('PIPELINE FAILED', { error: error.message, stack: error.stack, runId });
       
       // Log failure
       if (runId) {
@@ -555,8 +552,7 @@ class YouthClusteringService {
    * @param {string} [batchId=null] - Batch ID if clustering specific batch
    */
   async saveResults(client, runId, segments, metadata, clusterResult, userId, scope, barangayId = null, batchId = null) {
-    console.log('\n💾 Saving results to database...');
-    console.log('━'.repeat(50));
+    logger.info('Saving results to database', { runId, segmentCount: segments.length });
     
     try {
       // 1. Deactivate old segments for the specific scope/barangay/batch
@@ -567,7 +563,7 @@ class YouthClusteringService {
           AND (barangay_id = $2 OR ($2 IS NULL AND barangay_id IS NULL))
           AND (batch_id = $3 OR ($3 IS NULL AND batch_id IS NULL))
       `, [scope, barangayId, batchId]);
-      console.log(`✅ Deactivated old segments for scope '${scope}' (Barangay: ${barangayId || 'All'}, Batch: ${batchId || 'All'})`);
+      logger.info('Deactivated old segments', { scope, barangayId: barangayId || 'All', batchId: batchId || 'All' });
 
       // 2. Save new segments
       const segmentIdMap = {}; // Map cluster number to segment_id
@@ -606,7 +602,7 @@ class YouthClusteringService {
         segment.segmentId = segmentId; // Store for recommendations
       }
       
-      console.log(`✅ Saved ${segments.length} new segments`);
+      logger.info(`Saved ${segments.length} new segments`);
 
       // 3. Save cluster assignments
       let assignmentCount = 0;
@@ -629,11 +625,10 @@ class YouthClusteringService {
         }
       }
       
-      console.log(`✅ Saved ${assignmentCount} cluster assignments`);
-
+      logger.info(`Saved ${assignmentCount} cluster assignments`);
+      
       // 4. Generate and save recommendations (now that segments have database IDs)
-      console.log('\n💡 PHASE 5: Generating Program Recommendations...');
-      console.log('━'.repeat(50));
+      logger.info('PHASE 5: Generating Program Recommendations');
       
       const recommendations = await this.generateRecommendations(segments);
       
@@ -669,13 +664,13 @@ class YouthClusteringService {
         recCount++;
       }
       
-      console.log(`✅ Saved ${recCount} program recommendations`);
-      console.log('✅ All results saved successfully');
+      logger.info(`Saved ${recCount} program recommendations`);
+      logger.info('All results saved successfully');
       
       return { recommendations };
 
     } catch (error) {
-      console.error('❌ Failed to save results:', error);
+      logger.error('Failed to save results', { error: error.message, stack: error.stack });
       throw new Error('Database save operation failed: ' + error.message);
     }
   }
@@ -881,19 +876,18 @@ class YouthClusteringService {
    * @returns {Object} - { k, method, scores, reasoning }
    */
   async determineOptimalKIntelligent(features, datasetSize, scope) {
-    console.log('\n🔍 PHASE 2.5: Determining Optimal K...');
-    console.log('━'.repeat(50));
+    logger.info('PHASE 2.5: Determining Optimal K', { datasetSize, scope });
     
     // Determine K range based on data size
     const minK = 2;
     const maxK = Math.min(Math.floor(Math.sqrt(datasetSize / 2)), 6);
     
     if (maxK < minK) {
-      console.log(`⚠️  Dataset too small (${datasetSize}), using k=2`);
+      logger.warn('Dataset too small', { datasetSize, usingK: 2 });
       return { k: 2, method: 'minimum', scores: {}, reasoning: 'Dataset too small for analysis' };
     }
     
-    console.log(`   Testing K values from ${minK} to ${maxK}...`);
+    logger.debug('Testing K values', { minK, maxK });
     
     const results = [];
     
@@ -919,9 +913,9 @@ class YouthClusteringService {
           result
         });
         
-        console.log(`   k=${k}: Silhouette=${silhouette.toFixed(4)}, Inertia=${inertia.toFixed(2)}`);
+        logger.debug(`k=${k} tested`, { k, silhouette: silhouette.toFixed(4), inertia: inertia.toFixed(2) });
       } catch (error) {
-        console.log(`   k=${k}: Failed - ${error.message}`);
+        logger.warn(`k=${k} failed`, { k, error: error.message });
       }
     }
     
@@ -957,9 +951,7 @@ class YouthClusteringService {
       reasoning = `K=${chosenK} has best Silhouette Score (${bestBySilhouette.silhouette.toFixed(3)}), but data may not cluster well`;
     }
     
-    console.log(`\n✅ Optimal K Selected: ${chosenK}`);
-    console.log(`   Method: ${method}`);
-    console.log(`   Reasoning: ${reasoning}`);
+    logger.info('Optimal K Selected', { k: chosenK, method, reasoning });
     
     // Package all scores for frontend display
     const scores = {};

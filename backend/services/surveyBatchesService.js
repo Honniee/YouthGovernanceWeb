@@ -329,7 +329,7 @@ class SurveyBatchesService {
     const client = await getClient();
     
     try {
-      console.log('🔍 Backend Service - getAllBatches called with options:', options);
+      logger.debug('Backend Service - getAllBatches called', { options });
       
       const {
         page = 1,
@@ -346,7 +346,7 @@ class SurveyBatchesService {
       const processedIncludeStats = includeStats === 'true' || includeStats === true;
       
       // Debug: Check the includeStats parameter
-      console.log('🔍 Backend Service - includeStats parameter:', {
+      logger.debug('Backend Service - includeStats parameter', {
         raw: options.includeStats,
         type: typeof options.includeStats,
         processed: includeStats,
@@ -383,9 +383,7 @@ class SurveyBatchesService {
 
       const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-      console.log('🔍 Backend Service - WHERE conditions:', whereConditions);
-      console.log('🔍 Backend Service - WHERE clause:', whereClause);
-      console.log('🔍 Backend Service - Query params:', queryParams);
+      logger.debug('Backend Service - WHERE conditions', { whereConditions, whereClause, queryParams });
 
       // Build main query
       let dataQuery;
@@ -437,10 +435,7 @@ class SurveyBatchesService {
         ${whereClause}
       `;
 
-      console.log('🔍 Backend Service - Count query:', countQuery);
-      console.log('🔍 Backend Service - Data query:', dataQuery);
-      console.log('🔍 Backend Service - Include stats:', processedIncludeStats);
-      console.log('🔍 Backend Service - Query params:', queryParams);
+      logger.debug('Backend Service - Query details', { countQuery, dataQuery, includeStats: processedIncludeStats, queryParams });
 
       queryParams.push(validatedPageSize, (validatedPage - 1) * validatedPageSize);
 
@@ -453,7 +448,7 @@ class SurveyBatchesService {
       const total = parseInt(countResult.rows[0].total);
 
       // Debug: Log the data being returned
-      console.log('🔍 Backend Service - Data Result:', {
+      logger.debug('Backend Service - Data Result', {
         totalRows: dataResult.rows.length,
         firstRow: dataResult.rows[0] ? {
           batch_id: dataResult.rows[0].batch_id,
@@ -464,14 +459,13 @@ class SurveyBatchesService {
           pending_responses: dataResult.rows[0].pending_responses,
           rejected_responses: dataResult.rows[0].rejected_responses,
           total_youths: dataResult.rows[0].total_youths
-        } : 'No data',
-        allRows: dataResult.rows
+        } : 'No data'
       });
       
       // Debug: Check if statistics fields exist in the first row
       if (dataResult.rows[0]) {
         const firstRow = dataResult.rows[0];
-        console.log('🔍 Backend Service - Statistics Check:', {
+        logger.debug('Backend Service - Statistics Check', {
           hasTotalResponses: 'total_responses' in firstRow,
           hasValidatedResponses: 'validated_responses' in firstRow,
           hasPendingResponses: 'pending_responses' in firstRow,
@@ -568,7 +562,7 @@ class SurveyBatchesService {
     const client = await getClient();
     
     try {
-      console.log('🔍 Backend Service - getBatchResponses called with batchId:', batchId, 'options:', options);
+      logger.debug('Backend Service - getBatchResponses called', { batchId, options });
       
       const {
         page = 1,
@@ -663,19 +657,20 @@ class SurveyBatchesService {
       query += ` OFFSET $${paramCount}`;
       queryParams.push(offset);
 
-      console.log('🔍 Backend Service - Executing query:', query);
-      console.log('🔍 Backend Service - Query params:', queryParams);
+      logger.debug('Backend Service - Executing query', { query, queryParams });
       
       const result = await client.query(query, queryParams);
-      console.log('🔍 Backend Service - Query result rows:', result.rows.length);
-      console.log('🔍 Backend Service - First few rows:', result.rows.slice(0, 2));
-      console.log('🔍 Backend Service - Municipality values:', result.rows.slice(0, 5).map(row => ({
-        youth_id: row.youth_id,
-        municipality: row.municipality,
-        province: row.province,
-        region: row.region,
-        barangay_name: row.barangay_name
-      })));
+      logger.debug('Backend Service - Query result', {
+        rowCount: result.rows.length,
+        firstFewRows: result.rows.slice(0, 2),
+        municipalityValues: result.rows.slice(0, 5).map(row => ({
+          youth_id: row.youth_id,
+          municipality: row.municipality,
+          province: row.province,
+          region: row.region,
+          barangay_name: row.barangay_name
+        }))
+      });
 
       // Get total count for pagination
       let countQuery = `
@@ -715,7 +710,7 @@ class SurveyBatchesService {
 
       const countResult = await client.query(countQuery, countParams);
       const total = parseInt(countResult.rows[0].total);
-      console.log('🔍 Backend Service - Count query result:', total);
+      logger.debug('Backend Service - Count query result', { total });
 
       // Transform the data to match frontend expectations
       const responses = result.rows.map(row => ({
@@ -758,7 +753,7 @@ class SurveyBatchesService {
         }
       };
       
-      console.log('🔍 Backend Service - Returning data:', {
+      logger.debug('Backend Service - Returning data', {
         responsesCount: responses.length,
         total,
         pagination: result_data.pagination

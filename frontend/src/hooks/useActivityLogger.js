@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { showSuccessToast, showErrorToast, showWarningToast, showStaffSuccessToast, showSKSuccessToast } from '../components/universal/ToastContainer';
+import logger from '../utils/logger.js';
 
 /**
  * Universal Activity Logger Hook
@@ -107,7 +108,7 @@ const useActivityLogger = (entityType, options = {}) => {
       }
 
     } catch (error) {
-      console.error(`${entityType} ${operation} error:`, error);
+      logger.error(`${entityType} ${operation} error`, error, { entityType, operation, data });
 
       // Show error toast
       if (showError) {
@@ -207,10 +208,10 @@ const useActivityLogger = (entityType, options = {}) => {
     
     switch (operation) {
       case 'export':
-        console.log('📊 Reports export operation:', data);
+        logger.debug('Reports export operation', { data });
         return { success: true, message: 'Report export completed' };
       case 'generate':
-        console.log('📊 Reports generate operation:', data);
+        logger.debug('Reports generate operation', { data });
         return { success: true, message: 'Report generated successfully' };
       default:
         throw new Error(`Unsupported reports operation: ${operation}`);

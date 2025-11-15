@@ -7,6 +7,7 @@ import {
   deleteNotification
 } from '../controllers/notificationController.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { validateCSRF } from '../middleware/csrf.js';
 
 const router = express.Router();
 
@@ -16,14 +17,14 @@ router.get('/', authenticateToken, getUserNotifications);
 // Get unread count
 router.get('/unread-count', authenticateToken, getUnreadCount);
 
-// Mark notification as read
-router.patch('/:notificationId/read', authenticateToken, markAsRead);
+// Mark notification as read - SECURITY: CSRF protection applied
+router.patch('/:notificationId/read', authenticateToken, validateCSRF, markAsRead);
 
-// Mark all notifications as read
-router.patch('/mark-all-read', authenticateToken, markAllAsRead);
+// Mark all notifications as read - SECURITY: CSRF protection applied
+router.patch('/mark-all-read', authenticateToken, validateCSRF, markAllAsRead);
 
-// Delete a notification
-router.delete('/:notificationId', authenticateToken, deleteNotification);
+// Delete a notification - SECURITY: CSRF protection applied
+router.delete('/:notificationId', authenticateToken, validateCSRF, deleteNotification);
 
 export default router;
 

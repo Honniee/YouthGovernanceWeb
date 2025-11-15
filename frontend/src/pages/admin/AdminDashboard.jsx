@@ -59,6 +59,7 @@ import {
 } from 'recharts';
 import '../../styles/dashboard.css';
 import { useRealtime } from '../../realtime/useRealtime';
+import logger from '../../utils/logger.js';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -252,9 +253,9 @@ const AdminDashboard = () => {
 
   // Load SK barangay completion stats
   const loadSKBarangayCompletion = async (activeOfficialsCount = null) => {
-    console.log('📊 loadSKBarangayCompletion called', { hasActiveTerm, activeTerm, activeOfficialsCount });
+    logger.debug('loadSKBarangayCompletion called', { hasActiveTerm, activeTerm, activeOfficialsCount });
     if (!hasActiveTerm || !activeTerm?.termId) {
-      console.log('📊 No active term, skipping loadSKBarangayCompletion');
+      logger.debug('No active term, skipping loadSKBarangayCompletion');
       setSkBarangayCompletion({ completed: 0, total: 0, isLoading: false });
       setSkPositionFilledRate({ filled: 0, total: 0, percentage: 0, isLoading: false });
       return;
@@ -267,7 +268,7 @@ const AdminDashboard = () => {
       // Get all barangay vacancies
       const vacanciesResp = await skService.getAllBarangayVacancies(activeTerm.termId);
       
-      console.log('📊 SK Barangay Completion Debug - Vacancies Response:', vacanciesResp);
+      logger.debug('SK Barangay Completion - Vacancies response', { response: vacanciesResp });
       
       // Get active officials count - use parameter first, then state, then fallback
       const currentStats = stats.sk;
@@ -275,7 +276,7 @@ const AdminDashboard = () => {
         ? activeOfficialsCount 
         : (currentStats?.activeOfficials || currentStats?.totalOfficials || 0);
       
-      console.log('📊 Active Officials Count:', { activeOfficialsCount, fromState: currentStats?.activeOfficials, final: activeOfficials });
+      logger.debug('SK Barangay Completion - Active officials count', { activeOfficialsCount, fromState: currentStats?.activeOfficials, final: activeOfficials });
       
       if (vacanciesResp.success && vacanciesResp.data) {
         // POSITION_LIMITS: Chairperson=1, Secretary=1, Treasurer=1, Councilor=7
@@ -298,7 +299,7 @@ const AdminDashboard = () => {
           totalBarangays++;
           const vacancies = barangayData?.vacancies || {};
           
-          console.log(`📊 Processing barangay ${barangayId}:`, { barangayData, vacancies });
+          logger.debug('Processing barangay for SK completion', { barangayId, barangayData, vacancies });
           
           // Check if all positions are filled
           let allPositionsFilled = true;
@@ -309,7 +310,7 @@ const AdminDashboard = () => {
             const required = POSITION_LIMITS[position];
             const current = positionData?.current || 0;
             
-            console.log(`  Position ${position}: current=${current}, required=${required}`);
+            logger.debug('SK position status', { barangayId, position, current, required });
             
             totalFilledPositions += current;
             barangayFilledCount += current;
@@ -324,7 +325,7 @@ const AdminDashboard = () => {
           }
         });
         
-        console.log('📊 SK Completion Stats:', {
+        logger.debug('SK completion stats', {
           totalBarangays,
           completedCount,
           totalFilledPositions,
@@ -350,7 +351,7 @@ const AdminDashboard = () => {
           ? Math.round((finalFilledPositions / totalPossiblePositions) * 100) 
           : 0;
 
-        console.log('📊 Position Filled Rate:', {
+        logger.debug('SK position filled rate', {
           totalFilledPositions,
           finalFilledPositions,
           totalPossiblePositions,
@@ -365,7 +366,7 @@ const AdminDashboard = () => {
           isLoading: false
         });
       } else {
-        console.warn('📊 No vacancy data received, using stats fallback');
+        logger.warn('No vacancy data received, using stats fallback');
         // Fallback: use stats if available
         const totalBarangays = 33; // Default to 33 barangays
         const totalPossiblePositions = totalBarangays * 10;
@@ -374,7 +375,7 @@ const AdminDashboard = () => {
           ? Math.round((filledPositions / totalPossiblePositions) * 100) 
           : 0;
         
-        console.log('📊 Using fallback calculation:', {
+        logger.debug('Using fallback calculation for SK completion', {
           totalBarangays,
           totalPossiblePositions,
           filledPositions,
@@ -390,7 +391,7 @@ const AdminDashboard = () => {
         });
       }
     } catch (error) {
-      console.error('Error loading SK barangay completion:', error);
+      logger.error('Error loading SK barangay completion', error);
       setSkBarangayCompletion({ completed: 0, total: 0, isLoading: false });
       setSkPositionFilledRate({ filled: 0, total: 0, percentage: 0, isLoading: false });
     }
@@ -433,7 +434,7 @@ const AdminDashboard = () => {
         skService.getSKStatistics().catch(() => ({ success: false, data: {} }))
       ]);
 
-      console.log('📊 Dashboard fetch results:', {
+      logger.debug('Dashboard fetch results', {
         barangays: barangaysResp?.data?.success,
         barangaysCount: barangaysResp?.data?.data?.length || 0
       });
@@ -604,7 +605,7 @@ const AdminDashboard = () => {
         const activeOfficials = skData.active || 0;
         const totalOfficials = skData.total || 0;
         
-        console.log('📊 SK Statistics received:', { activeOfficials, totalOfficials, skData });
+        logger.debug('SK statistics received', { activeOfficials, totalOfficials, skData });
         
         setStats(prev => ({
           ...prev,
@@ -708,9 +709,9 @@ const AdminDashboard = () => {
             .filter(item => item.count > 0)
             .sort((a, b) => b.count - a.count);
           
-          console.log('📊 Raw chartData:', chartData);
-          console.log('📊 Valid data:', validData);
-          console.log('📊 First item details:', validData[0] ? {
+          logger.debug('Barangay distribution raw data', { chartData });
+          logger.debug('Barangay distribution processed data', { validData });
+          logger.debug('Barangay distribution first item', validData[0] ? {
             name: validData[0].name,
             count: validData[0].count,
             countType: typeof validData[0].count,
@@ -718,10 +719,10 @@ const AdminDashboard = () => {
           } : 'No data');
           
           if (validData.length > 0) {
-            console.log('✅ Setting barangay distribution with', validData.length, 'items');
+            logger.debug('Setting barangay distribution', { itemCount: validData.length });
             setBarangayDistribution(validData);
           } else {
-            console.warn('⚠️ No valid barangay distribution data');
+            logger.warn('No valid barangay distribution data');
             // Set empty array explicitly
             setBarangayDistribution([]);
           }
@@ -745,7 +746,7 @@ const AdminDashboard = () => {
       setSystemAlerts(alerts);
       
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      logger.error('Error fetching dashboard data', error);
     } finally {
       setIsLoadingStats(false);
     }
@@ -791,7 +792,7 @@ const AdminDashboard = () => {
         setActiveSurveyResponses([]);
       }
     } catch (error) {
-      console.error('Error fetching active survey:', error);
+      logger.error('Error fetching active survey', error);
       setActiveSurveyBatch(null);
       setActiveSurveyResponses([]);
     } finally {
@@ -809,7 +810,7 @@ const AdminDashboard = () => {
 
   // Apply filters function
   const applyFilters = () => {
-    console.log('Filters applied:', { searchQuery, selectedBarangay, dateRange });
+    logger.debug('Dashboard filters applied', { searchQuery, selectedBarangay, dateRange });
     
     // Filter barangay distribution data
     if (selectedBarangay && selectedBarangay !== 'All Barangays') {
@@ -1268,7 +1269,7 @@ const AdminDashboard = () => {
           </button>
           <button
             onClick={() => {
-              console.log('Applying filters:', { searchQuery, selectedBarangay, dateRange });
+              logger.debug('Apply button clicked for dashboard filters', { searchQuery, selectedBarangay, dateRange });
               // Filter data based on selections
               applyFilters();
             }}

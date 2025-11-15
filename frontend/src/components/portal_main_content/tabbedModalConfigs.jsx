@@ -7,7 +7,12 @@ import {
   Shield,
   Briefcase,
   FileText,
-  Settings
+  Settings,
+  Send,
+  Activity,
+  Phone,
+  AlertCircle,
+  AlertTriangle
 } from 'lucide-react';
 
 const fullName = (data) =>
@@ -377,6 +382,15 @@ export const validationQueueConfig = {
         },
         {
           variant: 'main',
+          title: 'Contact Information',
+          layout: 'grid',
+          fields: [
+            { key: 'contactNumber', label: 'Contact Number', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'email', label: 'Email', width: 'half', variant: 'pill', readOnlyStyle: 'input' }
+          ]
+        },
+        {
+          variant: 'main',
           title: 'Notes',
           fields: [
             {
@@ -386,6 +400,136 @@ export const validationQueueConfig = {
               editable: true,
               placeholder: 'Write validation notes...'
             }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
+export const dataSubjectRequestDetailConfig = {
+  header: {
+    coverClass: 'from-indigo-200 via-indigo-300 to-indigo-400',
+    title: (data) => data.requester_name || 'Data Subject Request',
+    subtitle: (data) => `Request ID: ${data.request_id || 'N/A'}`,
+    avatar: (data) => ({
+      user: {
+        firstName: data.requester_name?.split(' ')[0] || '',
+        lastName: data.requester_name?.split(' ').slice(1).join(' ') || '',
+        personalEmail: data.requester_email,
+        profilePicture: null
+      }
+    }),
+    verified: (data) => data.identity_verified || false,
+    meta: (data) => [
+      { icon: Mail, value: data.requester_email },
+      { icon: Calendar, value: data.requested_at ? new Date(data.requested_at).toLocaleDateString() : null }
+    ].filter((item) => item.value),
+    pills: (data) => [
+      data.request_type ? data.request_type.replace('_', ' ').toUpperCase() : null,
+      data.request_status ? data.request_status.toUpperCase() : null
+    ].filter(Boolean)
+  },
+  tabs: [
+    {
+      id: 'overview',
+      label: 'Overview',
+      icon: FileText,
+      sections: [
+        {
+          variant: 'main',
+          title: 'Request Information',
+          layout: 'grid',
+          fields: [
+            { key: 'request_type', label: 'Request Type', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'request_status', label: 'Status', type: 'status', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'requester_name', label: 'Requester Name', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'requester_email', label: 'Requester Email', type: 'email', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'requester_phone', label: 'Requester Phone', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'youth_id', label: 'Youth ID', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'requested_at', label: 'Requested At', type: 'datetime', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'due_date', label: 'Due Date', type: 'date', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'assigned_to_name', label: 'Assigned To', width: 'half', variant: 'pill', readOnlyStyle: 'input' }
+          ]
+        },
+        {
+          variant: 'main',
+          title: 'Request Description',
+          fields: [
+            {
+              key: 'request_description',
+              label: 'Description',
+              type: 'textarea',
+              editable: false,
+              placeholder: 'No description provided'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'processing',
+      label: 'Processing',
+      icon: Settings,
+      sections: [
+        {
+          variant: 'main',
+          title: 'Assignment & Status',
+          layout: 'grid',
+          fields: [
+            { key: 'assigned_to_name', label: 'Assigned To', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'request_status', label: 'Status', type: 'status', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'identity_verified', label: 'Identity Verified', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'verification_method', label: 'Verification Method', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'verification_date', label: 'Verification Date', type: 'datetime', width: 'half', variant: 'pill', readOnlyStyle: 'input' }
+          ]
+        },
+        {
+          variant: 'main',
+          title: 'Internal Notes',
+          fields: [
+            {
+              key: 'notes',
+              label: 'Notes',
+              type: 'textarea',
+              editable: true,
+              placeholder: 'Add internal notes about this request...'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'history',
+      label: 'History',
+      icon: Activity,
+      sections: [
+        {
+          variant: 'main',
+          title: 'Request Timeline',
+          layout: 'grid',
+          fields: [
+            { key: 'requested_at', label: 'Requested At', type: 'datetime', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'updated_at', label: 'Last Updated', type: 'datetime', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'completed_at', label: 'Completed At', type: 'datetime', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'rejected_at', label: 'Rejected At', type: 'datetime', width: 'half', variant: 'pill', readOnlyStyle: 'input' }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'response',
+      label: 'Response',
+      icon: Send,
+      sections: [
+        {
+          variant: 'main',
+          title: 'Response Information',
+          layout: 'grid',
+          fields: [
+            { key: 'response_text', label: 'Response Text', type: 'textarea', width: 'full', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'response_file_path', label: 'Response File', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+            { key: 'rejection_reason', label: 'Rejection Reason', type: 'textarea', width: 'full', variant: 'pill', readOnlyStyle: 'input' }
           ]
         }
       ]
@@ -510,65 +654,12 @@ export const councilDetailConfig = {
   ]
 };
 
-export const voterDetailConfig = {
-  header: {
-    coverClass: 'from-slate-200 via-slate-300 to-slate-400',
-    title: fullName,
-    subtitle: (data) => data.voterId,
-    avatar: () => ({ type: 'emoji', value: '🗳️' }),
-    meta: (data) => [
-      { icon: MapPin, value: data.barangayName },
-      { icon: Calendar, value: data.birthDate }
-    ].filter((item) => item.value),
-    pills: (data) => [data.isActive ? 'Active' : 'Inactive'].filter(Boolean)
-  },
-  tabs: [
-    {
-      id: 'profile',
-      label: 'Profile',
-      icon: User,
-      sections: [
-        {
-          title: 'Voter Information',
-          layout: 'grid',
-          fields: [
-            { key: 'firstName', label: 'First Name', width: 'half' },
-            { key: 'lastName', label: 'Last Name', width: 'half' },
-            { key: 'middleName', label: 'Middle Name', width: 'half' },
-            { key: 'suffix', label: 'Suffix', width: 'half' },
-            { key: 'birthDate', label: 'Birth Date', type: 'date', width: 'half' },
-            { key: 'gender', label: 'Gender', width: 'half' }
-          ]
-        }
-      ]
-    },
-    {
-      id: 'metadata',
-      label: 'Metadata',
-      icon: FileText,
-      sections: [
-        {
-          title: 'Record Metadata',
-          layout: 'grid',
-          fields: [
-            { key: 'municipality', label: 'Municipality', width: 'half' },
-            { key: 'province', label: 'Province', width: 'half' },
-            { key: 'region', label: 'Region', width: 'half' },
-            { key: 'createdAt', label: 'Created At', type: 'datetime', width: 'half' }
-          ]
-        }
-      ]
-    }
-  ]
-};
-
 export default {
   staff: staffDetailConfig,
   sk: skDetailConfig,
   youth: youthDetailConfig,
   validationQueue: validationQueueConfig,
   surveyTracking: surveyTrackingConfig,
-  council: councilDetailConfig,
-  voter: voterDetailConfig
+  council: councilDetailConfig
 };
 

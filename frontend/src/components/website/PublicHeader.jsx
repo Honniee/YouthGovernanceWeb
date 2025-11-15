@@ -1,14 +1,18 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, memo, useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Search, Menu, X, Globe, Phone, HelpCircle, Eye, User, MapPin, Mail, PhoneCall } from 'lucide-react';
 import sanJoseLogo from '../../assets/logos/san_jose_logo.webp';
-import { useNotice } from '../../context/NoticeContext';
+import NoticeContext from '../../context/NoticeContext';
 import ImportantNoticeBanner from './ImportantNoticeBanner';
+import logger from '../../utils/logger.js';
 
 const PublicHeader = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const { showNotice, setShowNotice } = useNotice();
+  // Safely get notice context - use useContext directly to handle missing provider gracefully
+  const noticeContext = useContext(NoticeContext);
+  const showNotice = noticeContext?.showNotice || false;
+  const setShowNotice = noticeContext?.setShowNotice || (() => {});
   const location = useLocation();
 
   // Prevent background scrolling when sidebar is open
@@ -38,7 +42,7 @@ const PublicHeader = () => {
 
   const handleSearch = (e) => {
     e.preventDefault();
-    console.log('Searching for:', searchQuery);
+    logger.debug('Searching', { searchQuery });
     // Add search functionality here
   };
 

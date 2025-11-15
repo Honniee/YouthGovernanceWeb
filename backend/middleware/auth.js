@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { query } from '../config/database.js';
+import logger from '../utils/logger.js';
 
 /**
  * JWT Authentication Middleware
@@ -7,11 +8,16 @@ import { query } from '../config/database.js';
  */
 export const authenticateToken = async (req, res, next) => {
   try {
-    // Get token from header
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.startsWith('Bearer ') 
-      ? authHeader.substring(7) 
-      : null;
+    // SECURITY: Get token from httpOnly cookie first, fallback to header for backward compatibility
+    let token = req.cookies?.accessToken;
+    
+    // Fallback to Authorization header (for backward compatibility during migration)
+    if (!token) {
+      const authHeader = req.headers['authorization'];
+      token = authHeader && authHeader.startsWith('Bearer ') 
+        ? authHeader.substring(7) 
+        : null;
+    }
 
     if (!token) {
       return res.status(401).json({ 
@@ -22,18 +28,40 @@ export const authenticateToken = async (req, res, next) => {
     // Verify token
     const jwtSecret = process.env.JWT_SECRET;
     
-    // Only enforce strong secret in production
-    if (process.env.NODE_ENV === 'production' && (!jwtSecret || jwtSecret === 'your-super-secret-jwt-key-change-this-in-production' || jwtSecret === 'fallback-secret')) {
-      throw new Error('JWT_SECRET must be set to a strong secret in production');
+    // Strict validation: Fail fast if JWT_SECRET is not set or is default
+    if (!jwtSecret) {
+      const errorMsg = process.env.NODE_ENV === 'production' 
+        ? 'JWT_SECRET must be set in production environment'
+        : 'JWT_SECRET is not set. Using development fallback (INSECURE - not for production)';
+      
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(errorMsg);
+      }
+      logger.warn(errorMsg);
     }
     
-    // Use fallback for development if needed
-    const secret = jwtSecret || 'development-fallback-secret';
+    // Check for default/placeholder secrets
+    if (process.env.NODE_ENV === 'production' && 
+        (jwtSecret === 'your-super-secret-jwt-key-change-this-in-production' || 
+         jwtSecret === 'fallback-secret' || 
+         jwtSecret === 'development-fallback-secret')) {
+      throw new Error('JWT_SECRET must be set to a strong, unique secret in production');
+    }
+    
+    // Use fallback ONLY in development/test environments
+    const secret = jwtSecret || (process.env.NODE_ENV === 'test' ? 'test-jwt-secret' : 'development-fallback-secret');
+    
+    // Warn if using fallback in non-test environments
+    if (!jwtSecret && process.env.NODE_ENV !== 'test') {
+      logger.warn('Using fallback JWT secret - This is INSECURE and should only be used in development');
+    }
     
     const decoded = jwt.verify(token, secret);
     
-    // Debug logging
-    console.log('🔍 Decoded token:', decoded);
+    // Debug logging (only in development)
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug('Token decoded', { userId: decoded.userId, userType: decoded.userType });
+    }
     
     // Get fresh user data from database
     let userQuery;
@@ -119,7 +147,11 @@ export const authenticateToken = async (req, res, next) => {
       });
     }
     
-    console.error('Auth middleware error:', error);
+    logger.error('Auth middleware error', { 
+      message: error.message, 
+      name: error.name,
+      stack: error.stack 
+    });
     return res.status(500).json({ 
       message: 'Authentication failed.' 
     });

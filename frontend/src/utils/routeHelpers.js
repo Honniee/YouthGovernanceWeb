@@ -2,6 +2,8 @@
  * Route helper utilities for authentication-based navigation
  */
 
+import logger from './logger.js';
+
 /**
  * Get the dashboard route based on user role
  * @param {object} user - User object from authentication context
@@ -9,22 +11,21 @@
  */
 export const getDashboardRoute = (user) => {
   if (!user) {
-    console.warn('⚠️ No user object provided to getDashboardRoute');
+    logger.debug('No user object provided to getDashboardRoute');
     return '/'; // Default to home if no user
   }
 
   // Handle both user_type (snake_case) and userType (camelCase)
   const userType = user.user_type || user.userType;
   
-  console.log('🔍 getDashboardRoute Debug:', {
-    user: user,
-    user_type: user.user_type,
-    userType: user.userType,
-    resolvedUserType: userType
+  // SECURITY: Only log in development, never expose full user object
+  logger.debug('getDashboardRoute', {
+    hasUser: !!user,
+    userType: userType
   });
   
   if (!userType) {
-    console.warn('⚠️ No user type found in user object:', user);
+    logger.debug('No user type found in user object');
     return '/'; // Default to home if no user type
   }
 
@@ -37,12 +38,12 @@ export const getDashboardRoute = (user) => {
       case 'sk_official':
         return '/sk';
       default:
-        console.warn(`⚠️ Unknown user type: ${userType}`);
+        logger.debug(`Unknown user type: ${userType}`);
         return '/'; // Default to home for unknown roles
     }
   })();
   
-  console.log(`🎯 Dashboard route determined: ${userType} → ${route}`);
+  logger.debug(`Dashboard route determined: ${userType} → ${route}`);
   return route;
 };
 

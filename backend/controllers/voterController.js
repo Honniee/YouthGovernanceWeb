@@ -1,10 +1,11 @@
 import { query, getClient } from '../config/database.js';
 import { generateVoterId } from '../utils/idGenerator.js';
-import { validateVoterCreation, validateVoterUpdate, validateBulkImport, checkVoterExists } from '../utils/voterValidation.js';
+import { validateVoterCreation, validateVoterUpdate, validateBulkImport } from '../utils/voterValidation.js';
 import { handleError } from '../services/errorService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import universalNotificationService from '../services/universalNotificationService.js';
 import { parseCSVFile, parseExcelFile } from '../utils/fileParser.js';
+import logger from '../utils/logger.js';
 
 // === CORE CRUD OPERATIONS ===
 
@@ -30,73 +31,72 @@ const getVoters = async (req, res) => {
     const offset = (page - 1) * limit;
     const userId = req.user?.lydo_id || req.user?.lydoId;
 
-    // Build WHERE clause
-    let whereConditions = ['1=1'];
+    // Build WHERE clause (base filters; status handled separately)
+    let baseWhereConditions = ['1=1'];
     let queryParams = [];
     let paramIndex = 1;
 
     if (search) {
-      whereConditions.push(`(LOWER(first_name) LIKE LOWER($${paramIndex}) OR LOWER(last_name) LIKE LOWER($${paramIndex}) OR LOWER(voter_id) LIKE LOWER($${paramIndex}))`);
+      baseWhereConditions.push(`(LOWER(v.first_name) LIKE LOWER($${paramIndex}) OR LOWER(v.last_name) LIKE LOWER($${paramIndex}) OR LOWER(v.voter_id) LIKE LOWER($${paramIndex}))`);
       queryParams.push(`%${search}%`);
       paramIndex++;
     }
 
     if (gender) {
-      whereConditions.push(`gender = $${paramIndex}`);
+      baseWhereConditions.push(`v.gender = $${paramIndex}`);
       queryParams.push(gender);
       paramIndex++;
     }
 
     // Handle age range filtering
     if (ageRange) {
-      const now = new Date();
-      const currentYear = now.getFullYear();
-      
       switch (ageRange) {
         case '15-17':
-          whereConditions.push(`EXTRACT(YEAR FROM AGE(birth_date)) BETWEEN 15 AND 17`);
+          baseWhereConditions.push(`EXTRACT(YEAR FROM AGE(v.birth_date)) BETWEEN 15 AND 17`);
           break;
         case '18-24':
-          whereConditions.push(`EXTRACT(YEAR FROM AGE(birth_date)) BETWEEN 18 AND 24`);
+          baseWhereConditions.push(`EXTRACT(YEAR FROM AGE(v.birth_date)) BETWEEN 18 AND 24`);
           break;
         case '25-30':
-          whereConditions.push(`EXTRACT(YEAR FROM AGE(birth_date)) BETWEEN 25 AND 30`);
+          baseWhereConditions.push(`EXTRACT(YEAR FROM AGE(v.birth_date)) BETWEEN 25 AND 30`);
           break;
       }
     }
 
     // Handle date created filtering
     if (dateCreated) {
-      whereConditions.push(`DATE(created_at) >= $${paramIndex}`);
+      baseWhereConditions.push(`DATE(v.created_at) >= $${paramIndex}`);
       queryParams.push(dateCreated);
       paramIndex++;
     }
 
-    // Handle status filtering (active/archived)
-    if (status === 'active') {
-      whereConditions.push(`is_active = true`);
-    } else if (status === 'archived') {
-      whereConditions.push(`is_active = false`);
-    }
-
-    const whereClause = whereConditions.join(' AND ');
+    const baseWhereClause = baseWhereConditions.join(' AND ');
+    const statusClause =
+      status === 'active'
+        ? ' AND v.is_active = true'
+        : status === 'archived'
+          ? ' AND v.is_active = false'
+          : '';
+    const whereClause = `${baseWhereClause}${statusClause}`;
 
     // Validate sort fields
     const allowedSortFields = ['last_name', 'first_name', 'gender', 'birth_date', 'created_at', 'voter_id'];
     const validSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'last_name';
     const validSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase()) ? sortOrder.toUpperCase() : 'ASC';
 
-    // Get total count
+    // Snapshot params before adding pagination (used for count and stats)
+    const baseParams = [...queryParams];
+
+    // Get total count with all filters
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM "Voters_List"
+      FROM "Voters_List" v
       WHERE ${whereClause}
     `;
-    const countResult = await query(countQuery, queryParams);
+    const countResult = await query(countQuery, baseParams);
     const total = parseInt(countResult.rows[0].total);
 
-    // Get paginated data with participation status
-    // Match voters with youth profiles by name + birth_date + gender, then check if they have survey responses
+    // Get paginated data - plain rows from Voters_List
     const dataQuery = `
       SELECT 
         v.voter_id,
@@ -109,94 +109,29 @@ const getVoters = async (req, res) => {
         v.is_active,
         v.created_at,
         v.updated_at,
-        v.created_by,
-        -- Check if voter has participated (has survey responses)
-        CASE 
-          WHEN EXISTS (
-            SELECT 1 
-            FROM "Youth_Profiling" yp
-            INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
-            WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
-              AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
-              AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
-              AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
-              AND yp.birth_date = v.birth_date
-              AND yp.gender = v.gender
-          ) THEN true
-          ELSE false
-        END as has_participated,
-        -- Get count of survey responses
-        (
-          SELECT COUNT(*)
-          FROM "Youth_Profiling" yp
-          INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
-          WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
-            AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
-            AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
-            AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
-            AND yp.birth_date = v.birth_date
-            AND yp.gender = v.gender
-        ) as survey_count,
-        -- Get first survey date
-        (
-          SELECT MIN(ksr.created_at)
-          FROM "Youth_Profiling" yp
-          INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
-          WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
-            AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
-            AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
-            AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
-            AND yp.birth_date = v.birth_date
-            AND yp.gender = v.gender
-        ) as first_survey_date
+        v.created_by
       FROM "Voters_List" v
       WHERE ${whereClause}
-      ORDER BY ${validSortBy} ${validSortOrder}
+      ORDER BY v.${validSortBy} ${validSortOrder}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
     queryParams.push(limit, offset);
     
     const dataResult = await query(dataQuery, queryParams);
 
-    // Filter by participation status if specified
-    let filteredData = dataResult.rows;
-    if (hasParticipated === 'true') {
-      filteredData = filteredData.filter(v => v.has_participated === true);
-    } else if (hasParticipated === 'false') {
-      filteredData = filteredData.filter(v => v.has_participated === false);
-    }
+    // Use rows as-is
+    const filteredData = dataResult.rows;
 
-    // Calculate statistics including participation stats
+    // Basic stats for tab badges using base filters (no status clause)
     const statsQuery = `
-      WITH voter_participation AS (
-        SELECT 
-          v.voter_id,
-          CASE 
-            WHEN EXISTS (
-              SELECT 1 
-              FROM "Youth_Profiling" yp
-              INNER JOIN "KK_Survey_Responses" ksr ON yp.youth_id = ksr.youth_id
-              WHERE LOWER(TRIM(yp.first_name)) = LOWER(TRIM(v.first_name))
-                AND LOWER(TRIM(yp.last_name)) = LOWER(TRIM(v.last_name))
-                AND (LOWER(TRIM(COALESCE(yp.middle_name, ''))) = LOWER(TRIM(COALESCE(v.middle_name, ''))) OR (yp.middle_name IS NULL AND v.middle_name IS NULL))
-                AND (LOWER(TRIM(COALESCE(yp.suffix, ''))) = LOWER(TRIM(COALESCE(v.suffix, ''))) OR (yp.suffix IS NULL AND v.suffix IS NULL))
-                AND yp.birth_date = v.birth_date
-                AND yp.gender = v.gender
-            ) THEN true
-            ELSE false
-          END as has_participated
-        FROM "Voters_List" v
-      )
       SELECT 
         COUNT(*) as total,
         COUNT(CASE WHEN v.is_active = true THEN 1 END) as active,
-        COUNT(CASE WHEN v.is_active = false THEN 1 END) as archived,
-        COUNT(CASE WHEN vp.has_participated = true THEN 1 END) as has_participated_count,
-        COUNT(CASE WHEN vp.has_participated = false THEN 1 END) as not_participated_count
+        COUNT(CASE WHEN v.is_active = false THEN 1 END) as archived
       FROM "Voters_List" v
-      LEFT JOIN voter_participation vp ON v.voter_id = vp.voter_id
+      WHERE ${baseWhereClause}
     `;
-    const statsResult = await query(statsQuery);
+    const statsResult = await query(statsQuery, baseParams);
     const stats = statsResult.rows[0];
 
     res.json({
@@ -205,18 +140,18 @@ const getVoters = async (req, res) => {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: hasParticipated ? filteredData.length : total,
-        totalPages: Math.ceil((hasParticipated ? filteredData.length : total) / limit)
+        total: total,
+        totalPages: Math.ceil(total / limit)
       },
       stats: {
-        ...stats,
-        has_participated_count: parseInt(stats.has_participated_count) || 0,
-        not_participated_count: parseInt(stats.not_participated_count) || 0
+        total: parseInt(stats.total) || 0,
+        active: parseInt(stats.active) || 0,
+        archived: parseInt(stats.archived) || 0
       }
     });
 
   } catch (error) {
-    console.error('Error fetching voters:', error);
+    logger.error('Error fetching voters', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to fetch voters');
   }
 };
@@ -231,19 +166,26 @@ const getVoterById = async (req, res) => {
 
     const queryText = `
       SELECT 
-        voter_id,
-        first_name,
-        last_name,
-        middle_name,
-        suffix,
-        birth_date,
-        gender,
-        is_active,
-        created_at,
-        updated_at,
-        created_by
-      FROM "Voters_List"
-      WHERE voter_id = $1
+        v.voter_id,
+        v.first_name,
+        v.last_name,
+        v.middle_name,
+        v.suffix,
+        v.birth_date,
+        v.gender,
+        v.is_active,
+        v.created_at,
+        v.updated_at,
+        v.created_by,
+        COALESCE(
+          NULLIF(CONCAT_WS(' ', lydo_creator.first_name, lydo_creator.middle_name, lydo_creator.last_name, lydo_creator.suffix), ''),
+          NULLIF(CONCAT_WS(' ', sk_creator.first_name, sk_creator.middle_name, sk_creator.last_name, sk_creator.suffix), ''),
+          v.created_by
+        ) AS created_by_name
+      FROM "Voters_List" v
+      LEFT JOIN "LYDO" lydo_creator ON v.created_by = lydo_creator.lydo_id
+      LEFT JOIN "SK_Officials" sk_creator ON v.created_by = sk_creator.sk_id
+      WHERE v.voter_id = $1
     `;
 
     const result = await query(queryText, [id]);
@@ -261,7 +203,7 @@ const getVoterById = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching voter:', error);
+    logger.error('Error fetching voter', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to fetch voter');
   }
 };
@@ -364,7 +306,7 @@ const createVoter = async (req, res) => {
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for voter creation:', logError);
+      logger.error('Failed to log activity for voter creation', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
@@ -387,7 +329,7 @@ const createVoter = async (req, res) => {
           }
         );
       } catch (notifError) {
-        console.error('Voter creation notification error:', notifError);
+        logger.error('Voter creation notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
@@ -399,7 +341,7 @@ const createVoter = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error creating voter:', error);
+    logger.error('Error creating voter', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to create voter');
   } finally {
     client.release();
@@ -489,7 +431,7 @@ const updateVoter = async (req, res) => {
           createdBy = userQuery.rows[0].user_id;
         }
       } catch (userError) {
-        console.error('Failed to lookup user_id:', userError);
+        logger.error('Failed to lookup user_id', { error: userError.message, stack: userError.stack });
         // Fall back to lydo_id
       }
     }
@@ -513,9 +455,9 @@ const updateVoter = async (req, res) => {
         userAgent: req.get('User-Agent'),
         status: 'success'
       });
-      console.log('✅ Voter update audit log created');
+      logger.debug('Voter update audit log created');
     } catch (logError) {
-      console.error('❌ Failed to log activity for voter update:', logError);
+      logger.error('Failed to log activity for voter update', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
@@ -538,7 +480,7 @@ const updateVoter = async (req, res) => {
           }
         );
       } catch (notifError) {
-        console.error('Voter update notification error:', notifError);
+        logger.error('Voter update notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
@@ -550,7 +492,7 @@ const updateVoter = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error updating voter:', error);
+    logger.error('Error updating voter', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to update voter');
   } finally {
     client.release();
@@ -623,7 +565,7 @@ const deleteVoter = async (req, res) => {
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for voter archive:', logError);
+      logger.error('Failed to log activity for voter archive', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
@@ -648,7 +590,7 @@ const deleteVoter = async (req, res) => {
           }
         );
       } catch (notifError) {
-        console.error('Voter archive notification error:', notifError);
+        logger.error('Voter archive notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
@@ -660,7 +602,7 @@ const deleteVoter = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error archiving voter:', error);
+    logger.error('Error archiving voter', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to archive voter');
   } finally {
     client.release();
@@ -741,7 +683,7 @@ const restoreVoter = async (req, res) => {
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for voter restore:', logError);
+      logger.error('Failed to log activity for voter restore', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
@@ -766,7 +708,7 @@ const restoreVoter = async (req, res) => {
           }
         );
       } catch (notifError) {
-        console.error('Voter restore notification error:', notifError);
+        logger.error('Voter restore notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
@@ -778,8 +720,128 @@ const restoreVoter = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error restoring voter:', error);
+    logger.error('Error restoring voter', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to restore voter');
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Hard delete voter (permanent removal)
+ * DELETE /api/voters/:id/hard-delete
+ */
+const hardDeleteVoter = async (req, res) => {
+  const client = await getClient();
+  
+  try {
+    const { id } = req.params;
+    const userId = req.user?.lydo_id || req.user?.lydoId;
+
+    await client.query('BEGIN');
+
+    // Check if voter exists
+    const checkQuery = 'SELECT * FROM "Voters_List" WHERE voter_id = $1';
+    const checkResult = await client.query(checkQuery, [id]);
+    
+    if (checkResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Voter not found'
+      });
+    }
+
+    const voter = checkResult.rows[0];
+    const voterName = `${voter.last_name}, ${voter.first_name}`;
+
+    // Permanently delete the voter record
+    const deleteQuery = 'DELETE FROM "Voters_List" WHERE voter_id = $1 RETURNING *';
+    const deleteResult = await client.query(deleteQuery, [id]);
+
+    if (deleteResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Voter not found'
+      });
+    }
+
+    await client.query('COMMIT');
+
+    // Create audit log for hard delete
+    try {
+      await createAuditLog({
+        userId: userId || 'SYSTEM',
+        userType: req.user?.userType || req.user?.user_type || 'admin',
+        action: 'Delete',
+        resource: '/api/voters',
+        resourceId: id,
+        resourceName: voterName,
+        resourceType: 'voter',
+        details: {
+          resourceType: 'voter',
+          voterId: id,
+          voterName: voterName,
+          deletionType: 'hard_delete',
+          permanent: true
+        },
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+    } catch (logError) {
+      logger.error('Failed to log activity for voter hard delete', { error: logError.message, stack: logError.stack });
+      // Don't fail the request if logging fails
+    }
+
+    // Send notification to admins
+    setTimeout(async () => {
+      try {
+        await universalNotificationService.sendNotificationAsync(
+          'voters',
+          'status',
+          {
+            entityData: {
+              voterId: id,
+              voterName: voterName,
+              deletionType: 'hard_delete',
+              deletedBy: userId
+            },
+            user: {
+              id: userId,
+              userType: req.user?.userType || req.user?.user_type || 'admin'
+            }
+          }
+        );
+      } catch (notifError) {
+        logger.error('Voter hard delete notification error', { error: notifError.message, stack: notifError.stack });
+      }
+    }, 100);
+
+    res.json({
+      success: true,
+      message: 'Voter permanently deleted successfully',
+      data: {
+        voterId: id,
+        voterName: voterName
+      }
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logger.error('Error hard deleting voter', { error: error.message, stack: error.stack });
+    
+    // Check if error is due to foreign key constraint
+    if (error.code === '23503') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete voter: Voter has related records (e.g., survey responses). Please archive instead.',
+        error: 'Foreign key constraint violation'
+      });
+    }
+    
+    handleError(res, error, 'Failed to permanently delete voter');
   } finally {
     client.release();
   }
@@ -835,7 +897,7 @@ const bulkUpdateStatus = async (req, res) => {
           });
         }
       } catch (err) {
-        console.error(`❌ Failed to ${action} voter ${id}:`, err);
+        logger.error(`Failed to ${action} voter ${id}`, { error: err.message, stack: err.stack });
         errors.push({ id, error: err.message });
       }
     }
@@ -867,7 +929,7 @@ const bulkUpdateStatus = async (req, res) => {
         status: errors.length === 0 ? 'success' : (results.length > 0 ? 'partial' : 'error')
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for bulk operation:', logError);
+      logger.error('Failed to log activity for bulk operation', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
@@ -881,7 +943,7 @@ const bulkUpdateStatus = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error in bulk status update:', error);
+    logger.error('Error in bulk status update', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to process bulk status update');
   } finally {
     client.release();
@@ -906,7 +968,7 @@ const bulkImportVoters = async (req, res) => {
     const file = req.file;
     let userId = req.user?.lydo_id || req.user?.lydoId || req.user?.userId || req.user?.id;
 
-    console.log('📁 Processing voter bulk import file:', file.originalname);
+    logger.info(`Processing voter bulk import file: ${file.originalname}`);
 
     // Validate file type
     const allowedTypes = [
@@ -936,6 +998,11 @@ const bulkImportVoters = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Missing LYDO ID for creator. Please re-login and try again.' });
     }
 
+    // Determine duplicate handling strategy
+    const allowedStrategies = ['skip', 'update', 'restore'];
+    const duplicateStrategyRaw = (req.body?.duplicateStrategy || 'skip').toString().toLowerCase();
+    const duplicateStrategy = allowedStrategies.includes(duplicateStrategyRaw) ? duplicateStrategyRaw : 'skip';
+
     // Parse file content
     let records = [];
     
@@ -945,45 +1012,145 @@ const bulkImportVoters = async (req, res) => {
       records = await parseExcelFile(file.buffer);
     }
 
-    console.log(`📊 Parsed ${records.length} records from file`);
+    logger.info(`Parsed ${records.length} records from file`);
 
-    // Validate records
-    const validationResult = validateBulkImport(records);
+    // Validate records (structure + duplicate detection)
+    const validationResult = await validateBulkImport(records);
     if (!validationResult.isValid) {
       return res.status(400).json({
         success: false,
         message: 'Bulk import validation failed',
-        errors: validationResult.errors,
-        suggestions: validationResult.suggestions
+        summary: validationResult.summary,
+        rows: validationResult.rows,
+        errors: validationResult.errors
       });
     }
 
+    const validatedRows = validationResult.rows;
+
     await client.query('BEGIN');
 
-    // Process records with individual transactions
     const results = {
-      total: records.length,
-      successful: 0,
+      total: validatedRows.length,
+      created: 0,
+      updated: 0,
+      restored: 0,
+      skipped: 0,
       failed: 0,
+      rows: [],
       errors: []
     };
 
-    for (let i = 0; i < records.length; i++) {
-      const record = records[i];
-      
+    for (const rowInfo of validatedRows) {
+      const record = rowInfo.normalized;
+      const rowOutcome = {
+        rowNumber: rowInfo.rowNumber,
+        data: record,
+        validationStatus: rowInfo.status,
+        validationIssues: rowInfo.issues,
+        duplicate: rowInfo.duplicate,
+        action: null,
+        message: ''
+      };
+
       try {
-        // Skip duplicates that already exist in the database (same name + birth_date)
-        const exists = await checkVoterExists(record.first_name, record.last_name, record.birth_date);
-        if (exists) {
+        if (rowInfo.status === 'error') {
           results.failed++;
-          results.errors.push({ row: i + 1, error: 'Duplicate voter already exists (same name and birth date)', data: record });
+          rowOutcome.action = 'invalid';
+          rowOutcome.message = 'Skipped due to validation errors';
+          results.errors.push({ row: rowInfo.rowNumber, reason: 'Validation errors', issues: rowInfo.issues, data: record });
+          results.rows.push(rowOutcome);
           continue;
         }
 
-        // Generate voter ID
-        const voterId = await generateVoterId();
+        // Skip secondary duplicates within the same file
+        if (rowInfo.duplicate.inFile && !rowInfo.duplicate.isPrimaryInFile) {
+          results.skipped++;
+          rowOutcome.action = 'skipped';
+          rowOutcome.message = 'Skipped duplicate row within the uploaded file';
+          results.errors.push({ row: rowInfo.rowNumber, reason: 'Duplicate in file', data: record });
+          results.rows.push(rowOutcome);
+          continue;
+        }
 
-        // Insert voter
+        const existingActive = rowInfo.existingMatches?.find(match => match.is_active);
+        const existingArchived = rowInfo.existingMatches?.find(match => !match.is_active);
+
+        const performUpdate = async (existingMatch, makeActive) => {
+          const updateQuery = `
+            UPDATE "Voters_List"
+            SET first_name = $1,
+                last_name = $2,
+                middle_name = $3,
+                suffix = $4,
+                birth_date = $5,
+                gender = $6,
+                is_active = $7,
+                updated_at = NOW()
+            WHERE voter_id = $8
+            RETURNING voter_id
+          `;
+          await client.query(updateQuery, [
+            record.first_name,
+            record.last_name,
+            record.middle_name || null,
+            record.suffix || null,
+            record.birth_date,
+            record.gender,
+            makeActive ? true : existingMatch.is_active,
+            existingMatch.voter_id
+          ]);
+        };
+
+        let handled = false;
+
+        if (existingActive) {
+          if (duplicateStrategy === 'update' || duplicateStrategy === 'restore') {
+            await performUpdate(existingActive, existingActive.is_active);
+            results.updated++;
+            rowOutcome.action = 'updated';
+            rowOutcome.message = 'Existing active voter updated';
+            handled = true;
+          }
+        } else if (existingArchived) {
+          if (duplicateStrategy === 'restore') {
+            await performUpdate(existingArchived, true);
+            results.restored++;
+            rowOutcome.action = 'restored';
+            rowOutcome.message = 'Archived voter restored and updated';
+            handled = true;
+          } else if (duplicateStrategy === 'update') {
+            // Update archived record without reactivating
+            await performUpdate(existingArchived, false);
+            results.updated++;
+            rowOutcome.action = 'updated';
+            rowOutcome.message = 'Archived voter details updated (still archived)';
+            handled = true;
+          }
+        }
+
+        if (handled) {
+          results.rows.push(rowOutcome);
+          continue;
+        }
+
+        if (existingActive || existingArchived) {
+          results.skipped++;
+          rowOutcome.action = 'skipped';
+          rowOutcome.message = duplicateStrategy === 'skip'
+            ? 'Skipped duplicate voter (strategy: skip)'
+            : 'Skipped duplicate voter (strategy did not apply to record status)';
+          results.errors.push({
+            row: rowInfo.rowNumber,
+            reason: rowOutcome.message,
+            data: record
+          });
+          results.rows.push(rowOutcome);
+          continue;
+        }
+
+        // Insert new voter
+        const voterId = await generateVoterId();
         const insertQuery = `
           INSERT INTO "Voters_List" (
             voter_id,
@@ -995,10 +1162,10 @@ const bulkImportVoters = async (req, res) => {
             gender,
             created_by
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          RETURNING *
+          RETURNING voter_id
         `;
 
-        const insertParams = [
+        await client.query(insertQuery, [
           voterId,
           record.first_name,
           record.last_name,
@@ -1007,26 +1174,37 @@ const bulkImportVoters = async (req, res) => {
           record.birth_date,
           record.gender,
           userId
-        ];
+        ]);
 
-        const result = await client.query(insertQuery, insertParams);
-        const newVoter = result.rows[0];
-
-        // Don't log individual voters - we'll log the bulk operation at the end
-        results.successful++;
+        results.created++;
+        rowOutcome.action = 'created';
+        rowOutcome.message = 'New voter created';
+        results.rows.push(rowOutcome);
 
       } catch (error) {
-        console.error(`Error importing record ${i + 1}:`, error);
+        logger.error(`Error importing record ${rowInfo.rowNumber}`, { error: error.message, stack: error.stack });
         results.failed++;
+        rowOutcome.action = 'failed';
+        rowOutcome.message = error.message || 'Unexpected error';
         results.errors.push({
-          row: i + 1,
-          error: error.message,
+          row: rowInfo.rowNumber,
+          reason: rowOutcome.message,
           data: record
         });
+        results.rows.push(rowOutcome);
       }
     }
 
     await client.query('COMMIT');
+
+    const importedCount = results.created + results.updated + results.restored;
+    const summaryParts = [];
+    if (results.created) summaryParts.push(`${results.created} created`);
+    if (results.updated) summaryParts.push(`${results.updated} updated`);
+    if (results.restored) summaryParts.push(`${results.restored} restored`);
+    if (results.skipped) summaryParts.push(`${results.skipped} skipped`);
+    if (results.failed) summaryParts.push(`${results.failed} failed`);
+    const summaryText = summaryParts.length ? summaryParts.join(', ') : 'No changes applied';
 
     // Log bulk import activity
     try {
@@ -1036,22 +1214,25 @@ const bulkImportVoters = async (req, res) => {
         action: 'Bulk Import',
         resource: '/api/voters/bulk/import',
         resourceId: null,
-        resourceName: `Voter Bulk Import - ${results.successful} ${results.successful === 1 ? 'voter' : 'voters'}`,
+        resourceName: `Voter Bulk Import - ${importedCount} processed`,
         resourceType: 'voter',
         details: {
           resourceType: 'voter',
           totalItems: results.total,
-          successCount: results.successful,
-          errorCount: results.failed,
+          created: results.created,
+          updated: results.updated,
+          restored: results.restored,
+          skipped: results.skipped,
+          failed: results.failed,
+          duplicateStrategy,
           fileName: file.originalname
         },
         ipAddress: req.ip || req.connection.remoteAddress,
         userAgent: req.get('User-Agent'),
-        status: results.failed === 0 ? 'success' : (results.successful > 0 ? 'partial' : 'error')
+        status: results.failed === 0 ? 'success' : (importedCount > 0 ? 'partial' : 'error')
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for bulk import:', logError);
-      // Don't fail the request if logging fails
+      logger.error('Failed to log activity for bulk import', { error: logError.message, stack: logError.stack });
     }
 
     // Send bulk import completion notification
@@ -1059,34 +1240,43 @@ const bulkImportVoters = async (req, res) => {
       try {
         await universalNotificationService.sendNotificationAsync(
           'voters',
-          'bulk_import',
+          'import',
+          {},
           {
-            entityData: {
-              totalRecords: results.total,
-              successfulImports: results.successful,
-              failedImports: results.failed,
-              importedBy: userId
-            },
-            user: {
-              id: userId,
-              userType: req.user?.userType || req.user?.user_type || 'admin'
+            id: userId,
+            userType: req.user?.userType || req.user?.user_type || 'admin'
+          },
+          {
+            importSummary: {
+              totalRows: results.total,
+              importedRecords: importedCount,
+              errors: results.failed,
+              skipped: results.skipped
             }
           }
         );
       } catch (notifError) {
-        console.error('Bulk import notification error:', notifError);
+        logger.error('Bulk import notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
     res.json({
       success: true,
-      message: `Bulk import completed. ${results.successful} successful, ${results.failed} failed.`,
-      data: results
+      message: `Bulk import completed. ${importedCount}/${results.total} processed (${summaryText}).`,
+      data: results,
+      summary: {
+        total: results.total,
+        created: results.created,
+        updated: results.updated,
+        restored: results.restored,
+        skipped: results.skipped,
+        failed: results.failed
+      }
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error in bulk import:', error);
+    logger.error('Error in bulk import', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to process bulk import');
   } finally {
     client.release();
@@ -1107,7 +1297,7 @@ const validateBulkImportFile = async (req, res) => {
     }
 
     const file = req.file;
-    console.log('🔍 Validating voter bulk import file:', file.originalname);
+    logger.debug(`Validating voter bulk import file: ${file.originalname}`);
 
     // Validate file type
     const allowedTypes = [
@@ -1132,25 +1322,21 @@ const validateBulkImportFile = async (req, res) => {
       records = await parseExcelFile(file.buffer);
     }
 
-    console.log(`📊 Parsed ${records.length} records for validation`);
+    logger.debug(`Parsed ${records.length} records for validation`);
 
     // Validate records
-    const validationResult = validateBulkImport(records);
+    const validationResult = await validateBulkImport(records);
 
     res.json({
       success: true,
       data: {
-        totalRecords: records.length,
-        validRecords: validationResult.isValid ? records.length : records.length - validationResult.errors.length,
-        invalidRecords: validationResult.errors.length,
-        preview: records.slice(0, 10), // First 10 records as preview
-        errors: validationResult.errors,
-        suggestions: validationResult.suggestions
+        ...validationResult,
+        preview: validationResult.rows.slice(0, 10)
       }
     });
 
   } catch (error) {
-    console.error('Error validating bulk import:', error);
+    logger.error('Error validating bulk import', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to validate bulk import file');
   }
 };
@@ -1163,7 +1349,7 @@ const exportVoters = async (req, res) => {
   try {
     const { format = 'csv', status = 'active', selectedIds } = req.query;
     
-    console.log('🔍 Export request:', { format, status, selectedIds });
+    logger.debug('Export request', { format, status, selectedIds });
 
     // Build WHERE clause
     let whereConditions = ['1=1'];
@@ -1187,7 +1373,7 @@ const exportVoters = async (req, res) => {
     }
 
     const whereClause = whereConditions.join(' AND ');
-    console.log('🔍 WHERE clause:', whereClause);
+    logger.debug('WHERE clause', { whereClause });
 
     // Get all voters
     const queryText = `
@@ -1207,11 +1393,11 @@ const exportVoters = async (req, res) => {
       ORDER BY last_name, first_name
     `;
 
-    console.log('🔍 Query text:', queryText);
+    logger.debug('Query text', { queryText });
     const result = await query(queryText, queryParams);
     const voters = result.rows;
     
-    console.log('🔍 Query result:', { rowCount: voters.length, voters: voters.slice(0, 2) });
+    logger.debug('Query result', { rowCount: voters.length, sampleVoters: voters.slice(0, 2) });
 
     // Determine export type and format
     const actualFormat = format === 'xlsx' ? 'xlsx' : format;
@@ -1240,7 +1426,7 @@ const exportVoters = async (req, res) => {
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for voter export:', logError);
+      logger.error('Failed to log activity for voter export', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
@@ -1277,7 +1463,7 @@ const exportVoters = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Error exporting voters:', error);
+    logger.error('Error exporting voters', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to export voters');
   }
 };
@@ -1330,7 +1516,7 @@ const getBulkImportTemplate = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Error generating template:', error);
+    logger.error('Error generating template', { error: error.message, stack: error.stack });
     handleError(res, error, 'Failed to generate template');
   }
 };
@@ -1342,6 +1528,7 @@ export default {
   updateVoter,
   deleteVoter,
   restoreVoter,
+  hardDeleteVoter,
   bulkUpdateStatus,
   bulkImportVoters,
   validateBulkImportFile,

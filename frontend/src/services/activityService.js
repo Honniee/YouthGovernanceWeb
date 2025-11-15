@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * Activity Logs Service
@@ -432,7 +433,7 @@ class ActivityService {
    * @returns {Object} Formatted error response
    */
   handleError(error, defaultMessage) {
-    console.error('Activity service error:', error);
+    logger.error('Activity service error', error, { defaultMessage });
     
     let message = defaultMessage;
     let details = null;

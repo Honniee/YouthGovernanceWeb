@@ -42,6 +42,7 @@ import surveyBatchesService from '../../services/surveyBatchesService';
 import activityService from '../../services/activityService';
 import api from '../../services/api';
 import { useActiveTerm } from '../../hooks/useActiveTerm';
+import logger from '../../utils/logger.js';
 import {
   ResponsiveContainer,
   BarChart,
@@ -342,20 +343,17 @@ const StaffDashboard = () => {
             .filter(item => item.count > 0)
             .sort((a, b) => b.count - a.count);
           
-          console.log('📊 Raw chartData:', chartData);
-          console.log('📊 Valid data:', validData);
-          console.log('📊 First item details:', validData[0] ? {
-            name: validData[0].name,
-            count: validData[0].count,
-            countType: typeof validData[0].count,
-            countIsNumber: typeof validData[0].count === 'number'
-          } : 'No data');
+          logger.debug('Barangay distribution data', {
+            rawDataCount: chartData.length,
+            validDataCount: validData.length,
+            firstItem: validData[0] ? { name: validData[0].name, count: validData[0].count } : null
+          });
           
           if (validData.length > 0) {
-            console.log('✅ Setting barangay distribution with', validData.length, 'items');
+            logger.debug('Setting barangay distribution', { itemsCount: validData.length });
             setBarangayDistribution(validData);
           } else {
-            console.warn('⚠️ No valid barangay distribution data');
+            logger.warn('No valid barangay distribution data');
             // Set empty array explicitly
             setBarangayDistribution([]);
           }
@@ -379,7 +377,7 @@ const StaffDashboard = () => {
       setSystemAlerts(alerts);
       
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      logger.error('Error fetching dashboard data', error);
     } finally {
       setIsLoadingStats(false);
     }
@@ -425,7 +423,7 @@ const StaffDashboard = () => {
         setActiveSurveyResponses([]);
       }
     } catch (error) {
-      console.error('Error fetching active survey:', error);
+      logger.error('Error fetching active survey', error);
       setActiveSurveyBatch(null);
       setActiveSurveyResponses([]);
     } finally {
@@ -443,7 +441,7 @@ const StaffDashboard = () => {
 
   // Apply filters function
   const applyFilters = () => {
-    console.log('Filters applied:', { searchQuery, selectedBarangay, dateRange });
+    logger.debug('Filters applied', { searchQuery, selectedBarangay, dateRange });
     
     // Filter barangay distribution data
     if (selectedBarangay && selectedBarangay !== 'All Barangays') {
@@ -896,7 +894,7 @@ const StaffDashboard = () => {
           </button>
           <button
             onClick={() => {
-              console.log('Applying filters:', { searchQuery, selectedBarangay, dateRange });
+              logger.debug('Applying filters', { searchQuery, selectedBarangay, dateRange });
               // Filter data based on selections
               applyFilters();
             }}

@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * Statistics Service
@@ -11,12 +12,12 @@ class StatisticsService {
    */
   async getHomePageStatistics() {
     try {
-      console.log('📊 Service - Fetching home page statistics...');
+      logger.debug('Fetching home page statistics');
       const response = await api.get('/statistics/home');
-      console.log('📊 Service - Home page statistics response:', response.data);
+      logger.debug('Home page statistics received', { dataKeys: Object.keys(response.data?.data || {}) });
       return { success: true, data: response.data.data };
     } catch (error) {
-      console.error('📊 Service - Error fetching home page statistics:', error);
+      logger.error('Error fetching home page statistics', error);
       return this.handleError(error, 'Failed to load home page statistics');
     }
   }
@@ -27,12 +28,12 @@ class StatisticsService {
    */
   async getAdminDashboardStatistics() {
     try {
-      console.log('📊 Service - Fetching admin dashboard statistics...');
+      logger.debug('Fetching admin dashboard statistics');
       const response = await api.get('/statistics/admin/dashboard');
-      console.log('📊 Service - Admin dashboard statistics response:', response.data);
+      logger.debug('Admin dashboard statistics received', { dataKeys: Object.keys(response.data?.data || {}) });
       return { success: true, data: response.data.data };
     } catch (error) {
-      console.error('📊 Service - Error fetching admin dashboard statistics:', error);
+      logger.error('Error fetching admin dashboard statistics', error);
       return this.handleError(error, 'Failed to load admin dashboard statistics');
     }
   }

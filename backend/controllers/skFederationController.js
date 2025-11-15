@@ -1,5 +1,6 @@
 import { getClient } from '../config/database.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 // GET /api/sk-federation/:termId
 export const getFederationByTerm = async (req, res) => {
@@ -26,7 +27,7 @@ export const getFederationByTerm = async (req, res) => {
     );
     return res.json({ success: true, data: result.rows });
   } catch (error) {
-    console.error('getFederationByTerm error:', error);
+    logger.error('getFederationByTerm error', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to fetch SK Federation officers' });
   } finally {
     client.release();
@@ -77,7 +78,7 @@ export const getFederationPublicCurrent = async (req, res) => {
     );
     return res.json({ success: true, data: result.rows, termId });
   } catch (error) {
-    console.error('getFederationPublicCurrent error:', error);
+    logger.error('getFederationPublicCurrent error', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to fetch SK Federation officers' });
   } finally {
     client.release();
@@ -109,7 +110,7 @@ export const upsertFederationByTerm = async (req, res) => {
           createdBy = userResult.rows[0].user_id;
         }
       } catch (err) {
-        console.warn('⚠️  Could not map lydo_id to user_id, using null for created_by:', err.message);
+        logger.warn('Could not map lydo_id to user_id, using null for created_by', { error: err.message, stack: err.stack });
       }
     }
 
@@ -153,7 +154,7 @@ export const upsertFederationByTerm = async (req, res) => {
     return res.json({ success: true, message: 'SK Federation updated', data: { termId, total: assignments.length } });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('upsertFederationByTerm error:', error);
+    logger.error('upsertFederationByTerm error', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to update SK Federation officers' });
   } finally {
     client.release();

@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import notificationService from './notificationService.js';
+import logger from '../utils/logger.js';
 
 /**
  * Universal Notification Service
@@ -47,6 +48,12 @@ class UniversalNotificationService {
         displayNamePlural: 'Reports',
         nameTemplate: (data) => `${data.reportType} — ${data.recordCount} records`,
         emailField: null
+      },
+      'voters': {
+        displayName: 'Voter',
+        displayNamePlural: 'Voters',
+        nameTemplate: (data) => `${(data.firstName || data.first_name || '').trim()} ${(data.lastName || data.last_name || '').trim()}`.trim(),
+        emailField: null
       }
     };
   }
@@ -62,12 +69,11 @@ class UniversalNotificationService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return false;
       }
 
-      console.log(`🔔 Notifying admins about ${config.displayName} creation:`, entityData);
-      console.log('🔔 Creator context received:', creator);
+      logger.debug(`Notifying admins about ${config.displayName} creation`, { entityData, creator });
 
       // Follow exact Staff Management admin query pattern
       const adminsResult = await query(
@@ -77,10 +83,10 @@ class UniversalNotificationService {
          WHERE u.user_type = 'admin'`
       );
 
-      console.log(`🔔 Found ${adminsResult.rows.length} admin users:`, adminsResult.rows.map(admin => admin.user_id));
+      logger.debug(`Found ${adminsResult.rows.length} admin users`, { adminIds: adminsResult.rows.map(admin => admin.user_id) });
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found');
         return false;
       }
 
@@ -88,12 +94,11 @@ class UniversalNotificationService {
       const createdByUserId = creator?.user_id || creator?.id || 'SYSTEM';
       const creatorName = creator ? `${creator.firstName} ${creator.lastName}` : 'System';
       
-      console.log('🔔 Using createdBy:', createdByUserId);
-      console.log('🔔 Creator name:', creatorName);
+      logger.debug('Using createdBy', { createdByUserId, creatorName });
       
       // Create notifications for each admin - exact Staff Management pattern
       const notificationPromises = adminsResult.rows.map(admin => {
-        console.log(`🔔 Creating notification for admin: ${admin.user_id}`);
+        logger.debug(`Creating notification for admin: ${admin.user_id}`);
         return this.baseNotificationService.createNotification({
           userId: admin.user_id,
           userType: 'admin',
@@ -106,11 +111,11 @@ class UniversalNotificationService {
       });
 
       await Promise.all(notificationPromises);
-      console.log(`✅ ${config.displayName} creation notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info(`${config.displayName} creation notifications sent to ${adminsResult.rows.length} admins`, { entityType, adminCount: adminsResult.rows.length });
       return true;
 
     } catch (error) {
-      console.error(`❌ Failed to notify admins about ${entityType} creation:`, error);
+      logger.error(`Failed to notify admins about ${entityType} creation`, { error: error.message, stack: error.stack, entityType });
       return false;
     }
   }
@@ -127,11 +132,11 @@ class UniversalNotificationService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return false;
       }
 
-      console.log(`🔔 Notifying admins about ${config.displayName} update:`, updatedData);
+      logger.debug(`Notifying admins about ${config.displayName} update`, { updatedData });
 
       // Get all admin users
       const adminsResult = await query(
@@ -142,7 +147,7 @@ class UniversalNotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found');
         return false;
       }
 
@@ -166,11 +171,11 @@ class UniversalNotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ ${config.displayName} update notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info(`${config.displayName} update notifications sent to ${adminsResult.rows.length} admins`, { entityType, adminCount: adminsResult.rows.length });
       return true;
 
     } catch (error) {
-      console.error(`❌ Failed to notify admins about ${entityType} update:`, error);
+      logger.error(`Failed to notify admins about ${entityType} update`, { error: error.message, stack: error.stack, entityType });
       return false;
     }
   }
@@ -186,21 +191,20 @@ class UniversalNotificationService {
    */
   async notifyAdminsAboutStatusChange(entityType, entityData, oldStatus, newStatus, updater) {
     try {
-      console.log(`🔔 notifyAdminsAboutStatusChange called with:`, {
+      logger.debug(`notifyAdminsAboutStatusChange called`, {
         entityType,
-        entityData,
         oldStatus,
         newStatus,
-        updater
+        updater: updater ? { id: updater.user_id || updater.id, name: `${updater.firstName} ${updater.lastName}` } : null
       });
       
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return false;
       }
 
-      console.log(`🔔 Notifying admins about ${config.displayName} status change:`, { oldStatus, newStatus });
+      logger.debug(`Notifying admins about ${config.displayName} status change`, { oldStatus, newStatus });
 
       // Get all admin users
       const adminsResult = await query(
@@ -211,23 +215,20 @@ class UniversalNotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found');
         return false;
       }
 
-      console.log(`🔔 Entity data for nameTemplate:`, entityData);
       const entityName = config.nameTemplate(entityData);
-      console.log(`🔔 Generated entity name:`, entityName);
       const updaterName = updater ? `${updater.firstName} ${updater.lastName}` : 'System';
-      console.log(`🔔 Updater name:`, updaterName);
       const statusChangeText = this.formatStatusChange(oldStatus, newStatus);
-      console.log(`🔔 Status change text:`, statusChangeText);
       
-      // Create notifications for each admin
-      console.log(`🔔 Creating notifications for ${adminsResult.rows.length} admins`);
-      console.log(`🔔 Entity name: ${entityName}`);
-      console.log(`🔔 Updater name: ${updaterName}`);
-      console.log(`🔔 Status change text: ${statusChangeText}`);
+      logger.debug('Status change details', {
+        entityName,
+        updaterName,
+        statusChangeText,
+        adminCount: adminsResult.rows.length
+      });
       
       const notificationPromises = adminsResult.rows.map(admin => {
         const notificationData = {
@@ -239,12 +240,12 @@ class UniversalNotificationService {
           priority: 'normal',
           createdBy: updater?.id || 'SYSTEM'
         };
-        console.log(`🔔 Creating notification for admin ${admin.user_id}:`, notificationData);
+        logger.debug(`Creating notification for admin ${admin.user_id}`, { notificationData });
         return this.baseNotificationService.createNotification(notificationData);
       });
 
       await Promise.all(notificationPromises);
-      console.log(`✅ ${config.displayName} status change notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info(`${config.displayName} status change notifications sent to ${adminsResult.rows.length} admins`, { entityType, adminCount: adminsResult.rows.length });
       
       // Debug: Check if notifications were actually created in database
       try {
@@ -256,15 +257,15 @@ class UniversalNotificationService {
           LIMIT 5
         `;
         const checkResult = await query(checkNotificationsQuery);
-        console.log(`🔍 Recent notifications in database:`, checkResult.rows);
+        logger.debug('Recent notifications in database', { notifications: checkResult.rows });
       } catch (checkError) {
-        console.error(`❌ Error checking notifications in database:`, checkError);
+        logger.error('Error checking notifications in database', { error: checkError.message, stack: checkError.stack });
       }
       
       return true;
 
     } catch (error) {
-      console.error(`❌ Failed to notify admins about ${entityType} status change:`, error);
+      logger.error(`Failed to notify admins about ${entityType} status change`, { error: error.message, stack: error.stack, entityType });
       return false;
     }
   }
@@ -281,11 +282,11 @@ class UniversalNotificationService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return false;
       }
 
-      console.log(`🔔 Notifying admins about bulk ${operation} operation on ${entityType}`);
+      logger.debug(`Notifying admins about bulk ${operation} operation on ${entityType}`, { entityIds: entityIds.length });
 
       // Get all admin users
       const adminsResult = await query(
@@ -296,7 +297,7 @@ class UniversalNotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found');
+        logger.warn('No admin users found');
         return false;
       }
 
@@ -317,11 +318,11 @@ class UniversalNotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ Bulk ${operation} notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info(`Bulk ${operation} notifications sent to ${adminsResult.rows.length} admins`, { entityType, operation, adminCount: adminsResult.rows.length });
       return true;
 
     } catch (error) {
-      console.error(`❌ Failed to notify admins about bulk ${operation}:`, error);
+      logger.error(`Failed to notify admins about bulk ${operation}`, { error: error.message, stack: error.stack, entityType, operation });
       return false;
     }
   }
@@ -337,11 +338,11 @@ class UniversalNotificationService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return false;
       }
 
-      console.log(`🔔 Notifying admins about ${entityType} bulk import:`, importSummary);
+      logger.debug(`Notifying admins about ${entityType} bulk import`, { importSummary });
 
       // Get all admin users
       const adminsResult = await query(
@@ -352,7 +353,7 @@ class UniversalNotificationService {
       );
 
       if (adminsResult.rows.length === 0) {
-        console.log('⚠️ No admin users found for bulk import notification');
+        logger.warn('No admin users found for bulk import notification');
         return false;
       }
 
@@ -373,11 +374,11 @@ class UniversalNotificationService {
       );
 
       await Promise.all(notificationPromises);
-      console.log(`✅ ${entityType} bulk import notifications sent to ${adminsResult.rows.length} admins`);
+      logger.info(`${entityType} bulk import notifications sent to ${adminsResult.rows.length} admins`, { entityType, adminCount: adminsResult.rows.length, importedRecords, totalRows, errors });
       return true;
 
     } catch (error) {
-      console.error(`❌ Failed to notify admins about ${entityType} bulk import:`, error);
+      logger.error(`Failed to notify admins about ${entityType} bulk import`, { error: error.message, stack: error.stack, entityType });
       return false;
     }
   }
@@ -391,7 +392,7 @@ class UniversalNotificationService {
    * @param {object} extraData - Additional data for specific notification types
    */
   async sendNotificationAsync(entityType, notificationType, entityData, user, extraData = {}) {
-    console.log(`🔔 sendNotificationAsync called with:`, {
+    logger.debug(`sendNotificationAsync called`, {
       entityType,
       notificationType,
       entityData,
@@ -403,38 +404,35 @@ class UniversalNotificationService {
     const currentUser = user;
     setTimeout(async () => {
       try {
-        console.log(`🔔 Processing ${entityType} ${notificationType} notification with user context:`, currentUser);
-        console.log(`🔔 Extra data:`, extraData);
+        logger.debug(`Processing ${entityType} ${notificationType} notification with user context`, { currentUser, extraData });
         
         switch (notificationType) {
           case 'creation':
-            console.log(`🔔 Calling notifyAdminsAboutCreation for ${entityType}`);
+            logger.debug(`Calling notifyAdminsAboutCreation for ${entityType}`);
             await this.notifyAdminsAboutCreation(entityType, entityData, currentUser);
             break;
           case 'update':
-            console.log(`🔔 Calling notifyAdminsAboutUpdate for ${entityType}`);
+            logger.debug(`Calling notifyAdminsAboutUpdate for ${entityType}`);
             await this.notifyAdminsAboutUpdate(entityType, entityData, extraData.originalData, currentUser);
             break;
           case 'status':
-            console.log(`🔔 Calling notifyAdminsAboutStatusChange for ${entityType}`);
-            console.log(`🔔 Status change: ${extraData.oldStatus} → ${extraData.newStatus}`);
+            logger.debug(`Calling notifyAdminsAboutStatusChange for ${entityType}`, { statusChange: `${extraData.oldStatus} → ${extraData.newStatus}` });
             await this.notifyAdminsAboutStatusChange(entityType, entityData, extraData.oldStatus, extraData.newStatus, currentUser);
             break;
           case 'bulk':
-            console.log(`🔔 Calling notifyAdminsAboutBulkOperation for ${entityType}`);
+            logger.debug(`Calling notifyAdminsAboutBulkOperation for ${entityType}`);
             await this.notifyAdminsAboutBulkOperation(entityType, extraData.operation, extraData.entityIds, currentUser);
             break;
           case 'import':
-            console.log(`🔔 Calling notifyAdminsAboutBulkImport for ${entityType}`);
+            logger.debug(`Calling notifyAdminsAboutBulkImport for ${entityType}`);
             await this.notifyAdminsAboutBulkImport(entityType, extraData.importSummary, currentUser);
             break;
           default:
-            console.error(`❌ Unknown notification type: ${notificationType}`);
+            logger.error(`Unknown notification type: ${notificationType}`, { entityType, notificationType });
         }
-        console.log(`✅ ${entityType} ${notificationType} notification processed successfully`);
+        logger.debug(`${entityType} ${notificationType} notification processed successfully`);
       } catch (notifError) {
-        console.error(`❌ ${entityType} ${notificationType} notification error:`, notifError);
-        console.error(`❌ Error stack:`, notifError.stack);
+        logger.error(`${entityType} ${notificationType} notification error`, { error: notifError.message, stack: notifError.stack, entityType, notificationType });
       }
     }, 100);
   }

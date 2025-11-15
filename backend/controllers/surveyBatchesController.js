@@ -175,8 +175,8 @@ export const createBatch = async (req, res) => {
  */
 export const getAllBatches = async (req, res) => {
   try {
-    console.log('🔍 Backend - getAllBatches called with query:', req.query);
-    console.log('🔍 Backend - includeStats parameter check:', {
+    logger.debug('Backend - getAllBatches called', { query: req.query });
+    logger.debug('Backend - includeStats parameter check', {
       includeStats: req.query.includeStats,
       includeStatsType: typeof req.query.includeStats,
       include_stats: req.query.include_stats,
@@ -202,7 +202,7 @@ export const getAllBatches = async (req, res) => {
       dateCreated: req.query.dateCreated || req.query.date_created
     };
     
-    console.log('🔍 Backend - Processed options:', options);
+    logger.debug('Backend - Processed options', { options });
 
     // Get batches from service
     const result = await SurveyBatchesService.getAllBatches(options);
@@ -769,9 +769,9 @@ export const getBatchResponses = async (req, res) => {
         userAgent: req.get('User-Agent'),
         status: 'success'
       });
-      console.log(`✅ Survey data access audit log created for batch ${batchId}`);
+      logger.debug(`Survey data access audit log created for batch ${batchId}`);
     } catch (auditError) {
-      console.error('❌ Failed to create survey data access audit log:', auditError);
+      logger.error('Failed to create survey data access audit log', { error: auditError.message, stack: auditError.stack, batchId });
       // Don't fail the request if audit logging fails
     }
 
@@ -780,7 +780,7 @@ export const getBatchResponses = async (req, res) => {
       data: responses
     });
   } catch (error) {
-    console.error('Error getting batch responses:', error);
+    logger.error('Error getting batch responses', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to retrieve batch responses',
@@ -971,7 +971,7 @@ export const exportSurveyBatches = async (req, res) => {
     // logFormat is the actual format exported (for logging), format is the response format
     const actualFormat = logFormat || format;
     
-    console.log('🔍 Survey Batch export request received:', { format, actualFormat, selectedIds, providedCount, filterStatus, queryParams: req.query });
+    logger.debug('Survey Batch export request received', { format, actualFormat, selectedIds, providedCount, filterStatus, queryParams: req.query });
     
     if (!['csv', 'json', 'pdf', 'excel', 'xlsx'].includes(format)) {
       return res.status(400).json({ 
@@ -1022,7 +1022,7 @@ export const exportSurveyBatches = async (req, res) => {
     // Create meaningful resource name for export
     const resourceName = `Survey Batch Export - ${actualFormat.toUpperCase()} (${count} ${count === 1 ? 'batch' : 'batches'})`;
     
-    console.log('🔍 Survey Batch Export - Will create audit log with:', { userId, userType, format: actualFormat, count, resourceName, action, exportType });
+    logger.debug('Survey Batch Export - Will create audit log', { userId, userType, format: actualFormat, count, resourceName, action, exportType });
 
     // Create audit log for export
     try {
@@ -1046,9 +1046,9 @@ export const exportSurveyBatches = async (req, res) => {
         userAgent: req.get('User-Agent'),
         status: 'success'
       });
-      console.log(`✅ Survey Batch export audit log created: ${actualFormat.toUpperCase()} export of ${count} batches`);
+      logger.debug(`Survey Batch export audit log created: ${actualFormat.toUpperCase()} export of ${count} batches`);
     } catch (err) {
-      console.error('❌ Survey Batch export audit log failed:', err);
+      logger.error('Survey Batch export audit log failed', { error: err.message, stack: err.stack });
     }
 
     // Return success response (frontend handles actual file generation)
@@ -1061,7 +1061,7 @@ export const exportSurveyBatches = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error in survey batch export:', error);
+    logger.error('Error in survey batch export', { error: error.message, stack: error.stack });
     
     // Create audit log for failed export
     const userId = req.user?.id || req.user?.lydo_id || req.user?.lydoId || null;
@@ -1088,7 +1088,7 @@ export const exportSurveyBatches = async (req, res) => {
         errorMessage: error.message
       });
     } catch (err) {
-      console.error('❌ Failed export audit log error:', err);
+      logger.error('Failed export audit log error', { error: err.message, stack: err.stack });
     }
 
     return res.status(500).json({ 

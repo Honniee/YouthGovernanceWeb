@@ -5,11 +5,14 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
+import cookieParser from 'cookie-parser';
 // Import custom middleware
 import { corsMiddleware, handlePreflight, securityHeaders } from './middleware/cors.js';
+import { generateCSRF, validateCSRF, getCSRFToken } from './middleware/csrf.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
+import authRefreshRoutes from './routes/authRefresh.js';
 import testRoutes from './routes/test.js';
 import staffRoutes from './routes/staff.js';
 import notificationRoutes from './routes/notifications.js';
@@ -32,12 +35,25 @@ import validationQueueRoutes from './routes/validationQueue.js';
 import councilRoutes from './routes/council.js';
 import skFederationRoutes from './routes/skFederation.js';
 import clusteringRoutes from './routes/clustering.js';
+import backupRoutes from './routes/backup.js';
+import dataRetentionRoutes from './routes/dataRetention.js';
+import securityIncidentsRoutes from './routes/securityIncidents.js';
+import dataSubjectRightsRoutes from './routes/dataSubjectRights.js';
+import surveySubmissionsRoutes from './routes/surveySubmissions.js';
+import systemErrorsRoutes from './routes/systemErrors.js';
 // import programRoutes from './routes/programs.js';
 // import eventRoutes from './routes/events.js';
 // import userRoutes from './routes/users.js';
 
 // Load environment variables
 dotenv.config();
+
+// Validate environment variables on startup
+import { validateEnvironment } from './config/envValidation.js';
+validateEnvironment();
+
+// Import logger
+import logger from './utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -70,14 +86,20 @@ app.use('/api/auth', (req, res, next) => {
   next();
 });
 
-// Enhanced rate limiting - More lenient for production use
+// Enhanced rate limiting - Stricter for production security
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 1000 : 1000, // Much more lenient in production too
+  max: process.env.NODE_ENV === 'production' ? 500 : 1000, // Stricter in production (500 req/15min)
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: false, // Count all requests
   handler: (req, res) => {
+    logger.warn('Rate limit exceeded', { 
+      ip: req.ip, 
+      url: req.originalUrl,
+      method: req.method 
+    });
     res.status(429).json({
       error: 'Too many requests',
       message: 'You have exceeded the rate limit. Please try again later.',
@@ -88,9 +110,10 @@ const limiter = rateLimit({
 
 // Skip rate limiting in development for better debugging experience
 if (process.env.NODE_ENV === 'development') {
-  console.log('🚀 Development mode: Rate limiting disabled for better debugging');
+  logger.debug('Development mode: Rate limiting disabled for better debugging');
 } else {
   app.use(limiter);
+  logger.info('Rate limiting enabled for production');
 }
 
 // Stricter rate limiting for auth endpoints
@@ -104,13 +127,20 @@ const authLimiter = rateLimit({
 // Only apply auth rate limiting in production
 if (process.env.NODE_ENV === 'production') {
   app.use('/api/auth/login', authLimiter);
+  logger.info('Auth rate limiting enabled for production');
 } else {
-  console.log('🚀 Development mode: Auth rate limiting disabled');
+  logger.debug('Development mode: Auth rate limiting disabled');
 }
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Cookie parser for CSRF protection
+app.use(cookieParser());
+
+// SECURITY: CSRF Protection - Generate token for all requests
+app.use(generateCSRF);
 
 // Static files for uploads (configurable via UPLOADS_DIR)
 const uploadsDir = process.env.UPLOADS_DIR 
@@ -120,8 +150,9 @@ const uploadsDir = process.env.UPLOADS_DIR
 try {
   fs.mkdirSync(uploadsDir, { recursive: true });
   fs.mkdirSync(join(uploadsDir, 'profile_pictures'), { recursive: true });
+  logger.debug(`Uploads directory created: ${uploadsDir}`);
 } catch (e) {
-  console.warn('⚠️ Unable to ensure uploads directories:', e.message);
+  logger.warn(`Unable to ensure uploads directories: ${e.message}`);
 }
 
 app.use('/uploads', (req, res, next) => {
@@ -146,8 +177,14 @@ app.get('/api/health/ready', readinessProbe);
 app.get('/api/health/live', livenessProbe);
 app.get('/api/metrics', metrics);
 
+// SECURITY: CSRF Token endpoint (public, no validation needed)
+app.get('/api/csrf-token', getCSRFToken);
+
 // API Routes
+// SECURITY: Apply CSRF validation to all state-changing routes
+// Note: GET, HEAD, OPTIONS are automatically skipped by validateCSRF middleware
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', authRefreshRoutes); // Refresh token endpoint
 app.use('/api/test', testRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/notifications', notificationRoutes);
@@ -170,6 +207,12 @@ app.use('/api/validation-queue', validationQueueRoutes);
 app.use('/api/council', councilRoutes);
 app.use('/api/sk-federation', skFederationRoutes);
 app.use('/api/clustering', clusteringRoutes);
+app.use('/api/backup', backupRoutes);
+app.use('/api/data-retention', dataRetentionRoutes);
+app.use('/api/security-incidents', securityIncidentsRoutes);
+app.use('/api/data-subject-rights', dataSubjectRightsRoutes);
+app.use('/api/survey-submissions', surveySubmissionsRoutes);
+app.use('/api/system', systemErrorsRoutes);
 // app.use('/api/programs', programRoutes);
 // app.use('/api/events', eventRoutes);
 // app.use('/api/users', userRoutes);
@@ -191,7 +234,15 @@ app.get('/', (req, res) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  // Log error using Winston logger
+  logger.error('Express error handler', {
+    message: err.message,
+    stack: err.stack,
+    url: req.originalUrl,
+    method: req.method,
+    ip: req.ip,
+    status: err.status || 500
+  });
   
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ 
@@ -216,20 +267,29 @@ app.use('*', (req, res) => {
 
 // Start server
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Youth Development Office API running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Server URL: http://localhost:${PORT}`);
-  console.log(`💡 Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`🔄 Manual term updates: http://localhost:${PORT}/api/cron/manual-update-term-statuses`);
+  logger.info(`Youth Development Office API running on port ${PORT}`);
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  if (process.env.NODE_ENV === 'production') {
+    // Production: Use environment URL or generic message
+    const serverUrl = process.env.SERVER_URL || 'https://your-backend.onrender.com';
+    logger.info(`Server URL: ${serverUrl}`);
+    logger.info(`Health Check: ${serverUrl}/api/health`);
+  } else {
+    // Development: Show localhost URLs
+    logger.info(`Server URL: http://localhost:${PORT}`);
+    logger.info(`Health Check: http://localhost:${PORT}/api/health`);
+    logger.debug(`Manual term updates: http://localhost:${PORT}/api/cron/manual-update-term-statuses`);
+  }
 });
 
 // Attach Socket.IO realtime server
 import { initSocket } from './server-socket.js';
 try {
   initSocket(server);
-  console.log('📡 Realtime (Socket.IO) initialized');
+  logger.info('Realtime (Socket.IO) initialized');
 } catch (e) {
-  console.warn('⚠️ Failed to initialize realtime server:', e?.message);
+  logger.warn(`Failed to initialize realtime server: ${e?.message}`);
 }
 
 // Setup global error handlers for graceful shutdown

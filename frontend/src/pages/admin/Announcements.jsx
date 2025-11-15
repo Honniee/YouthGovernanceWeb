@@ -51,6 +51,7 @@ import {
 } from '../../components/portal_main_content';
 import { useRealtime } from '../../realtime/useRealtime';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
+import logger from '../../utils/logger.js';
 
 // Note: Dummy data removed - now using real API calls
 
@@ -304,13 +305,13 @@ const Announcements = () => {
             autoPublishProcessedRef.current.add(id);
           } catch (e) {
             // Continue with others even if one fails
-            console.error('Auto-publish failed for', id, e);
+            logger.error('Auto-publish failed for announcement', e, { id });
           }
         }
         // Refresh after auto-publishing
         await refreshData();
       } catch (e) {
-        console.error('Auto-publish sweep error:', e);
+        logger.error('Auto-publish sweep error', e);
       }
     };
 
@@ -332,7 +333,7 @@ const Announcements = () => {
           });
         }
       } catch (err) {
-        console.error('Error fetching statistics:', err);
+        logger.error('Error fetching announcement statistics', err);
       } finally {
         setStatisticsLoading(false);
       }
@@ -443,7 +444,7 @@ const Announcements = () => {
   const handleActionClick = async (action, item) => {
     let modalUsed = false;
     try {
-      console.log('🎯 Action clicked:', action, 'for item:', item);
+      logger.debug('Announcement action clicked', { action, item });
       
       switch (action) {
         case 'view':
@@ -470,9 +471,9 @@ const Announcements = () => {
           }
           
           // Update status to published
-          console.log('🔄 Publishing announcement:', item.announcement_id || item.id);
+          logger.debug('Publishing announcement', { announcementId: item.announcement_id || item.id });
           const publishResult = await updateAnnouncement(item.announcement_id || item.id, { status: 'published' });
-          console.log('📊 Publish result:', publishResult);
+          logger.debug('Publish result', { publishResult });
           // Refresh data and statistics
           await refreshData();
           showSuccessToast && showSuccessToast('Published', 'Announcement published successfully');
@@ -495,16 +496,16 @@ const Announcements = () => {
           }
           
           // Update status to archived
-          console.log('🔄 Archiving announcement:', item.announcement_id || item.id);
+          logger.debug('Archiving announcement', { announcementId: item.announcement_id || item.id });
           try {
             const archiveResult = await updateAnnouncement(item.announcement_id || item.id, { status: 'archived' });
-            console.log('📊 Archive result:', archiveResult);
-            console.log('✅ Archive operation completed successfully');
+            logger.debug('Archive result', { archiveResult });
+            logger.debug('Archive operation completed successfully');
           // Refresh data and statistics
           await refreshData();
             showSuccessToast && showSuccessToast('Archived', 'Announcement archived successfully');
           } catch (archiveError) {
-            console.error('❌ Archive operation failed:', archiveError);
+            logger.error('Archive operation failed', archiveError);
             throw archiveError; // Re-throw to be caught by outer catch
           }
           break;
@@ -526,9 +527,9 @@ const Announcements = () => {
           }
           
           // Update status to published
-          console.log('🔄 Restoring announcement:', item.announcement_id || item.id);
+          logger.debug('Restoring announcement', { announcementId: item.announcement_id || item.id });
           const restoreResult = await updateAnnouncement(item.announcement_id || item.id, { status: 'published' });
-          console.log('📊 Restore result:', restoreResult);
+          logger.debug('Restore result', { restoreResult });
           // Refresh data and statistics
           await refreshData();
           showSuccessToast && showSuccessToast('Restored', 'Announcement restored successfully');
@@ -551,31 +552,29 @@ const Announcements = () => {
           }
           
           // Delete announcement
-          console.log('🔄 Deleting announcement:', item.announcement_id || item.id);
+          logger.debug('Deleting announcement', { announcementId: item.announcement_id || item.id });
           try {
             const deleteResult = await deleteAnnouncement(item.announcement_id || item.id);
-            console.log('📊 Delete result:', deleteResult);
-            console.log('✅ Delete operation completed successfully');
+            logger.debug('Delete result', { deleteResult });
+            logger.debug('Delete operation completed successfully');
           // Refresh data and statistics
           await refreshData();
             showSuccessToast && showSuccessToast('Deleted', 'Announcement deleted successfully');
           } catch (deleteError) {
-            console.error('❌ Delete operation failed:', deleteError);
+            logger.error('Delete operation failed', deleteError);
             throw deleteError; // Re-throw to be caught by outer catch
           }
           break;
       }
     } catch (error) {
-      console.error(`❌ Error performing ${action} action:`, error);
-      console.error('❌ Error details:', {
-        message: error.message,
+      logger.error(`Error performing ${action} action`, error, {
         response: error.response?.data,
         status: error.response?.status
       });
       
       // Check if it's actually a success response that's being treated as an error
       if (error.response?.data?.success === true) {
-        console.log('✅ Operation actually succeeded, refreshing data...');
+        logger.info('Operation succeeded despite error response, refreshing data');
         await refreshData();
         showSuccessToast && showSuccessToast('Completed', `Announcement ${action}d successfully`);
         return;
@@ -624,7 +623,7 @@ const Announcements = () => {
         });
       }
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      logger.error('Error refreshing announcement data', error);
     } finally {
       setStatisticsLoading(false);
     }
@@ -699,14 +698,14 @@ const Announcements = () => {
 
       if (action !== 'delete') {
         // Use individual updates instead of bulk update to avoid backend issues
-        console.log(`🔄 Performing individual ${action} for ${selectedItems.length} announcements`);
+        logger.debug('Performing individual announcement updates', { action, count: selectedItems.length });
         
         for (const id of selectedItems) {
           try {
             await updateAnnouncement(id, { status: newStatus });
-            console.log(`✅ ${action} successful for announcement: ${id}`);
+            logger.debug('Announcement status updated successfully', { action, id });
           } catch (individualError) {
-            console.error(`❌ Failed to ${action} announcement ${id}:`, individualError);
+            logger.error(`Failed to ${action} announcement`, individualError, { id });
             // Continue with other announcements even if one fails
           }
         }
@@ -719,7 +718,7 @@ const Announcements = () => {
       showSuccessToast && showSuccessToast('Completed', `Successfully ${actionText} ${selectedItems.length} announcement(s)`);
       
     } catch (error) {
-      console.error(`Error performing bulk ${action}:`, error);
+      logger.error(`Error performing bulk ${action}`, error);
       showErrorToast && showErrorToast('Bulk operation failed', `Failed to ${action} announcements. Please try again.`);
     } finally {
       setLoading(false);
@@ -775,7 +774,7 @@ const Announcements = () => {
             <TabContainer
               activeTab={statusFilter}
           onTabChange={(tab) => {
-            console.log('🔄 Tab changed from', statusFilter, 'to', tab);
+            logger.debug('Announcements tab changed', { from: statusFilter, to: tab });
             setActiveTab(tab);
             setCurrentPage(1);
           }}

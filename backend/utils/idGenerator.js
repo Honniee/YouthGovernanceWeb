@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import logger from './logger.js';
 
 /**
  * Generates a unique LYDO ID for new staff members
@@ -47,11 +48,11 @@ export const generateLYDOId = async () => {
     const formattedNumber = String(lydoIdCounter).padStart(3, '0');
     const newId = `LYDO${formattedNumber}`;
     
-    console.log(`🆔 Generated new LYDO ID: ${newId} (counter: ${lydoIdCounter})`);
+    logger.debug(`Generated new LYDO ID: ${newId}`, { newId, counter: lydoIdCounter });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating LYDO ID:', error);
+    logger.error('Error generating LYDO ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate LYDO ID');
   }
 };
@@ -68,11 +69,11 @@ export const generateNotificationId = async () => {
     const timestamp = Date.now();
     const newId = `NOT${timestamp}`;
     
-    console.log(`🆔 Generated notification ID: ${newId}`);
+    logger.debug(`Generated notification ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating notification ID:', error);
+    logger.error('Error generating notification ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate notification ID');
   }
 };
@@ -107,7 +108,7 @@ export const generateRoleId = async () => {
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating role ID:', error);
+    logger.error('Error generating role ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate role ID');
   }
 };
@@ -159,11 +160,11 @@ export const generateSKId = async () => {
     const formattedNumber = String(skIdCounter).padStart(3, '0');
     const newId = `SK${formattedNumber}`;
     
-    console.log(`🆔 Generated new SK ID: ${newId} (counter: ${skIdCounter})`);
+    logger.debug(`Generated new SK ID: ${newId}`, { newId, counter: skIdCounter });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating SK ID:', error);
+    logger.error('Error generating SK ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate SK ID');
   }
 };
@@ -195,11 +196,11 @@ export const generateTermId = async () => {
     const formattedNumber = String(nextNumber).padStart(3, '0');
     const newId = `TRM${formattedNumber}`;
     
-    console.log(`🆔 Generated new Term ID: ${newId}`);
+    logger.debug(`Generated new Term ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating term ID:', error);
+    logger.error('Error generating term ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate term ID');
   }
 };
@@ -214,11 +215,11 @@ export const generateYouthId = async () => {
     const timestamp = Date.now();
     const newId = `YTH${timestamp}`;
     
-    console.log(`🆔 Generated new Youth ID: ${newId}`);
+    logger.debug(`Generated new Youth ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating youth ID:', error);
+    logger.error('Error generating youth ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate youth ID');
   }
 };
@@ -233,11 +234,11 @@ export const generateUserId = async () => {
     const timestamp = Date.now();
     const newId = `USR${timestamp}`;
     
-    console.log(`🆔 Generated new User ID: ${newId}`);
+    logger.debug(`Generated new User ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating user ID:', error);
+    logger.error('Error generating user ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate user ID');
   }
 };
@@ -252,12 +253,50 @@ export const generateLogId = async (client = null) => {
     const timestamp = Date.now();
     const newId = `ACT${timestamp}`;
     
-    console.log(`🆔 Generated new Activity Log ID: ${newId}`);
+    logger.debug(`Generated new Activity Log ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating Activity Log ID:', error);
+    logger.error('Error generating Activity Log ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate Activity Log ID');
+  }
+};
+
+/**
+ * Generates a unique Consent Log ID
+ * Format: CNS{timestamp} - Uses timestamp to avoid race conditions
+ * @returns {Promise<string>} The generated Consent Log ID
+ */
+export const generateConsentLogId = async () => {
+  try {
+    const timestamp = Date.now();
+    const newId = `CNS${timestamp}`;
+    
+    logger.debug(`Generated new Consent Log ID: ${newId}`, { newId });
+    return newId;
+    
+  } catch (error) {
+    logger.error('Error generating Consent Log ID', { error: error.message, stack: error.stack });
+    throw new Error('Failed to generate Consent Log ID');
+  }
+};
+
+/**
+ * Generates a unique Data Subject Request ID
+ * Format: DSR{timestamp} - Uses timestamp to avoid race conditions
+ * @returns {Promise<string>} The generated Data Subject Request ID
+ */
+export const generateDataSubjectRequestId = async () => {
+  try {
+    const timestamp = Date.now();
+    const newId = `DSR${timestamp}`;
+    
+    logger.debug(`Generated new Data Subject Request ID: ${newId}`, { newId });
+    return newId;
+    
+  } catch (error) {
+    logger.error('Error generating Data Subject Request ID', { error: error.message, stack: error.stack });
+    throw new Error('Failed to generate Data Subject Request ID');
   }
 };
 
@@ -308,11 +347,11 @@ export const generateVoterId = async () => {
     const formattedNumber = String(voterIdCounter).padStart(3, '0');
     const newId = `VOT${formattedNumber}`;
     
-    console.log(`🆔 Generated new Voter ID: ${newId} (counter: ${voterIdCounter})`);
+    logger.debug(`Generated new Voter ID: ${newId}`, { newId, counter: voterIdCounter });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating Voter ID:', error);
+    logger.error('Error generating Voter ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate Voter ID');
   }
 };
@@ -364,11 +403,11 @@ export const generateAnnouncementId = async () => {
     const formattedNumber = String(announcementIdCounter).padStart(3, '0');
     const newId = `ANN${formattedNumber}`;
     
-    console.log(`🆔 Generated new Announcement ID: ${newId} (counter: ${announcementIdCounter})`);
+    logger.debug(`Generated new Announcement ID: ${newId}`, { newId, counter: announcementIdCounter });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating Announcement ID:', error);
+    logger.error('Error generating Announcement ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate Announcement ID');
   }
 };
@@ -383,11 +422,11 @@ export const generateResponseId = async () => {
     const timestamp = Date.now();
     const newId = `RES${timestamp}`;
     
-    console.log(`🆔 Generated new Response ID: ${newId}`);
+    logger.debug(`Generated new Response ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating response ID:', error);
+    logger.error('Error generating response ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate response ID');
   }
 };
@@ -401,11 +440,11 @@ export const generateQueueId = async () => {
     const timestamp = Date.now();
     const newId = `QUE${timestamp}`;
     
-    console.log(`🆔 Generated new Queue ID: ${newId}`);
+    logger.debug(`Generated new Queue ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating queue ID:', error);
+    logger.error('Error generating queue ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate queue ID');
   }
 };
@@ -437,11 +476,11 @@ export const generateCouncilMemberId = async () => {
     const formattedNumber = String(nextNumber).padStart(3, '0');
     const newId = `LYDCMEM${formattedNumber}`;
     
-    console.log(`🆔 Generated new Council Member ID: ${newId}`);
+    logger.debug(`Generated new Council Member ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating Council Member ID:', error);
+    logger.error('Error generating Council Member ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate Council Member ID');
   }
 };
@@ -473,11 +512,11 @@ export const generateCouncilRoleId = async () => {
     const formattedNumber = String(nextNumber).padStart(3, '0');
     const newId = `LYDCROL${formattedNumber}`;
     
-    console.log(`🆔 Generated new Council Role ID: ${newId}`);
+    logger.debug(`Generated new Council Role ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating Council Role ID:', error);
+    logger.error('Error generating Council Role ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate Council Role ID');
   }
 };
@@ -492,11 +531,11 @@ export const generateSegmentId = async () => {
     const timestamp = Date.now();
     const newId = `SEG${timestamp}`;
     
-    console.log(`🆔 Generated new Segment ID: ${newId}`);
+    logger.debug(`Generated new Segment ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating segment ID:', error);
+    logger.error('Error generating segment ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate segment ID');
   }
 };
@@ -513,11 +552,11 @@ export const generateAssignmentId = async () => {
     const random = Math.floor(Math.random() * 1000);
     const newId = `ASG${timestamp}${random}`;
     
-    console.log(`🆔 Generated new Assignment ID: ${newId}`);
+    logger.debug(`Generated new Assignment ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating assignment ID:', error);
+    logger.error('Error generating assignment ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate assignment ID');
   }
 };
@@ -533,11 +572,11 @@ export const generateRecommendationId = async () => {
     const random = Math.floor(Math.random() * 1000);
     const newId = `REC${timestamp}${random}`;
     
-    console.log(`🆔 Generated new Recommendation ID: ${newId}`);
+    logger.debug(`Generated new Recommendation ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating recommendation ID:', error);
+    logger.error('Error generating recommendation ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate recommendation ID');
   }
 };
@@ -552,11 +591,11 @@ export const generateClusteringRunId = async () => {
     const timestamp = Date.now();
     const newId = `CLR${timestamp}`;
     
-    console.log(`🆔 Generated new Clustering Run ID: ${newId}`);
+    logger.debug(`Generated new Clustering Run ID: ${newId}`, { newId });
     return newId;
     
   } catch (error) {
-    console.error('❌ Error generating clustering run ID:', error);
+    logger.error('Error generating clustering run ID', { error: error.message, stack: error.stack });
     throw new Error('Failed to generate clustering run ID');
   }
 };
@@ -584,6 +623,10 @@ export const generateId = async (prefix) => {
       return generateUserId();
     case 'ACT':
       return generateLogId();
+    case 'CNS':
+      return generateConsentLogId();
+    case 'DSR':
+      return generateDataSubjectRequestId();
     case 'VOT':
       return generateVoterId();
     case 'NOT':

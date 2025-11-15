@@ -16,8 +16,10 @@ import {
   getActiveTerm,
   checkPositionConflict 
 } from '../utils/skValidation.js';
+import { validateSKBulkImport } from '../utils/skBulkValidation.js';
 import SKValidationService from '../services/skValidationService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 /**
  * SK Officials Bulk Operations Controller
@@ -45,7 +47,8 @@ const sanitizeString = (str) => {
  * POST /api/sk-officials/bulk/import
  */
 const bulkImportSKOfficials = async (req, res) => {
-  const requestUser = req.user; // Capture user context for use in async operations
+  const requestUser = req.user;
+
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -55,9 +58,8 @@ const bulkImportSKOfficials = async (req, res) => {
     }
 
     const file = req.file;
-    console.log('📁 Processing SK bulk import file:', file.originalname);
+    logger.info('Processing SK bulk import file', { fileName: file.originalname });
 
-    // Validate file type
     const allowedTypes = [
       'text/csv',
       'application/vnd.ms-excel',
@@ -71,7 +73,10 @@ const bulkImportSKOfficials = async (req, res) => {
       });
     }
 
-    // Get active term first
+    const duplicateStrategyRaw = (req.body?.duplicateStrategy || 'skip').toString().toLowerCase();
+    const allowedStrategies = ['skip', 'update', 'restore'];
+    const duplicateStrategy = allowedStrategies.includes(duplicateStrategyRaw) ? duplicateStrategyRaw : 'skip';
+
     const activeTerm = await getActiveTerm();
     if (!activeTerm) {
       return res.status(400).json({
@@ -80,41 +85,400 @@ const bulkImportSKOfficials = async (req, res) => {
       });
     }
 
-    // Parse file content
     let records = [];
-    
     if (file.mimetype === 'text/csv') {
       records = await parseCSVFile(file.buffer);
     } else {
       records = await parseExcelFile(file.buffer);
     }
 
-    console.log(`📊 Parsed ${records.length} records from file`);
+    logger.info(`Parsed ${records.length} records from file`);
 
-    // Process records with INDIVIDUAL TRANSACTIONS (Staff Management pattern)
-    const results = await processSKBulkImport(records, activeTerm, requestUser, req);
+    const validationResult = await validateSKBulkImport(records);
+    const invalidCount = validationResult.summary?.invalidRecords ?? 0;
+    const validCount = validationResult.summary?.validRecords ?? 0;
 
-    // Send bulk import completion notification
+    logger.info('Pre-import Validation Summary', {
+      total: validationResult.summary?.totalRecords || 0,
+      valid: validCount,
+      invalid: invalidCount,
+      duplicates: validationResult.summary?.duplicateRecords || 0
+    });
+
+    // Log validation errors if any
+    if (validationResult.rows && validationResult.rows.length > 0) {
+      const errorRows = validationResult.rows.filter(r => r.status === 'error').slice(0, 5);
+      if (errorRows.length > 0) {
+        logger.warn('Pre-import Validation Errors', {
+          errors: errorRows.map(row => ({
+            row: row.rowNumber,
+            issues: row.issues
+          }))
+        });
+      }
+    }
+
+    if (invalidCount > 0) {
+      logger.warn('Import blocked due to validation errors', { invalidCount });
+      return res.status(400).json({
+        success: false,
+        message: 'Bulk import validation failed',
+        summary: validationResult.summary,
+        errors: validationResult.errors,
+        rows: validationResult.rows
+      });
+    }
+
+    const results = {
+      total: validationResult.summary.totalRecords,
+      created: 0,
+      updated: 0,
+      restored: 0,
+      skipped: 0,
+      failed: 0,
+      rows: [],
+      errors: []
+    };
+
+    const insertedRecords = [];
+
+    const createSkOfficial = async (rowInfo) => {
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        const record = {
+          firstName: rowInfo.normalized.first_name,
+          lastName: rowInfo.normalized.last_name,
+          middleName: rowInfo.normalized.middle_name,
+          suffix: rowInfo.normalized.suffix,
+          personalEmail: rowInfo.normalized.personal_email,
+          position: rowInfo.normalized.position,
+          barangayName: rowInfo.resolvedBarangayName,
+          barangay_id: rowInfo.resolvedBarangayId,
+          barangayId: rowInfo.resolvedBarangayId
+        };
+
+        const processed = await processSKRecord(record, rowInfo.rowNumber, activeTerm, client);
+
+        if (!processed.success) {
+          await client.query('ROLLBACK');
+          return { success: false, message: processed.error };
+        }
+
+        await client.query('COMMIT');
+
+        const newOfficial = processed.data;
+        const tempPassword = processed.tempPassword;
+        const barangayName = processed.barangayName;
+
+        setTimeout(() => {
+          notificationService.sendSKWelcomeNotification({
+            sk_id: newOfficial.sk_id,
+            first_name: newOfficial.first_name,
+            last_name: newOfficial.last_name,
+            personal_email: newOfficial.personal_email,
+            org_email: newOfficial.email,
+            position: newOfficial.position,
+            password: tempPassword,
+            barangay_name: barangayName
+          }).catch(err => logger.error(`SK welcome notification failed for ${newOfficial.sk_id}`, { error: err.message, stack: err.stack }));
+        }, 0);
+
+        setTimeout(() => {
+          const skOfficialName = `${newOfficial.first_name} ${newOfficial.last_name}`;
+          createAuditLog({
+            userId: requestUser?.id || 'SYSTEM',
+            userType: requestUser?.userType || 'admin',
+            action: 'Create',
+            resource: '/api/sk-officials',
+            resourceId: newOfficial.sk_id,
+            resourceName: skOfficialName,
+            details: {
+              skName: skOfficialName,
+              resourceType: 'sk-officials',
+              position: newOfficial.position,
+              barangayName,
+              personalEmail: newOfficial.personal_email,
+              importedViaBulk: true,
+              duplicateStrategy
+            },
+            ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
+            userAgent: (req?.get ? req.get('User-Agent') : null) || 'Bulk Import',
+            status: 'success'
+          }).catch(err => logger.error('Individual audit log failed for SK official creation', { error: err.message, stack: err.stack, skId: newOfficial.sk_id }));
+        }, 0);
+
+        insertedRecords.push({
+          skId: newOfficial.sk_id,
+          name: `${newOfficial.first_name} ${newOfficial.last_name}`,
+          email: newOfficial.personal_email,
+          barangay: barangayName,
+          position: newOfficial.position
+        });
+
+        return { success: true, data: newOfficial };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        return { success: false, message: error.message };
+      } finally {
+        client.release();
+      }
+    };
+
+    const updateSkOfficial = async (existing, rowInfo) => {
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        const updateQuery = `
+          UPDATE "SK_Officials"
+          SET first_name = $1,
+              last_name = $2,
+              middle_name = $3,
+              suffix = $4,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE sk_id = $5
+          RETURNING *
+        `;
+        const updateParams = [
+          rowInfo.normalized.first_name || existing.first_name,
+          rowInfo.normalized.last_name || existing.last_name,
+          rowInfo.normalized.middle_name || existing.middle_name,
+          rowInfo.normalized.suffix || existing.suffix,
+          existing.sk_id
+        ];
+        const result = await client.query(updateQuery, updateParams);
+        await client.query('COMMIT');
+
+        const updated = result.rows[0];
+
+        setTimeout(() => {
+          const name = `${updated.first_name} ${updated.last_name}`;
+          createAuditLog({
+            userId: requestUser?.id || 'SYSTEM',
+            userType: requestUser?.userType || 'admin',
+            action: 'Update',
+            resource: '/api/sk-officials',
+            resourceId: updated.sk_id,
+            resourceName: name,
+            details: {
+              skName: name,
+              resourceType: 'sk-officials',
+              position: updated.position,
+              barangayId: updated.barangay_id,
+              importedViaBulk: true,
+              duplicateStrategy
+            },
+            ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
+            userAgent: (req?.get ? req.get('User-Agent') : null) || 'Bulk Import',
+            status: 'success'
+          }).catch(err => logger.error('SK update audit log failed', { error: err.message, stack: err.stack }));
+        }, 0);
+
+        return { success: true, data: updated };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        return { success: false, message: error.message };
+      } finally {
+        client.release();
+      }
+    };
+
+    const restoreSkOfficial = async (existing, rowInfo) => {
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        const updateQuery = `
+          UPDATE "SK_Officials"
+          SET first_name = $1,
+              last_name = $2,
+              middle_name = $3,
+              suffix = $4,
+              is_active = true,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE sk_id = $5
+          RETURNING *
+        `;
+        const updateParams = [
+          rowInfo.normalized.first_name || existing.first_name,
+          rowInfo.normalized.last_name || existing.last_name,
+          rowInfo.normalized.middle_name || existing.middle_name,
+          rowInfo.normalized.suffix || existing.suffix,
+          existing.sk_id
+        ];
+        const result = await client.query(updateQuery, updateParams);
+        await client.query('COMMIT');
+
+        const restored = result.rows[0];
+
+        setTimeout(() => {
+          const name = `${restored.first_name} ${restored.last_name}`;
+          createAuditLog({
+            userId: requestUser?.id || 'SYSTEM',
+            userType: requestUser?.userType || 'admin',
+            action: 'Restore',
+            resource: '/api/sk-officials',
+            resourceId: restored.sk_id,
+            resourceName: name,
+            details: {
+              skName: name,
+              resourceType: 'sk-officials',
+              position: restored.position,
+              barangayId: restored.barangay_id,
+              importedViaBulk: true,
+              duplicateStrategy
+            },
+            ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
+            userAgent: (req?.get ? req.get('User-Agent') : null) || 'Bulk Import',
+            status: 'success'
+          }).catch(err => logger.error('SK restore audit log failed', { error: err.message, stack: err.stack }));
+        }, 0);
+
+        return { success: true, data: restored };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        return { success: false, message: error.message };
+      } finally {
+        client.release();
+      }
+    };
+
+    for (const rowInfo of validationResult.rows) {
+      const rowOutcome = {
+        rowNumber: rowInfo.rowNumber,
+        data: {
+          first_name: rowInfo.normalized.first_name,
+          last_name: rowInfo.normalized.last_name,
+          middle_name: rowInfo.normalized.middle_name,
+          suffix: rowInfo.normalized.suffix,
+          personal_email: rowInfo.normalized.personal_email,
+          position: rowInfo.normalized.position,
+          barangay_id: rowInfo.resolvedBarangayId,
+          barangay_name: rowInfo.resolvedBarangayName
+        },
+        validationStatus: rowInfo.status,
+        validationIssues: rowInfo.issues,
+        duplicate: rowInfo.duplicate,
+        action: null,
+        message: ''
+      };
+
+      if (rowInfo.status === 'error') {
+        results.failed++;
+        rowOutcome.action = 'invalid';
+        rowOutcome.message = 'Skipped due to validation errors';
+        results.errors.push(...rowInfo.issues.map((issue) => `Row ${rowInfo.rowNumber}: ${issue}`));
+        results.rows.push(rowOutcome);
+        continue;
+      }
+
+      if (rowInfo.duplicate.inFile && !rowInfo.duplicate.isPrimaryInFile) {
+        results.skipped++;
+        rowOutcome.action = 'skipped';
+        rowOutcome.message = 'Skipped duplicate row within the uploaded file';
+        results.rows.push(rowOutcome);
+        continue;
+      }
+
+      const matches = rowInfo.existingMatches || [];
+      const activeMatch = matches.find((match) => match.is_active === true);
+      const inactiveMatch = matches.find((match) => match.is_active === false);
+
+      if (matches.length > 0) {
+        if (duplicateStrategy === 'skip') {
+          results.skipped++;
+          rowOutcome.action = 'skipped';
+          rowOutcome.message = 'Skipped duplicate in system (strategy: skip)';
+          results.rows.push(rowOutcome);
+          continue;
+        }
+
+        if (duplicateStrategy === 'update') {
+          const target = activeMatch || inactiveMatch;
+          if (!target) {
+            results.skipped++;
+            rowOutcome.action = 'skipped';
+            rowOutcome.message = 'Duplicate found but no matching record to update';
+            results.rows.push(rowOutcome);
+            continue;
+          }
+
+          const updateResult = await updateSkOfficial(target, rowInfo);
+          if (updateResult.success) {
+            results.updated++;
+            rowOutcome.action = 'updated';
+            rowOutcome.message = `Existing SK official ${target.sk_id} updated`;
+          } else {
+            results.failed++;
+            rowOutcome.action = 'failed';
+            rowOutcome.message = `Failed to update SK official: ${updateResult.message}`;
+            results.errors.push(`Row ${rowInfo.rowNumber}: ${updateResult.message}`);
+          }
+          results.rows.push(rowOutcome);
+          continue;
+        }
+
+        if (duplicateStrategy === 'restore') {
+          if (inactiveMatch) {
+            const restoreResult = await restoreSkOfficial(inactiveMatch, rowInfo);
+            if (restoreResult.success) {
+              results.restored++;
+              rowOutcome.action = 'restored';
+              rowOutcome.message = `SK official ${inactiveMatch.sk_id} restored`;
+            } else {
+              results.failed++;
+              rowOutcome.action = 'failed';
+              rowOutcome.message = `Failed to restore SK official: ${restoreResult.message}`;
+              results.errors.push(`Row ${rowInfo.rowNumber}: ${restoreResult.message}`);
+            }
+          } else {
+            results.skipped++;
+            rowOutcome.action = 'skipped';
+            rowOutcome.message = 'Duplicate found but no inactive record to restore';
+          }
+          results.rows.push(rowOutcome);
+          continue;
+        }
+      }
+
+      const creationResult = await createSkOfficial(rowInfo);
+      if (creationResult.success) {
+        results.created++;
+        rowOutcome.action = 'created';
+        rowOutcome.message = 'New SK official created';
+      } else {
+        results.failed++;
+        rowOutcome.action = 'failed';
+        const errorMessage = creationResult.message || 'Unknown error occurred';
+        rowOutcome.message = `Failed to create SK official: ${errorMessage}`;
+        results.errors.push(`Row ${rowInfo.rowNumber}: ${errorMessage}`);
+        logger.error(`Failed to create SK official for row ${rowInfo.rowNumber}`, { error: errorMessage, rowNumber: rowInfo.rowNumber });
+      }
+      results.rows.push(rowOutcome);
+    }
+
+    const notificationSummary = {
+      totalRows: results.total,
+      validRecords: results.total - results.failed,
+      importedRecords: results.created + results.restored,
+      errors: results.failed,
+      fileName: file.originalname,
+      createdRecords: results.created,
+      updatedRecords: results.updated,
+      restoredRecords: results.restored,
+      skippedRecords: results.skipped,
+      duplicateStrategy
+    };
+
     const currentUser = req.user;
     setTimeout(async () => {
       try {
-        await notificationService.notifyAdminsAboutSKBulkImport(results, currentUser);
+        await notificationService.notifyAdminsAboutSKBulkImport({ summary: notificationSummary }, currentUser);
       } catch (notifError) {
-        console.error('Bulk import notification error:', notifError);
+        logger.error('Bulk import notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
-    // Create audit log for bulk import
-    const importedCount = results.summary.importedRecords;
-    const errorCount = results.summary.errors;
-    const fileName = file.originalname;
-    
-    let resourceName;
-    if (errorCount > 0) {
-      resourceName = `SK Officials Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'}, ${errorCount} ${errorCount === 1 ? 'error' : 'errors'})`;
-    } else {
-      resourceName = `SK Officials Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'})`;
-    }
+    const resourceName = `SK Officials Import - ${file.originalname} (${results.created + results.restored + results.updated} processed, ${results.failed} failed)`;
     
     createAuditLog({
       userId: req.user?.id || 'SYSTEM',
@@ -122,33 +486,51 @@ const bulkImportSKOfficials = async (req, res) => {
       action: 'Bulk Import',
       resource: '/api/sk-officials/bulk/import',
       resourceId: null,
-      resourceName: resourceName,
+      resourceName,
       details: {
         resourceType: 'sk-officials',
-        totalItems: results.summary.totalRows,
-        successCount: results.summary.importedRecords,
-        errorCount: results.summary.errors,
-        fileName: fileName,
-        action: 'import'
+        totalItems: results.total,
+        created: results.created,
+        updated: results.updated,
+        restored: results.restored,
+        skipped: results.skipped,
+        failed: results.failed,
+        duplicateStrategy,
+        fileName: file.originalname
       },
       ipAddress: req.ip || '127.0.0.1',
       userAgent: req.get('User-Agent') || 'Bulk Import',
-      status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+      status: results.failed > 0 ? 'partial' : 'success'
+    }).catch(err => logger.error('Audit log failed for SK bulk import', { error: err.message, stack: err.stack }));
 
-    // Send admin notifications using Universal Notification Service
-    universalNotificationService.sendNotificationAsync('sk-officials', 'import', {}, req.user, { importSummary: results.summary });
+    universalNotificationService.sendNotificationAsync('sk-officials', 'import', {}, req.user, { importSummary: notificationSummary });
+
+    const summaryParts = [];
+    if (results.created) summaryParts.push(`${results.created} created`);
+    if (results.updated) summaryParts.push(`${results.updated} updated`);
+    if (results.restored) summaryParts.push(`${results.restored} restored`);
+    if (results.skipped) summaryParts.push(`${results.skipped} skipped`);
+    if (results.failed) summaryParts.push(`${results.failed} failed`);
+    const summaryText = summaryParts.length ? summaryParts.join(', ') : 'No changes applied';
 
     res.json({
       success: true,
-      message: 'Bulk import completed successfully',
-      data: results
+      message: `Bulk import completed. ${summaryText}.`,
+      data: results,
+      summary: {
+        total: results.total,
+        created: results.created,
+        updated: results.updated,
+        restored: results.restored,
+        skipped: results.skipped,
+        failed: results.failed,
+        duplicateStrategy
+      }
     });
 
   } catch (error) {
-    console.error('❌ SK Bulk import error:', error);
+    logger.error('SK Bulk import error', { error: error.message, stack: error.stack });
     
-    // Create audit log for failed import
     const resourceName = `SK Officials Import - Failed`;
     createAuditLog({
       userId: req.user?.id || 'SYSTEM',
@@ -156,7 +538,7 @@ const bulkImportSKOfficials = async (req, res) => {
       action: 'Bulk Import',
       resource: '/api/sk-officials/bulk/import',
       resourceId: null,
-      resourceName: resourceName,
+      resourceName,
       details: {
         resourceType: 'sk-officials',
         error: error.message,
@@ -167,7 +549,7 @@ const bulkImportSKOfficials = async (req, res) => {
       userAgent: req.get('User-Agent') || 'Bulk Import',
       status: 'error',
       errorMessage: error.message
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed for SK bulk import error', { error: err.message, stack: err.stack }));
 
     res.status(500).json({
       success: false,
@@ -228,7 +610,7 @@ const processSKBulkImport = async (records, activeTerm, currentUser, req) => {
             position: processed.data.position,
             password: processed.tempPassword,
             barangay_name: processed.barangayName
-          }).catch(err => console.error(`SK welcome notification failed for ${processed.data.sk_id}:`, err));
+          }).catch(err => logger.error(`SK welcome notification failed for ${processed.data.sk_id}`, { error: err.message, stack: err.stack }));
         }, i * 100); // Stagger emails to avoid overwhelming the email service
 
         // Create individual audit log for each SK Official
@@ -253,7 +635,7 @@ const processSKBulkImport = async (records, activeTerm, currentUser, req) => {
             ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
             userAgent: (req?.get ? req.get('User-Agent') : null) || 'Bulk Import',
             status: 'success'
-          }).catch(err => console.error('Individual audit log failed:', err));
+          }).catch(err => logger.error('Individual audit log failed for SK official creation in processSKBulkImport', { error: err.message, stack: err.stack, skId: processed.data.sk_id }));
         }, i * 50);
 
         await client.query('COMMIT');
@@ -267,7 +649,7 @@ const processSKBulkImport = async (records, activeTerm, currentUser, req) => {
         });
 
         results.summary.importedRecords++;
-        console.log(`✅ Imported SK Official ${i + 1}/${records.length}: ${processed.data.first_name} ${processed.data.last_name}`);
+        logger.debug(`Imported SK Official ${i + 1}/${records.length}`, { name: `${processed.data.first_name} ${processed.data.last_name}` });
 
       } else {
         await client.query('ROLLBACK');
@@ -277,7 +659,7 @@ const processSKBulkImport = async (records, activeTerm, currentUser, req) => {
 
     } catch (recordError) {
       await client.query('ROLLBACK');
-      console.error(`❌ Error processing row ${rowNumber}:`, recordError);
+      logger.error(`Error processing row ${rowNumber}`, { error: recordError.message, stack: recordError.stack, rowNumber });
       results.errors.push(`Row ${rowNumber}: Unexpected error - ${recordError.message}`);
       results.summary.errors++;
     } finally {
@@ -285,7 +667,7 @@ const processSKBulkImport = async (records, activeTerm, currentUser, req) => {
     }
   }
 
-  console.log(`🎉 SK Bulk import completed: ${results.summary.importedRecords} imported, ${results.summary.errors} errors`);
+  logger.info(`SK Bulk import completed`, { imported: results.summary.importedRecords, errors: results.summary.errors });
   return results;
 };
 
@@ -471,13 +853,13 @@ const processSKRecord = async (record, rowNumber, activeTerm, client) => {
 const bulkUpdateStatus = async (req, res) => {
   try {
     const rawData = req.body || {};
-    console.log('🔍 Backend SK bulk operation - Raw data:', rawData);
+    logger.debug('Backend SK bulk operation - Raw data', { rawData });
     
     const data = sanitizeInput(rawData);
-    console.log('🔍 Backend SK bulk operation - Sanitized data:', data);
+    logger.debug('Backend SK bulk operation - Sanitized data', { data });
 
     const { isValid, errors } = validateSKBulkOperation(data.ids, data.action);
-    console.log('🔍 Backend SK validation result:', { isValid, errors });
+    logger.debug('Backend SK validation result', { isValid, errors });
     
     if (!isValid) {
       return res.status(400).json({ 
@@ -519,7 +901,7 @@ const bulkUpdateStatus = async (req, res) => {
 
       } catch (error) {
         await client.query('ROLLBACK');
-        console.error(`❌ Failed to ${action} SK Official ${id}:`, error);
+        logger.error(`Failed to ${action} SK Official ${id}`, { error: error.message, stack: error.stack, id, action });
         processingErrors.push(`SK Official ${id}: ${action} failed - ${error.message}`);
       } finally {
         client.release();
@@ -530,10 +912,10 @@ const bulkUpdateStatus = async (req, res) => {
     const currentUser = req.user;
     setTimeout(async () => {
       try {
-        console.log('🔔 Sending bulk SK operation notification with user context:', currentUser);
+        logger.debug('Sending bulk SK operation notification', { userId: currentUser?.id, action });
         await notificationService.notifyAdminsAboutBulkSKOperation(ids, action, currentUser);
       } catch (notifError) {
-        console.error('Bulk SK operation notification error:', notifError);
+        logger.error('Bulk SK operation notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
@@ -557,7 +939,7 @@ const bulkUpdateStatus = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed for SK bulk status update', { error: err.message, stack: err.stack }));
 
     // Send admin notifications using Universal Notification Service  
     universalNotificationService.sendNotificationAsync('sk-officials', 'bulk', {}, req.user, { operation: action, entityIds: ids });
@@ -574,7 +956,7 @@ const bulkUpdateStatus = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error in bulk SK operation:', error);
+    logger.error('Error in bulk SK operation', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Error performing bulk operation',
@@ -633,7 +1015,7 @@ const getBulkImportTemplate = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Error generating template:', error);
+    logger.error('Error generating template', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to generate template',
@@ -776,9 +1158,8 @@ const validateBulkImport = async (req, res) => {
     }
 
     const file = req.file;
-    console.log('🔍 Validating SK bulk import file:', file.originalname);
+    logger.info('Validating SK bulk import file', { fileName: file.originalname });
 
-    // Validate file type
     const allowedTypes = [
       'text/csv',
       'application/vnd.ms-excel',
@@ -792,56 +1173,44 @@ const validateBulkImport = async (req, res) => {
       });
     }
 
-    // Get active term
-    const activeTerm = await getActiveTerm();
-    if (!activeTerm) {
-      return res.status(400).json({
-        success: false,
-        message: 'No active SK term found. Please create an active term first.'
-      });
-    }
-
-    // Parse file content
     let records = [];
-    
     if (file.mimetype === 'text/csv') {
       records = await parseCSVFile(file.buffer);
     } else {
       records = await parseExcelFile(file.buffer);
     }
 
-    console.log(`📊 Parsed ${records.length} records for validation`);
+    logger.info(`Parsed ${records.length} records for validation`);
 
-    // Convert records to validation format (support barangayName → barangayId resolution)
-    const rawValidationRecords = records.map(record => ({
-      firstName: record.firstName || record.first_name,
-      lastName: record.lastName || record.last_name,
-      middleName: record.middleName || record.middle_name,
-      personalEmail: record.personalEmail || record.personal_email,
-      barangayId: record.barangayId || record.barangay_id,
-      barangayName: record.barangayName || record.barangay_name,
-      position: record.position
-    }));
+    const validationResult = await validateSKBulkImport(records);
 
-    const validationRecords = await resolveBarangayIds(rawValidationRecords);
-
-    // Validate records using SKValidationService
-    const validationResult = await SKValidationService.getImportPreview(validationRecords, activeTerm.term_id);
-
-    console.log('✅ Validation completed:', {
-      total: validationResult.summary.total,
-      valid: validationResult.summary.valid,
-      invalid: validationResult.summary.invalid
+    // Log validation summary with error details
+    logger.info('Validation Summary', {
+      total: validationResult.summary?.totalRecords || 0,
+      valid: validationResult.summary?.validRecords || 0,
+      invalid: validationResult.summary?.invalidRecords || 0,
+      duplicates: validationResult.summary?.duplicateRecords || 0
     });
+
+    // Log first few errors for debugging
+    if (validationResult.rows && validationResult.rows.length > 0) {
+      const errorRows = validationResult.rows.filter(r => r.status === 'error').slice(0, 5);
+      if (errorRows.length > 0) {
+        logger.warn('Validation Errors', {
+          errors: errorRows.map(row => ({
+            row: row.rowNumber,
+            issues: row.issues
+          }))
+        });
+      }
+    }
 
     return res.json({
       success: true,
-      message: 'Bulk import validation completed',
       data: validationResult
     });
-
   } catch (error) {
-    console.error('❌ Bulk validation error:', error);
+    logger.error('Bulk validation error', { error: error.message, stack: error.stack });
     return res.status(500).json({
       success: false,
       message: 'Failed to validate bulk import',
@@ -865,7 +1234,7 @@ const validateBulkData = async (req, res) => {
       });
     }
 
-    console.log(`🔍 Validating ${records.length} records`);
+    logger.info(`Validating ${records.length} records`);
 
     // Get active term
     const activeTerm = await getActiveTerm();
@@ -891,7 +1260,7 @@ const validateBulkData = async (req, res) => {
     // Validate records using SKValidationService
     const validationResult = await SKValidationService.getImportPreview(validationRecords, activeTerm.term_id);
 
-    console.log('✅ Data validation completed:', {
+    logger.info('Data validation completed', {
       total: validationResult.summary.total,
       valid: validationResult.summary.valid,
       invalid: validationResult.summary.invalid
@@ -904,7 +1273,7 @@ const validateBulkData = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Bulk data validation error:', error);
+    logger.error('Bulk data validation error', { error: error.message, stack: error.stack });
     return res.status(500).json({
       success: false,
       message: 'Failed to validate bulk data',

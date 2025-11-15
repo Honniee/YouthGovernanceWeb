@@ -4,7 +4,12 @@ import {
   manualUpdateTermStatuses, 
   getPendingStatusUpdates,
   manualTriggerClustering,
-  getClusteringCronStatus
+  getClusteringCronStatus,
+  getSKTermsCronStatus,
+  runBackup,
+  manualBackup,
+  runDataRetention,
+  manualDataRetention
 } from '../controllers/cronController.js';
 
 const router = express.Router();
@@ -28,5 +33,20 @@ router.get('/manual-clustering', manualTriggerClustering);
 
 // Get clustering cron job status
 router.get('/clustering-status', getClusteringCronStatus);
+
+// Get SK Terms cron job status
+router.get('/sk-terms-status', getSKTermsCronStatus);
+
+// Daily automatic database backup (called by cron job)
+router.get('/backup', runBackup);
+
+// Manual trigger for backup (for testing)
+router.get('/manual-backup', manualBackup);
+
+// Monthly data retention check (called by cron job)
+router.get('/data-retention', runDataRetention);
+
+// Manual trigger for data retention (for testing)
+router.get('/manual-data-retention', manualDataRetention);
 
 export default router;

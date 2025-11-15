@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger.js';
 
 /**
  * Survey Responses Service
@@ -13,7 +14,7 @@ export const saveSurveyResponse = async (responseData) => {
     const response = await api.post('/survey-responses', responseData);
     return response.data;
   } catch (error) {
-    console.error('Error saving survey response:', error);
+      logger.error('Error saving survey response', error, { responseDataKeys: Object.keys(responseData || {}) });
     throw error;
   }
 };
@@ -28,7 +29,7 @@ export const getSurveyResponse = async (batchId, youthId) => {
     });
     return response.data;
   } catch (error) {
-    console.error('Error retrieving survey response:', error);
+      logger.error('Error retrieving survey response', error, { batchId, youthId });
     throw error;
   }
 };
@@ -47,7 +48,7 @@ export const submitSurveyResponse = async (responseId, responseData, recaptchaTo
     });
     return response.data;
   } catch (error) {
-    console.error('Error submitting survey response:', error);
+      logger.error('Error submitting survey response', error, { responseId });
     throw error;
   }
 };
@@ -62,7 +63,7 @@ export const checkSubmissionStatus = async (batchId, youthId) => {
     });
     return response.data;
   } catch (error) {
-    console.error('Error checking submission status:', error);
+      logger.error('Error checking submission status', error, { batchId, youthId });
     throw error;
   }
 };
@@ -75,7 +76,7 @@ export const getBatchResponseStats = async (batchId) => {
     const response = await api.get(`/survey-responses/batch/${batchId}/stats`);
     return response.data;
   } catch (error) {
-    console.error('Error getting batch response stats:', error);
+      logger.error('Error getting batch response stats', error, { batchId });
     throw error;
   }
 };

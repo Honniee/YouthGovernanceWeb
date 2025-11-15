@@ -4,6 +4,7 @@ import sanJoseLogo from '../../assets/logos/san_jose_logo.webp';
 import notificationService from '../../services/notificationService';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import logger from '../../utils/logger.js';
 
 const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   const [showNotifications, setShowNotifications] = useState(false);
@@ -20,7 +21,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   // Load notifications data
   const loadNotifications = async () => {
     try {
-      console.log('🔔 Loading notifications...');
+      logger.debug('Loading notifications');
       setLoadingNotifications(true);
       
       const [notificationsResponse, unreadCountResponse] = await Promise.all([
@@ -28,16 +29,15 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
         notificationService.getUnreadCount()
       ]);
       
-      console.log('📊 Notifications response:', notificationsResponse);
-      console.log('🔢 Unread count response:', unreadCountResponse);
+      logger.debug('Notifications loaded', { 
+        count: notificationsResponse.data?.notifications?.length || 0,
+        unreadCount: unreadCountResponse 
+      });
       
       setNotifications(notificationsResponse.data.notifications);
       setUnreadCount(unreadCountResponse);
-      
-      console.log('✅ Notifications loaded successfully');
     } catch (error) {
-      console.error('❌ Failed to load notifications:', error);
-      console.error('📝 Error details:', error.message);
+      logger.error('Failed to load notifications', error);
       // Fallback to empty state
       setNotifications([]);
       setUnreadCount(0);
@@ -60,7 +60,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
       );
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
-      console.error('Failed to mark notification as read:', error);
+      logger.error('Failed to mark notification as read', error, { notificationId });
     }
   };
 
@@ -73,7 +73,7 @@ const SKHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
       );
       setUnreadCount(0);
     } catch (error) {
-      console.error('Failed to mark all notifications as read:', error);
+      logger.error('Failed to mark all notifications as read', error);
     }
   };
 

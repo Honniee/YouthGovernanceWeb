@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import { validatePagination, sanitizeInput } from '../utils/validation.js';
+import logger from '../utils/logger.js';
 
 /**
  * Get user notifications with pagination
@@ -124,7 +125,7 @@ export const getUserNotifications = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('getUserNotifications error:', error);
+    logger.error('getUserNotifications error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch notifications',
@@ -182,7 +183,7 @@ export const getUnreadCount = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('getUnreadCount error:', error);
+    logger.error('getUnreadCount error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch unread count',
@@ -253,7 +254,7 @@ export const markAsRead = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('markAsRead error:', error);
+    logger.error('markAsRead error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to mark notification as read',
@@ -302,7 +303,7 @@ export const markAllAsRead = async (req, res) => {
     const result = await query(updateQuery, [userId, userTypeAliases4]);
     
     // Get count of affected rows for logging
-    console.log(`✅ Marked ${result.rowCount || 0} notifications as read`);
+    logger.debug(`Marked ${result.rowCount || 0} notifications as read`);
 
     res.json({
       success: true,
@@ -310,7 +311,7 @@ export const markAllAsRead = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('markAllAsRead error:', error);
+    logger.error('markAllAsRead error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to mark all notifications as read',
@@ -380,7 +381,7 @@ export const deleteNotification = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('deleteNotification error:', error);
+    logger.error('deleteNotification error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to delete notification',
@@ -406,13 +407,14 @@ function getTimeAgo(timestamp) {
   const diffDays = Math.floor(diffMs / 86400000);
 
   // Debug logging
-  console.log(`⏰ Time calculation:
-    - DB timestamp: ${timestamp}
-    - Notification time (parsed): ${notificationTime.toISOString()}
-    - Now: ${now.toISOString()}
-    - Diff (ms): ${diffMs}
-    - Diff (mins): ${diffMins}
-    - Diff (hours): ${diffHours}`);
+  logger.debug('Time calculation', {
+    dbTimestamp: timestamp,
+    notificationTime: notificationTime.toISOString(),
+    now: now.toISOString(),
+    diffMs,
+    diffMins,
+    diffHours
+  });
 
   if (diffMins < 1) return 'Just now';
   if (diffMins === 1) return '1 minute ago';

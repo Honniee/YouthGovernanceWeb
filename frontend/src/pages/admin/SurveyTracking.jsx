@@ -47,6 +47,7 @@ import {
 import { ToastContainer, showSuccessToast, showErrorToast } from '../../components/universal';
 import surveyTrackingService from '../../services/surveyTrackingService';
 import api from '../../services/api';
+import logger from '../../utils/logger.js';
 
 const SurveyTracking = () => {
   // Tab state
@@ -99,7 +100,7 @@ const SurveyTracking = () => {
         }
       }
     } catch (error) {
-      console.error('Error loading barangay youth:', error);
+      logger.error('Failed to load barangay youth', error);
       showErrorToast('Error', 'Failed to load barangay youth data');
     } finally {
       setIsLoading(false);

@@ -41,6 +41,7 @@ import { ToastContainer, showSuccessToast, showErrorToast } from '../../componen
 import activityLogsService from '../../services/activityLogsService.js';
 import api from '../../services/api.js';
 import { formatAsiaManilaTime } from '../../utils/timezone.js';
+import logger from '../../utils/logger.js';
 
 const ActivityLogs = () => {
   // Tab state for filtering by category or status
@@ -194,7 +195,7 @@ const ActivityLogs = () => {
         throw new Error(response.data?.message || 'Failed to load activity logs');
       }
     } catch (error) {
-      console.error('Failed to load activity logs:', error);
+      logger.error('Failed to load activity logs', error);
       setError(error.message || 'Failed to load activity logs');
       setActivityLogs([]);
       showErrorToast('Error', 'Failed to load activity logs');
@@ -272,7 +273,7 @@ const ActivityLogs = () => {
         });
       }
     } catch (error) {
-      console.error('Failed to load statistics:', error);
+      logger.error('Failed to load activity log statistics', error);
       // Don't show error toast for stats, just log it
     }
   };

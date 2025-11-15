@@ -46,6 +46,7 @@ import { ToastContainer, showErrorToast, showSuccessToast, ConfirmationModal } f
 import { authService } from '../../services/auth.js';
 import useConfirmation from '../../hooks/useConfirmation';
 import councilService, { logExport } from '../../services/councilService.js';
+import logger from '../../utils/logger.js';
 
 const LYDOCouncil = () => {
   // Tab state
@@ -181,7 +182,7 @@ const LYDOCouncil = () => {
       setHeroDirty(false);
       setHeroLoadStatus({ 1: null, 2: null, 3: null });
     } catch (error) {
-      console.error('Failed to load page hero:', error);
+      logger.error('Failed to load council page hero', error);
     }
   };
   
@@ -394,8 +395,8 @@ const LYDOCouncil = () => {
       const response = await councilService.bulkUpdateMembers(selectedItems, bulkAction);
       if (response.success) {
         showSuccessToast('Bulk Action', `Completed ${bulkAction} for ${response.processed} member(s)`);
-        if (response.errors && response.errors.length > 0) {
-          console.warn('Some items failed:', response.errors);
+          if (response.errors && response.errors.length > 0) {
+          logger.warn('Bulk member update had errors', { errors: response.errors });
         }
       } else {
         throw new Error(response.message || 'Bulk operation failed');
@@ -649,7 +650,7 @@ const LYDOCouncil = () => {
       try {
         await logExport(actualFormat, exportingRoles ? 'role' : 'member', dataset.length, exportType);
       } catch (err) {
-        console.error('Failed to log export:', err);
+      logger.error('Failed to log council export', err, { exportType: exportConfig?.type });
       }
 
       if (format === 'pdf') {
@@ -701,7 +702,7 @@ const LYDOCouncil = () => {
       try {
         await logExport(actualFormat, exportingRoles ? 'role' : 'member', dataset.length, 'selected');
       } catch (err) {
-        console.error('Failed to log bulk export:', err);
+      logger.error('Failed to log council bulk export', err, { format: bulkExport?.format });
       }
 
       if (format === 'pdf') {

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Navigate, useLocation } from 'react-router-dom';
 import LoadingScreen from './LoadingScreen';
+import logger from '../utils/logger.js';
 
 const ProtectedRoute = ({ children, requiredRole = null, requiredPermissions = [] }) => {
   const { isAuthenticated, user, isLoading, getCurrentUser } = useAuth();
@@ -30,7 +31,7 @@ const ProtectedRoute = ({ children, requiredRole = null, requiredPermissions = [
           setAuthValid(false);
         }
       } catch (error) {
-        console.error('Auth verification failed:', error);
+        logger.error('Auth verification failed', error);
         setAuthValid(false);
       } finally {
         setIsVerifying(false);
@@ -80,9 +81,7 @@ const ProtectedRoute = ({ children, requiredRole = null, requiredPermissions = [
   if (requiredRole) {
     const userType = user?.userType || user?.user_type;
     if (userType !== requiredRole) {
-      console.log(`🚫 Access DENIED: User type ${userType} cannot access ${requiredRole} routes`);
-      console.log(`👤 User:`, user);
-      console.log(`🎯 Required: ${requiredRole}`);
+      logger.warn('Access denied - role mismatch', { userType, requiredRole, userId: user?.id });
       return <Navigate to="/unauthorized" replace />;
     }
   }

@@ -50,9 +50,10 @@ import {
 } from '../../components/portal_main_content';
 import { ToastContainer, showSuccessToast, showErrorToast } from '../../components/universal';
 import notificationService from '../../services/notificationService';
+import logger from '../../utils/logger.js';
 
 const Notifications = () => {
-  console.log('🔔 SK Notifications component rendering...');
+  logger.debug('SK Notifications component rendering');
   
   // State management
   const [notifications, setNotifications] = useState([]);
@@ -236,7 +237,7 @@ const Notifications = () => {
   // Load notifications from API
   const loadNotifications = async () => {
     try {
-      console.log('🔔 Loading SK notifications from API...');
+      logger.debug('Loading SK notifications from API');
       setIsLoading(true);
       setError(null);
 
@@ -246,13 +247,12 @@ const Notifications = () => {
         limit: 10000 // Backend now allows higher limits for notifications
       });
 
-      console.log('📊 API Response:', response);
-      console.log('📊 Response structure:', {
+      logger.debug('API Response', {
         success: response.success,
         hasData: !!response.data,
         notificationsCount: response.data?.notifications?.length || 0,
-        pagination: response.data?.pagination || 'No pagination data',
-        totalFromPagination: response.data?.pagination?.total || 'No total count'
+        hasPagination: !!response.data?.pagination,
+        totalFromPagination: response.data?.pagination?.total || 0
       });
 
       if (response.success && response.data) {
@@ -274,29 +274,25 @@ const Notifications = () => {
         const backendTotal = response.data.pagination?.total || 0;
         setBackendTotalCount(backendTotal);
         
-        console.log('✅ SK Notifications loaded successfully:', {
+        logger.info('SK Notifications loaded successfully', {
           mappedCount: mappedNotifications.length,
-          backendTotal: backendTotal,
-          backendPage: response.data.pagination?.page || 'Unknown',
-          backendLimit: response.data.pagination?.limit || 'Unknown'
+          backendTotal: backendTotal
         });
         
         // Log warning if counts don't match
         if (backendTotal && mappedNotifications.length !== backendTotal) {
-          console.warn('⚠️ Count mismatch detected:', {
+          logger.warn('Count mismatch detected', {
             frontendCount: mappedNotifications.length,
             backendTotal: backendTotal,
             difference: Math.abs(mappedNotifications.length - backendTotal)
           });
         }
       } else {
-        console.error('❌ Invalid API response format:', response);
+        logger.error('Invalid API response format', null, { response });
         setError('Failed to load notifications');
       }
     } catch (error) {
-      console.error('❌ Error loading SK notifications:', error);
-      console.error('❌ Error details:', {
-        message: error.message,
+      logger.error('Error loading SK notifications', error, {
         response: error.response?.data,
         status: error.response?.status
       });
@@ -338,7 +334,7 @@ const Notifications = () => {
       n.type.includes('training')
     ).length;
 
-    console.log('📊 SK Notification Stats:', {
+    logger.debug('SK Notification Stats', {
       total,
       unread,
       highPriority,
@@ -595,7 +591,7 @@ ${bodyRows}
       
       showSuccessToast('Notification marked as read', '');
     } catch (error) {
-      console.error('Failed to mark notification as read:', error);
+      logger.error('Failed to mark notification as read', error, { notificationId: id });
       showErrorToast('Error', 'Failed to mark notification as read');
     }
   };
@@ -614,7 +610,7 @@ ${bodyRows}
       
       showSuccessToast('All notifications marked as read', '');
     } catch (error) {
-      console.error('Failed to mark all notifications as read:', error);
+      logger.error('Failed to mark all notifications as read', error);
       showErrorToast('Error', 'Failed to mark all notifications as read');
     } finally {
       setMarkingAllAsRead(false);
@@ -634,7 +630,7 @@ ${bodyRows}
     
     try {
       setIsDeleting(true);
-      console.log('🗑️ Deleting notification:', notificationToDelete.id);
+      logger.debug('Deleting notification', { notificationId: notificationToDelete.id });
       
       // Call the backend API to delete the notification
       await notificationService.deleteNotification(notificationToDelete.id);
@@ -651,9 +647,9 @@ ${bodyRows}
       await loadNotifications();
       
       showSuccessToast('Notification deleted', 'The notification has been permanently deleted');
-      console.log('✅ Notification deleted successfully');
+      logger.info('Notification deleted successfully', { notificationId: notificationToDelete.id });
     } catch (error) {
-      console.error('❌ Failed to delete notification:', error);
+      logger.error('Failed to delete notification', error, { notificationId: notificationToDelete?.id });
       showErrorToast('Error', 'Failed to delete notification');
     } finally {
       setIsDeleting(false);
@@ -667,14 +663,14 @@ ${bodyRows}
 
   // Bulk action handlers
   const handleBulkMarkAsRead = async () => {
-    console.log('🔔 handleBulkMarkAsRead called with:', selectedNotifications);
+    logger.debug('handleBulkMarkAsRead called', { selectedCount: selectedNotifications.length });
     
     const unreadSelected = selectedNotifications.filter(id => {
       const notification = notifications.find(n => n.id === id);
       return notification && !notification.isRead;
     });
 
-    console.log('📋 Unread selected notifications:', unreadSelected);
+    logger.debug('Unread selected notifications', { unreadCount: unreadSelected.length });
 
     if (unreadSelected.length === 0) {
       showSuccessToast('No action needed', 'All selected notifications are already read');
@@ -703,7 +699,7 @@ ${bodyRows}
       // Refresh data to ensure consistency
       await loadNotifications();
     } catch (error) {
-      console.error('Failed to mark notifications as read:', error);
+      logger.error('Failed to mark notifications as read', error, { count: unreadSelected.length });
       showErrorToast('Error', 'Failed to mark some notifications as read');
     } finally {
       setBulkOperations(prev => ({ ...prev, markingAsRead: false }));
@@ -711,7 +707,7 @@ ${bodyRows}
   };
 
   const handleBulkDelete = async () => {
-    console.log('🗑️ handleBulkDelete called with:', selectedNotifications);
+    logger.debug('handleBulkDelete called', { selectedCount: selectedNotifications.length });
     
     if (selectedNotifications.length === 0) return;
 
@@ -720,7 +716,7 @@ ${bodyRows}
   };
 
   const confirmBulkDelete = async () => {
-    console.log('✅ Confirmation result: confirmed');
+    logger.debug('Bulk delete confirmation confirmed');
 
     setBulkOperations(prev => ({ ...prev, deleting: true }));
     
@@ -734,7 +730,7 @@ ${bodyRows}
           await notificationService.deleteNotification(id);
           successCount++;
         } catch (error) {
-          console.error(`Failed to delete notification ${id}:`, error);
+          logger.error('Failed to delete notification', error, { notificationId: id });
           errorCount++;
         }
       }
@@ -760,7 +756,7 @@ ${bodyRows}
       // Refresh data to ensure consistency
       await loadNotifications();
     } catch (error) {
-      console.error('Bulk delete error:', error);
+      logger.error('Bulk delete error', error, { count: selectedNotifications.length });
       showErrorToast('Error', 'Failed to delete notifications');
     } finally {
       setBulkOperations(prev => ({ ...prev, deleting: false }));

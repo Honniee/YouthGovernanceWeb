@@ -17,6 +17,7 @@ import {
 } from '../utils/skValidation.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import SKValidationService from '../services/skValidationService.js';
+import logger from '../utils/logger.js';
 
 /**
  * SK Officials Core Controller
@@ -44,8 +45,7 @@ const sanitizeString = (str) => {
  * GET /api/sk-officials
  */
 const getAllSKOfficials = async (req, res) => {
-  console.log('🚨🚨🚨 NEW SK CONTROLLER IS BEING CALLED! 🚨🚨🚨');
-  console.log('🎯 getAllSKOfficials controller function called!');
+  logger.debug('getAllSKOfficials controller called', { userId: req.user?.id });
   try {
     // Extract and validate query parameters
     const {
@@ -60,7 +60,7 @@ const getAllSKOfficials = async (req, res) => {
       sortOrder = 'asc'
     } = req.query;
 
-    console.log('🔍 SK Officials Query Parameters:', {
+    logger.debug('SK Officials query parameters', {
       page: parseInt(page),
       limit: parseInt(limit),
       search,
@@ -84,11 +84,11 @@ const getAllSKOfficials = async (req, res) => {
       paramCount++;
       whereConditions.push(`sk.term_id = $${paramCount}`);
       queryParams.push(termId);
-      console.log(`🔍 Filtering by termId: ${termId}`);
+      logger.debug('Filtering by termId', { termId });
     } else {
       // Default to active term if no specific term requested
       whereConditions.push(`t.status = 'active'`);
-      console.log('🔍 Filtering by active term status');
+      logger.debug('Filtering by active term status');
     }
 
     // Search functionality
@@ -183,10 +183,7 @@ const getAllSKOfficials = async (req, res) => {
       ${whereClause}
     `;
 
-    console.log('🔍 Executing SK Officials queries...');
-    console.log('🔍 Main query:', mainQuery);
-    console.log('🔍 Query params:', queryParams);
-    console.log('🔍 Where conditions:', whereConditions);
+    logger.debug('Executing SK Officials queries', { hasWhereConditions: whereConditions.length > 0, paramCount: queryParams.length });
     
     // Execute both queries
     const [dataResult, countResult] = await Promise.all([
@@ -224,7 +221,7 @@ const getAllSKOfficials = async (req, res) => {
     const total = parseInt(countResult.rows[0].total);
     const totalPages = Math.ceil(total / parseInt(limit));
 
-    console.log(`✅ Found ${items.length} SK officials (${total} total)`);
+    logger.debug('SK Officials query completed', { count: items.length, total, page, limit });
 
     res.json({
       success: true,
@@ -242,7 +239,7 @@ const getAllSKOfficials = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching SK officials:', error);
+    logger.error('Error fetching SK officials', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK officials',
@@ -318,7 +315,7 @@ const getSKStatistics = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching SK statistics:', error);
+    logger.error('Error fetching SK statistics', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK statistics',
@@ -400,7 +397,7 @@ const getSKOfficialById = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching SK official:', error);
+    logger.error('Error fetching SK official', { error: error.message, stack: error.stack, skId: req.params.id });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK official',
@@ -556,7 +553,7 @@ const createSKOfficial = async (req, res) => {
     await createUserForSK(skId, client);
 
     await client.query('COMMIT');
-    console.log('✅ SK Official creation - Database transaction committed successfully');
+    logger.debug('SK Official creation - Database transaction committed successfully', { skId, email });
 
     // Send welcome notification to SK Official (fire-and-forget)
     notificationService.sendSKWelcomeNotification({
@@ -568,7 +565,7 @@ const createSKOfficial = async (req, res) => {
       position: newOfficial.position,
       password: password,
       barangay_name: barangayCheck.barangayName
-    }).catch(err => console.error('SK welcome notification failed:', err));
+    }).catch(err => logger.error('SK welcome notification failed', { error: err.message, stack: err.stack, skId }));
 
     // Create audit log for SK Official creation
     const skOfficialName = `${newOfficial.first_name} ${newOfficial.last_name}`;
@@ -589,10 +586,10 @@ const createSKOfficial = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('❌ Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'CREATE', resourceType: 'sk-officials' }));
 
     // Send admin notifications using Universal Notification Service (defensive programming)
-    console.log('🔔 SK Official creation - Starting admin notifications');
+    logger.debug('SK Official creation - Starting admin notifications', { skId });
     try {
       universalNotificationService.sendNotificationAsync('sk-officials', 'creation', {
         skId: newOfficial.sk_id,
@@ -602,9 +599,9 @@ const createSKOfficial = async (req, res) => {
         barangayName: barangayCheck.barangayName,
         personalEmail: newOfficial.personal_email
       }, req.user);
-      console.log('✅ SK Official creation - Admin notifications queued successfully');
+      logger.debug('SK Official creation - Admin notifications queued successfully', { skId });
     } catch (notifError) {
-      console.error('❌ Universal notification service error:', notifError);
+      logger.error('Universal notification service error', { error: notifError.message, stack: notifError.stack, skId });
     }
 
     res.status(201).json({
@@ -633,7 +630,7 @@ const createSKOfficial = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Error creating SK official:', error);
+    logger.error('Error creating SK official', { error: error.message, stack: error.stack });
     
     // Create audit log for failed creation
     const resourceName = `SK Official Creation - Failed`;
@@ -653,7 +650,7 @@ const createSKOfficial = async (req, res) => {
       userAgent: req.get('User-Agent'),
       status: 'error',
       errorMessage: error.message
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'UPDATE', resourceType: 'sk-officials' }));
 
     res.status(500).json({
       success: false,
@@ -772,7 +769,7 @@ const updateSKOfficial = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'UPDATE', resourceType: 'sk-officials' }));
 
     // Send admin notifications using Universal Notification Service
     universalNotificationService.sendNotificationAsync('sk-officials', 'update', {
@@ -805,7 +802,7 @@ const updateSKOfficial = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Error updating SK official:', error);
+    logger.error('Error updating SK official', { error: error.message, stack: error.stack, skId: req.params.id });
     
     res.status(500).json({
       success: false,
@@ -876,7 +873,7 @@ const deleteSKOfficial = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'UPDATE', resourceType: 'sk-officials' }));
 
     // Send admin notifications using Universal Notification Service
     universalNotificationService.sendNotificationAsync('sk-officials', 'status', {
@@ -900,7 +897,7 @@ const deleteSKOfficial = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Error deleting SK official:', error);
+    logger.error('Error deleting SK official', { error: error.message, stack: error.stack, skId: req.params.id });
     
     res.status(500).json({
       success: false,
@@ -919,7 +916,7 @@ const deleteSKOfficial = async (req, res) => {
  * PUT /api/sk-officials/:id/status
  */
 const updateSKStatus = async (req, res) => {
-  console.log('🔄 SK Status Update Request:', {
+  logger.debug('SK Status Update Request', {
     params: req.params,
     body: req.body,
     user: req.user?.id
@@ -933,7 +930,7 @@ const updateSKStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    console.log('📝 Processing status update:', { id, status });
+    logger.debug('Processing status update', { id, status, userId: req.user?.id });
 
     // Validate status
     if (!status || !['active', 'inactive'].includes(status)) {
@@ -960,7 +957,7 @@ const updateSKStatus = async (req, res) => {
     }
 
     const official = existingCheck.rows[0];
-    console.log('✅ Found existing SK Official:', { 
+    logger.debug('Found existing SK Official', { 
       skId: official.sk_id, 
       currentStatus: official.is_active,
       name: `${official.first_name} ${official.last_name}`
@@ -968,7 +965,7 @@ const updateSKStatus = async (req, res) => {
 
     // Update status
     const isActive = status === 'active';
-    console.log('🔄 Updating to status:', { status, isActive });
+    logger.debug('Updating to status', { status, isActive, skId: id });
     
     const updateQuery = `
       UPDATE "SK_Officials" 
@@ -977,9 +974,9 @@ const updateSKStatus = async (req, res) => {
       RETURNING *
     `;
 
-    console.log('📊 Executing update query:', { query: updateQuery, params: [isActive, id] });
+    logger.debug('Executing status update query', { skId: id, isActive });
     const result = await client.query(updateQuery, [isActive, id]);
-    console.log('✅ Update query completed:', { rowsAffected: result.rowCount });
+    logger.debug('Update query completed', { rowsAffected: result.rowCount, skId: id });
 
     await client.query('COMMIT');
 
@@ -988,10 +985,10 @@ const updateSKStatus = async (req, res) => {
     const currentUser = req.user;
     setTimeout(async () => {
       try {
-        console.log('🔔 Sending SK status update notification...');
+        logger.debug('Sending SK status update notification', { skId: id, status });
         await notificationService.notifyAdminsAboutSKStatusUpdate(official, status, currentUser);
       } catch (notifError) {
-        console.error('SK status update notification error:', notifError);
+        logger.error('SK status update notification error', { error: notifError.message, stack: notifError.stack, skId: id });
       }
     }, 100);
 
@@ -1015,7 +1012,7 @@ const updateSKStatus = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'UPDATE', resourceType: 'sk-officials' }));
 
     // Enhanced admin notifications using Universal Notification Service
     universalNotificationService.sendNotificationAsync('sk-officials', 'status', {
@@ -1040,7 +1037,7 @@ const updateSKStatus = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Error updating SK official status:', error);
+    logger.error('Error updating SK official status', { error: error.message, stack: error.stack, skId: id, status });
     
     res.status(500).json({
       success: false,
@@ -1082,7 +1079,7 @@ const getBarangayVacancies = async (req, res) => {
       data: vacancies
     });
   } catch (error) {
-    console.error('Error fetching barangay vacancies:', error);
+    logger.error('Error fetching barangay vacancies', { error: error.message, stack: error.stack, barangayId: req.params.barangayId });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch barangay vacancies',
@@ -1113,7 +1110,7 @@ const getAllBarangayVacancies = async (req, res) => {
       data: allVacancies
     });
   } catch (error) {
-    console.error('Error fetching all barangay vacancies:', error);
+    logger.error('Error fetching all barangay vacancies', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch all barangay vacancies',
@@ -1144,7 +1141,7 @@ const getOverallVacancyStats = async (req, res) => {
       data: overallStats
     });
   } catch (error) {
-    console.error('Error fetching overall vacancy stats:', error);
+    logger.error('Error fetching overall vacancy stats', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch overall vacancy statistics',
@@ -1180,7 +1177,7 @@ const validatePosition = async (req, res) => {
       data: validation
     });
   } catch (error) {
-    console.error('Error validating position:', error);
+    logger.error('Error validating position', { error: error.message, stack: error.stack, position: req.body?.position, barangayId: req.body?.barangayId });
     res.status(500).json({
       success: false,
       message: 'Failed to validate position',

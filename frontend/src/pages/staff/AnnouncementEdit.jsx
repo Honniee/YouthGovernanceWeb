@@ -21,6 +21,7 @@ import {
 import { ToastContainer, showSuccessToast, showErrorToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import { HeaderMainContent } from '../../components/portal_main_content';
 import { useRealtime } from '../../realtime/useRealtime';
+import logger from '../../utils/logger.js';
 
 const AnnouncementEdit = () => {
   const navigate = useNavigate();
@@ -178,7 +179,7 @@ const AnnouncementEdit = () => {
       setImageUploading(true);
       
       // Upload image immediately (like StaffProfile)
-      console.log('🖼️ Uploading image immediately for announcement:', id);
+      logger.debug('Uploading image immediately for announcement', { announcementId: id });
       const response = await uploadAnnouncementImage(id, file);
       
       if (response.success) {
@@ -187,12 +188,12 @@ const AnnouncementEdit = () => {
         setImagePreview(null); // Clear preview since we're using the uploaded image
         setImageFile(null); // Clear file since it's already uploaded
         
-        console.log('✅ Image uploaded successfully:', response.data.image_url);
+        logger.info('Image uploaded successfully', { announcementId: id, imageUrl: response.data.image_url });
       } else {
         throw new Error(response.message || 'Failed to upload image');
       }
     } catch (error) {
-      console.error('Error uploading image:', error);
+      logger.error('Error uploading image', error, { announcementId: id });
       setError(error.message || 'Failed to upload image. Please try again.');
     } finally {
       setImageUploading(false);
@@ -206,9 +207,9 @@ const AnnouncementEdit = () => {
       setImageFile(null);
       setImagePreview(null);
       setExistingImageUrl(null);
-      console.log('🖼️ Image removed from UI (backend removal not implemented yet)');
+      logger.debug('Image removed from UI (backend removal not implemented yet)', { announcementId: id });
     } catch (error) {
-      console.error('Error removing image:', error);
+      logger.error('Error removing image', error, { announcementId: id });
       setError('Failed to remove image. Please try again.');
     }
   };
@@ -274,11 +275,11 @@ const AnnouncementEdit = () => {
         // No imageFile - images are uploaded immediately via dedicated endpoint
       };
 
-      console.log('🔍 Updating announcement with data:', formData);
+      logger.debug('Updating announcement', { announcementId: id, hasData: !!formData });
       
       // Update announcement
       const response = await updateAnnouncement(id, formData);
-      console.log('✅ Announcement updated successfully:', response);
+      logger.info('Announcement updated successfully', { announcementId: id, success: response.success });
 
       showSuccessToast && showSuccessToast('Update Successful', 'Announcement updated successfully!');
       
@@ -293,7 +294,7 @@ const AnnouncementEdit = () => {
       });
       
     } catch (error) {
-      console.error('❌ Error updating announcement:', error);
+      logger.error('Error updating announcement', error, { announcementId: id });
       const message = error?.response?.data?.message || error.message || 'Failed to update announcement. Please try again.';
       setError(message);
       showErrorToast && showErrorToast('Update Failed', message);

@@ -44,6 +44,7 @@ import {
 } from '../../components/portal_main_content';
 import { useRealtime } from '../../realtime/useRealtime';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
+import logger from '../../utils/logger.js';
 
 // Note: Dummy data removed - now using real API calls
 
@@ -293,7 +294,7 @@ const Announcements = () => {
           });
         }
       } catch (err) {
-        console.error('Error fetching statistics:', err);
+        logger.error('Error fetching statistics', err);
       } finally {
         setStatisticsLoading(false);
       }
@@ -384,7 +385,7 @@ const Announcements = () => {
         });
       }
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      logger.error('Error refreshing data', error);
     } finally {
       setStatisticsLoading(false);
     }

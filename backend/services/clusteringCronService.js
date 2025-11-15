@@ -9,6 +9,7 @@
 import cron from 'node-cron';
 import youthClusteringService from './youthClusteringService.js';
 import { query } from '../config/database.js';
+import logger from '../utils/logger.js';
 
 class ClusteringCronService {
   
@@ -26,8 +27,7 @@ class ClusteringCronService {
     // For testing: '*/5 * * * *' = Every 5 minutes
     const schedule = process.env.CLUSTERING_CRON_SCHEDULE || '0 2 1 * *';
     
-    console.log('\n🕐 Starting Clustering Cron Service...');
-    console.log(`   Schedule: ${schedule} (${this.getCronDescription(schedule)})`);
+    logger.info('Starting Clustering Cron Service', { schedule, description: this.getCronDescription(schedule) });
     
     this.cronJob = cron.schedule(schedule, async () => {
       await this.runScheduledClustering();
@@ -36,38 +36,35 @@ class ClusteringCronService {
       timezone: 'Asia/Manila' // Adjust to your timezone
     });
 
-    console.log('✅ Clustering cron job scheduled successfully');
-    console.log('   Municipality-wide clustering will run automatically\n');
+    logger.info('Clustering cron job scheduled successfully', { schedule, timezone: 'Asia/Manila' });
   }
-
+  
   /**
    * Stop the cron job
    */
   stop() {
     if (this.cronJob) {
       this.cronJob.stop();
-      console.log('🛑 Clustering cron job stopped');
+      logger.info('Clustering cron job stopped');
     }
   }
-
+  
   /**
    * Run scheduled municipality-wide clustering
    */
   async runScheduledClustering() {
     if (this.isRunning) {
-      console.log('⚠️  Clustering already in progress, skipping this run');
+      logger.warn('Clustering already in progress, skipping this run');
       return;
     }
 
     this.isRunning = true;
     
     try {
-      console.log('\n');
-      console.log('═'.repeat(60));
-      console.log('🕐 SCHEDULED CLUSTERING STARTED');
-      console.log('═'.repeat(60));
-      console.log(`   Time: ${new Date().toISOString()}`);
-      console.log(`   Type: Monthly Municipality-wide Clustering`);
+      logger.info('SCHEDULED CLUSTERING STARTED', {
+        time: new Date().toISOString(),
+        type: 'Monthly Municipality-wide Clustering'
+      });
       
       // Get system user ID for automated runs (or use a designated admin ID)
       const systemUserId = await this.getSystemUserId();
@@ -79,28 +76,18 @@ class ClusteringCronService {
         barangayId: null
       });
       
-      console.log('\n');
-      console.log('═'.repeat(60));
-      console.log('✅ SCHEDULED CLUSTERING COMPLETED');
-      console.log('═'.repeat(60));
-      console.log(`   Run ID: ${result.runId}`);
-      console.log(`   Youth Analyzed: ${result.metrics.totalYouth}`);
-      console.log(`   Segments Created: ${result.metrics.segmentsCreated}`);
-      console.log(`   Quality Score: ${result.metrics.silhouetteScore.toFixed(4)}`);
-      console.log('═'.repeat(60));
-      console.log('\n');
+      logger.info('SCHEDULED CLUSTERING COMPLETED', {
+        runId: result.runId,
+        totalYouth: result.metrics.totalYouth,
+        segmentsCreated: result.metrics.segmentsCreated,
+        silhouetteScore: result.metrics.silhouetteScore.toFixed(4)
+      });
       
       // Optionally: Send notification to admins about successful clustering
       await this.notifyAdmins(result);
       
     } catch (error) {
-      console.error('\n');
-      console.error('═'.repeat(60));
-      console.error('❌ SCHEDULED CLUSTERING FAILED');
-      console.error('═'.repeat(60));
-      console.error(`   Error: ${error.message}`);
-      console.error('═'.repeat(60));
-      console.error('\n');
+      logger.error('SCHEDULED CLUSTERING FAILED', { error: error.message, stack: error.stack });
       
       // Optionally: Send error notification to admins
       await this.notifyAdminsError(error);
@@ -132,7 +119,7 @@ class ClusteringCronService {
       return 'SYSTEM';
       
     } catch (error) {
-      console.warn('⚠️  Could not get system user ID, using default');
+      logger.warn('Could not get system user ID, using default', { defaultUserId: 'SYSTEM' });
       return 'SYSTEM';
     }
   }
@@ -151,7 +138,7 @@ class ClusteringCronService {
       
       // Create notification for each admin
       // This is a placeholder - implement according to your notification system
-      console.log(`📧 Would notify ${admins.rows.length} admins about successful clustering`);
+      logger.debug(`Would notify ${admins.rows.length} admins about successful clustering`, { adminCount: admins.rows.length });
       
       // Example:
       // for (const admin of admins.rows) {
@@ -163,7 +150,7 @@ class ClusteringCronService {
       // }
       
     } catch (error) {
-      console.error('⚠️  Failed to notify admins:', error.message);
+      logger.error('Failed to notify admins', { error: error.message, stack: error.stack });
     }
   }
 
@@ -178,7 +165,7 @@ class ClusteringCronService {
         AND is_active = true
       `);
       
-      console.log(`📧 Would notify ${admins.rows.length} admins about clustering error`);
+      logger.debug(`Would notify ${admins.rows.length} admins about clustering error`, { adminCount: admins.rows.length });
       
       // Example:
       // for (const admin of admins.rows) {
@@ -190,7 +177,7 @@ class ClusteringCronService {
       // }
       
     } catch (err) {
-      console.error('⚠️  Failed to notify admins about error:', err.message);
+      logger.error('Failed to notify admins about error', { error: err.message, stack: err.stack });
     }
   }
 
@@ -212,7 +199,7 @@ class ClusteringCronService {
    * Manual trigger for testing (can be called from controller)
    */
   async triggerManualScheduledClustering(userId = 'MANUAL') {
-    console.log('🔧 Manual trigger for scheduled clustering');
+    logger.info('Manual trigger for scheduled clustering', { userId });
     
     const result = await youthClusteringService.runCompletePipeline(userId, {
       runType: 'scheduled',
@@ -243,8 +230,7 @@ const clusteringCronService = new ClusteringCronService();
 if (process.env.NODE_ENV === 'production' || process.env.ENABLE_CLUSTERING_CRON === 'true') {
   clusteringCronService.start();
 } else {
-  console.log('ℹ️  Clustering cron job disabled in development');
-  console.log('   Set ENABLE_CLUSTERING_CRON=true to enable');
+  logger.info('Clustering cron job disabled in development', { recommendation: 'Set ENABLE_CLUSTERING_CRON=true to enable' });
 }
 
 export default clusteringCronService;

@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleCheck.js';
 import { surveyBatchesLimiter, bulkOperationLimiter } from '../middleware/rateLimiter.js';
+import { validateCSRF } from '../middleware/csrf.js';
 import {
   validateCreateBatch,
   validateUpdateBatch,
@@ -63,7 +64,8 @@ router.get('/', requireRole(['admin', 'lydo_staff', 'sk_official']), validateQue
  * @access  Admin and LYDO Staff
  * @body    batchName, description, startDate, endDate, targetAgeMin, targetAgeMax
  */
-router.post('/', requireRole(['admin', 'lydo_staff']), validateCreateBatch, createBatch);
+// SECURITY: CSRF protection applied
+router.post('/', requireRole(['admin', 'lydo_staff']), validateCSRF, validateCreateBatch, createBatch);
 
 // =============================================================================
 // EXPORT OPERATIONS (must come before parameterized routes)
@@ -95,14 +97,16 @@ router.get('/:id', requireRole(['admin', 'lydo_staff', 'sk_official']), getBatch
  * @access  Admin and LYDO Staff
  * @body    batchName, description, startDate, endDate, targetAgeMin, targetAgeMax
  */
-router.put('/:id', requireRole(['admin', 'lydo_staff']), validateUpdateBatch, updateBatch);
+// SECURITY: CSRF protection applied
+router.put('/:id', requireRole(['admin', 'lydo_staff']), validateCSRF, validateUpdateBatch, updateBatch);
 
 /**
  * @route   DELETE /api/survey-batches/:id
  * @desc    Delete a survey batch
  * @access  Admin only
  */
-router.delete('/:id', requireRole('admin'), deleteBatch);
+// SECURITY: CSRF protection applied
+router.delete('/:id', requireRole('admin'), validateCSRF, deleteBatch);
 
 // =============================================================================
 // STATUS MANAGEMENT
@@ -114,7 +118,8 @@ router.delete('/:id', requireRole('admin'), deleteBatch);
  * @access  Admin and LYDO Staff
  * @body    status, reason, action
  */
-router.patch('/:id/status', requireRole(['admin', 'lydo_staff']), validateUpdateStatus, updateBatchStatus);
+// SECURITY: CSRF protection applied
+router.patch('/:id/status', requireRole(['admin', 'lydo_staff']), validateCSRF, validateUpdateStatus, updateBatchStatus);
 
 // =============================================================================
 // STATISTICS AND UTILITIES
@@ -167,6 +172,7 @@ router.get('/utilities/business-rules', requireRole('admin'), validateBusinessRu
  * @access  Admin only
  * @body    batchIds, status, reason
  */
-router.post('/bulk/status', requireRole('admin'), bulkOperationLimiter, validateBulkOp, bulkUpdateStatus);
+// SECURITY: CSRF protection applied
+router.post('/bulk/status', requireRole('admin'), validateCSRF, bulkOperationLimiter, validateBulkOp, bulkUpdateStatus);
 
 export default router;

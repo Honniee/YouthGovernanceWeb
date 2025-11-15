@@ -3,6 +3,7 @@ import universalNotificationService from '../services/universalNotificationServi
 import { createAuditLog } from '../middleware/auditLogger.js';
 import PDFDocument from 'pdfkit';
 import { generateOfficialFormat, generateModernFormat, generateDetailedFormat, generateTableFormat } from '../utils/pdfFormats.js';
+import logger from '../utils/logger.js';
 
 /**
  * SK Officials Reports & Analytics Controller
@@ -111,9 +112,9 @@ const exportSKOfficialsCSV = async (req, res) => {
           status: 'success',
           category: 'Data Export'
         });
-        console.log(`✅ Export audit log created: JSON export of ${result.rows.length} SK officials`);
+        logger.debug(`Export audit log created: JSON export of ${result.rows.length} SK officials`);
       } catch (err) {
-        console.error('❌ Export audit log failed:', err);
+        logger.error('Export audit log failed', { error: err.message, stack: err.stack });
       }
       
       // Return JSON response without file download
@@ -149,14 +150,14 @@ const exportSKOfficialsCSV = async (req, res) => {
       userAgent: req.get('User-Agent'),
       status: 'success',
       category: 'Data Export'
-    }).catch(err => console.error('❌ Export audit log failed:', err));
+    }).catch(err => logger.error('Export audit log failed', { error: err.message, stack: err.stack }));
     
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="sk_officials_export.csv"');
     res.send(csvContent);
 
   } catch (error) {
-    console.error('Error exporting SK officials to CSV:', error);
+    logger.error('Error exporting SK officials to CSV', { error: error.message, stack: error.stack });
     
     // Create audit log for failed export
     const resourceName = `SK Officials Export - Failed`;
@@ -176,7 +177,7 @@ const exportSKOfficialsCSV = async (req, res) => {
       userAgent: req.get('User-Agent'),
       status: 'error',
       errorMessage: error.message
-    }).catch(err => console.error('Failed export audit log error:', err));
+    }).catch(err => logger.error('Failed export audit log error', { error: err.message, stack: err.stack }));
     
     res.status(500).json({
       success: false,
@@ -327,14 +328,14 @@ const exportSKOfficialsPDF = async (req, res) => {
         status: 'success',
         category: 'Data Export'
       });
-      console.log(`✅ Export audit log created: PDF export of ${result.rows.length} SK officials`);
+      logger.debug(`Export audit log created: PDF export of ${result.rows.length} SK officials`);
     } catch (err) {
-      console.error('❌ Export audit log failed:', err);
+      logger.error('Export audit log failed', { error: err.message, stack: err.stack });
     }
 
     doc.end();
   } catch (error) {
-    console.error('Error exporting SK officials to PDF:', error);
+    logger.error('Error exporting SK officials to PDF', { error: error.message, stack: error.stack });
     
     // Create audit log for failed export
     const resourceName = `SK Officials Export - Failed`;
@@ -354,7 +355,7 @@ const exportSKOfficialsPDF = async (req, res) => {
       userAgent: req.get('User-Agent'),
       status: 'error',
       errorMessage: error.message
-    }).catch(err => console.error('Failed export audit log error:', err));
+    }).catch(err => logger.error('Failed export audit log error', { error: err.message, stack: err.stack }));
     
     res.status(500).json({
       success: false,
@@ -376,7 +377,7 @@ const exportSKOfficialsExcel = async (req, res) => {
       message: 'Excel export not yet implemented'
     });
   } catch (error) {
-    console.error('Error exporting SK officials to Excel:', error);
+    logger.error('Error exporting SK officials to Excel', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to export SK officials',
@@ -419,7 +420,7 @@ const getSKOfficialsByTerm = async (req, res) => {
       reportType: 'SK Officials by Term Analytics',
       recordCount: result.rows.length,
       reportData: 'Term-based statistics and breakdowns'
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Analytics audit log failed:', err));
+    }, universalAuditService.createUserContext(req)).catch(err => logger.error('Analytics audit log failed', { error: err.message, stack: err.stack }));
 
     res.json({
       success: true,
@@ -443,7 +444,7 @@ const getSKOfficialsByTerm = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching SK officials by term:', error);
+    logger.error('Error fetching SK officials by term', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK officials by term',
@@ -479,7 +480,7 @@ const getCurrentTermOfficials = async (req, res) => {
       reportType: 'Current Term SK Officials Report',
       recordCount: result.rows.length,
       reportData: 'Active term officials with barangay assignments'
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Current term report audit log failed:', err));
+    }, universalAuditService.createUserContext(req)).catch(err => logger.error('Current term report audit log failed', { error: err.message, stack: err.stack }));
 
     res.json({
       success: true,
@@ -487,7 +488,7 @@ const getCurrentTermOfficials = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching current term officials:', error);
+    logger.error('Error fetching current term officials', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch current term officials',
@@ -526,7 +527,7 @@ const getSKOfficialsByBarangay = async (req, res) => {
       reportType: 'SK Officials by Barangay Analytics',
       recordCount: result.rows.length,
       reportData: 'Barangay-based statistics and position analysis'
-    }, universalAuditService.createUserContext(req)).catch(err => console.error('Barangay analytics audit log failed:', err));
+    }, universalAuditService.createUserContext(req)).catch(err => logger.error('Barangay analytics audit log failed', { error: err.message, stack: err.stack }));
 
     res.json({
       success: true,
@@ -547,7 +548,7 @@ const getSKOfficialsByBarangay = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching SK officials by barangay:', error);
+    logger.error('Error fetching SK officials by barangay', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK officials by barangay',
@@ -596,7 +597,7 @@ const getBarangayPositions = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching barangay positions:', error);
+    logger.error('Error fetching barangay positions', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch barangay positions',
@@ -622,7 +623,7 @@ const getBarangays = async (req, res) => {
       data: result.rows.map(r => ({ barangayId: r.barangay_id, barangayName: r.barangay_name }))
     });
   } catch (error) {
-    console.error('Error fetching barangays:', error);
+    logger.error('Error fetching barangays', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, message: 'Failed to fetch barangays', error: error.message });
   }
 };
@@ -681,7 +682,7 @@ const getAvailablePositions = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching available positions:', error);
+    logger.error('Error fetching available positions', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch available positions',
@@ -727,7 +728,7 @@ const getSKOfficialHistory = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching SK official history:', error);
+    logger.error('Error fetching SK official history', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK official history',
@@ -820,7 +821,7 @@ const getSKOfficialActivities = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching SK official activities:', error);
+    logger.error('Error fetching SK official activities', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK official activities',

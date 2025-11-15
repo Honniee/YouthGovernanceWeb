@@ -82,7 +82,7 @@ const getSuggestedTermDates = async (client) => {
       `${suggestion.startDate} to ${suggestion.endDate} (${suggestion.description})`
     );
   } catch (error) {
-    console.error('Error getting suggested dates:', error);
+    logger.error('Error getting suggested dates', { error: error.message, stack: error.stack });
     return [];
   }
 };
@@ -209,7 +209,7 @@ const getAllTerms = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching SK Terms:', error);
+    logger.error('Error fetching SK Terms', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK Terms',
@@ -320,7 +320,7 @@ const getPublicChairpersonsByBarangay = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching public chairpersons by barangay:', error);
+    logger.error('Error fetching public chairpersons by barangay', { error: error.message, stack: error.stack, barangayId: req.params.barangayId });
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch SK Chairpersons by barangay',
@@ -469,7 +469,7 @@ const getPublicOfficialsByBarangay = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching public officials by barangay:', error);
+    logger.error('Error fetching public officials by barangay', { error: error.message, stack: error.stack, barangayId: req.params.barangayId });
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch SK officials by barangay',
@@ -574,7 +574,7 @@ const getActiveTerm = async (req, res) => {
 
   */
   } catch (error) {
-    console.error('Error fetching active SK Term:', error);
+    logger.error('Error fetching active SK Term', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch active SK Term',
@@ -623,7 +623,7 @@ const getTermHistory = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching SK Terms history:', error);
+    logger.error('Error fetching SK Terms history', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK Terms history',
@@ -705,7 +705,7 @@ const getTermStatistics = async (req, res) => {
 
   */
   } catch (error) {
-    console.error('Error fetching SK Terms statistics:', error);
+    logger.error('Error fetching SK Terms statistics', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK Terms statistics',
@@ -792,7 +792,7 @@ const getTermById = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching SK Term:', error);
+    logger.error('Error fetching SK Term', { error: error.message, stack: error.stack, termId: req.params.id });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch SK Term',
@@ -830,7 +830,7 @@ const createTerm = async (req, res) => {
     const newTerm = await SKTermsService.createTerm(termData);
 
     // Fire-and-forget notifications (don't block response)
-    console.log('📧 Sending SK term creation notifications...');
+    logger.debug('Sending SK term creation notifications', { termId });
     
     // Send universal notification
     universalNotificationService.sendNotificationAsync('sk-terms', 'creation', {
@@ -839,15 +839,15 @@ const createTerm = async (req, res) => {
       startDate: newTerm.start_date,
       endDate: newTerm.end_date,
       status: newTerm.status
-    }, req.user).catch(err => console.error('❌ Universal notification failed:', err));
+    }, req.user).catch(err => logger.error('Universal notification failed', { error: err.message, stack: err.stack, termId }));
 
     // Send admin notifications about term creation
     setTimeout(async () => {
       try {
-        console.log('🔔 Sending term creation notification to admins...');
+        logger.debug('Sending term creation notification to admins', { termId });
         await notificationService.notifyAdminsAboutTermCreation(newTerm, req.user);
       } catch (notifError) {
-        console.error('Admin notification error:', notifError);
+        logger.error('Admin notification error', { error: notifError.message, stack: notifError.stack, termId });
       }
     }, 100);
 
@@ -870,7 +870,7 @@ const createTerm = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'CREATE', resourceType: 'sk-terms' }));
 
     return res.status(201).json({
       success: true,
@@ -955,7 +955,7 @@ const updateTerm = async (req, res) => {
     const updatedTerm = await SKTermsService.updateTerm(id, updateData);
 
     // Send notifications (fire-and-forget)
-    console.log('🔔 Sending term update notification...');
+    logger.debug('Sending term update notification', { termId: req.params.id });
     try {
       await universalNotificationService.sendNotificationAsync('sk-terms', 'update', {
         termId: updatedTerm.term_id,
@@ -975,9 +975,9 @@ const updateTerm = async (req, res) => {
           endDate: existingTerm.end_date
         }
       });
-      console.log('✅ Term update notification sent');
+      logger.debug('Term update notification sent', { termId: req.params.id });
     } catch (notificationError) {
-      console.error('❌ Notification failed, but continuing with update:', notificationError);
+      logger.error('Notification failed, but continuing with update', { error: notificationError.message, stack: notificationError.stack, termId: req.params.id });
     }
 
     // Create audit log
@@ -1003,9 +1003,9 @@ const updateTerm = async (req, res) => {
         userAgent: req.get('User-Agent'),
         status: 'success'
       });
-      console.log('✅ Audit log created');
+      logger.debug('Audit log created', { termId: req.params.id });
     } catch (auditError) {
-      console.error('❌ Audit log failed, but continuing with update:', auditError);
+      logger.error('Audit log failed, but continuing with update', { error: auditError.message, stack: auditError.stack, termId: req.params.id });
     }
 
     res.json({
@@ -1103,7 +1103,7 @@ const deleteTerm = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'CREATE', resourceType: 'sk-terms' }));
 
     res.json({
       success: true,
@@ -1237,7 +1237,7 @@ const updateTermStatus = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'CREATE', resourceType: 'sk-terms' }));
 
     res.json({
       success: true,
@@ -1323,7 +1323,7 @@ const activateTerm = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
+    }).catch(err => logger.error('Audit log failed', { error: err.message, stack: err.stack, action: 'CREATE', resourceType: 'sk-terms' }));
 
     res.json({
       success: true,
@@ -1400,7 +1400,7 @@ const debugTermStatus = async (req, res) => {
   const client = await getClient();
   
   try {
-    console.log('🔍 Debug: Checking all terms status');
+    logger.debug('Debug: Checking all terms status');
     
     // Get all terms with their status
     const allTermsQuery = `
@@ -1445,7 +1445,7 @@ const debugTermStatus = async (req, res) => {
       }))
     };
     
-    console.log('🔍 Debug info:', debugInfo);
+    logger.debug('Debug info', debugInfo);
     
     res.json({
       success: true,
@@ -1454,7 +1454,7 @@ const debugTermStatus = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error in debug endpoint:', error);
+    logger.error('Error in debug endpoint', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to retrieve debug information',
@@ -1478,7 +1478,7 @@ const completeTerm = async (req, res) => {
     const { id } = req.params;
     const { force = false } = req.body; // Allow force completion
 
-    console.log(`🔧 Completing term ${id} with force=${force}`);
+    logger.debug('Completing term', { termId: id, force });
 
     // Get current term details
     const termQuery = `
@@ -1488,16 +1488,16 @@ const completeTerm = async (req, res) => {
     `;
     const termResult = await client.query(termQuery, [id]);
     
-    console.log(`🔍 Term query result:`, termResult.rows);
+    logger.debug('Term query result', { termId: id, rowCount: termResult.rows.length });
     
     // Also check if there are any terms at all
     const allTermsQuery = `SELECT term_id, term_name, status FROM "SK_Terms" LIMIT 5`;
     const allTermsResult = await client.query(allTermsQuery);
-    console.log(`🔍 All terms in database:`, allTermsResult.rows);
+    logger.debug('All terms in database', { totalTerms: allTermsResult.rows.length });
     
     if (termResult.rows.length === 0) {
       await client.query('ROLLBACK');
-      console.log(`❌ Term ${id} not found in database`);
+      logger.warn('Term not found in database', { termId: id });
       return res.status(404).json({
         success: false,
         message: `SK Term with ID '${id}' not found. Available terms: ${allTermsResult.rows.map(t => t.term_id).join(', ')}`
@@ -1518,17 +1518,17 @@ const completeTerm = async (req, res) => {
       // Set end_date to today when completing an active term
       endDate = today;
       completionType = 'manual'; // Still manual completion, just with adjusted date
-      console.log(`🔧 Completing active term ${id} with end date set to ${today}`);
+      logger.debug('Completing active term', { termId: id, endDate: today });
     } else if (force) {
       // Force completion: update end date to today and skip some validations
       completionType = 'forced';
       endDate = today;
-      console.log(`🔧 Force completing term ${id} with end date updated to ${today}`);
+      logger.debug('Force completing term', { termId: id, endDate: today });
     } else {
       // Normal completion for non-active terms: validate as usual
-      console.log(`🔍 Running completion validation for term ${id}`);
+      logger.debug('Running completion validation', { termId: id });
       validationErrors = await validateTermCompletion(id, client);
-      console.log(`🔍 Validation errors:`, validationErrors);
+      logger.debug('Validation errors', { termId: id, errorCount: validationErrors?.length });
       
       if (validationErrors.length > 0) {
       await client.query('ROLLBACK');
@@ -1541,12 +1541,13 @@ const completeTerm = async (req, res) => {
     }
 
     // Mark the term as completed with enhanced audit fields
-    // Also set is_current = false to prevent it from being selected as active
+    // Also set is_current = false and is_active = false to prevent it from being selected as active
     const updateQuery = `
       UPDATE "SK_Terms" 
       SET 
         status = 'completed',
         is_current = false,
+        is_active = false,
         completion_type = $1,
         completed_at = CURRENT_TIMESTAMP,
         completed_by = $2,
@@ -1567,11 +1568,11 @@ const completeTerm = async (req, res) => {
     const userId = req.user?.lydo_id || req.user?.lydoId || null;
     
     // Log the user context for debugging
-    console.log('🔍 User context for audit logging:', {
-      user: req.user,
+    logger.debug('User context for audit logging', {
+      userId,
       lydo_id: req.user?.lydo_id,
       lydoId: req.user?.lydoId,
-      finalUserId: userId
+      userType: req.user?.userType
     });
     
     const result = await client.query(updateQuery, [
@@ -1600,7 +1601,7 @@ const completeTerm = async (req, res) => {
       id
     ]);
 
-    console.log(`🔒 Disabled account access for ${accountResult.rows.length} officials in term ${id}`);
+    logger.info('Disabled account access for officials', { count: accountResult.rows.length, termId: id });
 
     await client.query('COMMIT');
 
@@ -1616,9 +1617,7 @@ const completeTerm = async (req, res) => {
 
     // Notify admin about completion (only if we have a valid user ID)
     if (userId) {
-      console.log('🔔 Sending term completion notification to admin:', userId);
-      console.log('🔔 User context:', req.user);
-      console.log('🔔 Notification data:', notificationData);
+      logger.debug('Sending term completion notification to admin', { userId, termId: id });
       
       await universalNotificationService.sendNotificationAsync(
         'sk-terms',
@@ -1645,15 +1644,15 @@ const completeTerm = async (req, res) => {
           officialsAffected: accountResult.rows.length 
         }
       );
-      console.log('✅ Term completion notification sent to admin');
+      logger.debug('Term completion notification sent to admin', { userId, termId: id });
     } else {
-      console.log('⚠️ No user ID available for admin notification');
+      logger.warn('No user ID available for admin notification', { termId: id });
     }
 
     // Notify affected officials about account access being disabled
-    console.log(`🔔 Sending account access notifications to ${accountResult.rows.length} officials`);
+    logger.debug('Sending account access notifications', { count: accountResult.rows.length, termId: id });
     for (const official of accountResult.rows) {
-      console.log(`🔔 Notifying official: ${official.sk_id} (${official.first_name} ${official.last_name})`);
+      logger.debug('Notifying official', { skId: official.sk_id, termId: id });
       await universalNotificationService.sendNotificationAsync(
         'sk-officials',
         'status',
@@ -1678,10 +1677,10 @@ const completeTerm = async (req, res) => {
         }
       );
     }
-    console.log('✅ Account access notifications sent to all affected officials');
+    logger.info('Account access notifications sent', { count: accountResult.rows.length, termId: id });
     
     // Test notification to verify the system is working
-    console.log('🔔 Sending test notification to verify system...');
+    logger.debug('Sending test notification to verify system', { termId: id });
     try {
       await universalNotificationService.sendNotificationAsync(
         'sk-terms',
@@ -1705,9 +1704,9 @@ const completeTerm = async (req, res) => {
           testNotification: true
         }
       );
-      console.log('✅ Test notification sent successfully');
+      logger.debug('Test notification sent successfully', { termId: id });
     } catch (testError) {
-      console.error('❌ Test notification failed:', testError);
+      logger.error('Test notification failed', { error: testError.message, stack: testError.stack, termId: id });
     }
 
     // Create comprehensive audit log for term completion (use "Force Complete" if force=true)
@@ -1733,7 +1732,7 @@ const completeTerm = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Term completion audit log failed:', err));
+    }).catch(err => logger.error('Term completion audit log failed', { error: err.message, stack: err.stack, termId: id }));
 
     // Log account access changes for each official
     for (const official of accountResult.rows) {
@@ -1756,7 +1755,7 @@ const completeTerm = async (req, res) => {
         ipAddress: req.ip || req.connection.remoteAddress,
         userAgent: req.get('User-Agent'),
         status: 'success'
-      }).catch(err => console.error('Account access log failed:', err));
+      }).catch(err => logger.error('Account access log failed', { error: err.message, stack: err.stack, termId: id, skId: official.sk_id }));
     }
 
     res.json({
@@ -1777,7 +1776,7 @@ const completeTerm = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error completing SK Term:', error);
+    logger.error('Error completing SK Term', { error: error.message, stack: error.stack, termId: id });
     
     // Only send response if headers haven't been sent yet
     if (!res.headersSent) {
@@ -1840,7 +1839,7 @@ const getTermOfficials = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching term officials:', error);
+    logger.error('Error fetching term officials', { error: error.message, stack: error.stack, termId: req.params.id });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch term officials',
@@ -1928,7 +1927,7 @@ const getTermSpecificStats = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching term statistics:', error);
+    logger.error('Error fetching term statistics', { error: error.message, stack: error.stack, termId: req.params.id });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch term statistics',
@@ -2022,7 +2021,7 @@ const getTermOfficialsByBarangay = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching term officials by barangay:', error);
+    logger.error('Error fetching term officials by barangay', { error: error.message, stack: error.stack, termId: req.params.termId, barangayId: req.params.barangayId });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch term officials by barangay',
@@ -2133,7 +2132,7 @@ const exportTermDetailed = async (req, res) => {
         status: 'success'
       });
     } catch (e) {
-      console.error('Audit log failed for exportTermDetailed:', e);
+      logger.error('Audit log failed for exportTermDetailed', { error: e.message, stack: e.stack, termId: req.params.id });
     }
 
     // Fire-and-forget notification (match Overview behavior using 'creation')
@@ -2151,13 +2150,13 @@ const exportTermDetailed = async (req, res) => {
         req.user
       );
     } catch (e) {
-      console.error('Notification failed for exportTermDetailed:', e);
+      logger.error('Notification failed for exportTermDetailed', { error: e.message, stack: e.stack, termId: req.params.id });
     }
 
     // Return JSON payload for frontend to render/convert
     return res.json({ success: true, data: { termId: id, barangays: Object.values(grouped) } });
   } catch (error) {
-    console.error('Error exporting term detailed:', error);
+    logger.error('Error exporting term detailed', { error: error.message, stack: error.stack, termId: req.params.id });
     res.status(500).json({ success: false, message: 'Failed to export detailed report', error: error.message });
   }
 };
@@ -2285,7 +2284,7 @@ const extendTerm = async (req, res) => {
       id
     ]);
 
-    console.log(`🔓 Re-enabled account access for ${accountResult.rows.length} officials in extended term ${id}`);
+    logger.info('Re-enabled account access for officials', { count: accountResult.rows.length, termId: id });
 
     await client.query('COMMIT');
 
@@ -2301,7 +2300,7 @@ const extendTerm = async (req, res) => {
 
     // Notify admin about extension (only if we have a valid user ID)
     if (userId) {
-      console.log('🔔 Sending term extension notification to admin:', userId);
+      logger.debug('Sending term extension notification to admin', { userId, termId: id });
       await universalNotificationService.sendNotificationAsync(
         'sk-terms',
         'status',
@@ -2327,15 +2326,15 @@ const extendTerm = async (req, res) => {
           officialsAffected: accountResult.rows.length 
         }
       );
-      console.log('✅ Term extension notification sent to admin');
+      logger.debug('Term extension notification sent to admin', { userId, termId: id });
     } else {
-      console.log('⚠️ No user ID available for admin notification');
+      logger.warn('No user ID available for admin notification', { termId: id });
     }
 
     // Notify affected officials about account access being re-enabled
-    console.log(`🔔 Sending account access notifications to ${accountResult.rows.length} officials`);
+    logger.debug('Sending account access notifications', { count: accountResult.rows.length, termId: id });
     for (const official of accountResult.rows) {
-      console.log(`🔔 Notifying official: ${official.sk_id} (${official.first_name} ${official.last_name})`);
+      logger.debug('Notifying official', { skId: official.sk_id, termId: id });
       await universalNotificationService.sendNotificationAsync(
         'sk-officials',
         'status',
@@ -2360,7 +2359,7 @@ const extendTerm = async (req, res) => {
         }
       );
     }
-    console.log('✅ Account access notifications sent to all affected officials');
+    logger.info('Account access notifications sent', { count: accountResult.rows.length, termId: id });
 
     // Create comprehensive audit log for term extension
     await createAuditLog({
@@ -2385,7 +2384,7 @@ const extendTerm = async (req, res) => {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent'),
       status: 'success'
-    }).catch(err => console.error('Term extension audit log failed:', err));
+    }).catch(err => logger.error('Term extension audit log failed', { error: err.message, stack: err.stack, termId: id }));
 
     // Log account access changes for each official
     for (const official of accountResult.rows) {
@@ -2408,7 +2407,7 @@ const extendTerm = async (req, res) => {
         ipAddress: req.ip || req.connection.remoteAddress,
         userAgent: req.get('User-Agent'),
         status: 'success'
-      }).catch(err => console.error('Account access log failed:', err));
+      }).catch(err => logger.error('Account access log failed', { error: err.message, stack: err.stack, termId: id, skId: official.sk_id }));
     }
 
     res.json({
@@ -2428,7 +2427,7 @@ const extendTerm = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error extending SK Term:', error);
+    logger.error('Error extending SK Term', { error: error.message, stack: error.stack, termId: id });
     
     // Only send response if headers haven't been sent yet
     if (!res.headersSent) {
@@ -2457,7 +2456,7 @@ const exportSKTerms = async (req, res) => {
     // logFormat is the actual format exported (for logging), format is the response format
     const actualFormat = logFormat || format;
     
-    console.log('🔍 SK Terms export request received:', { format, actualFormat, selectedIds, providedCount, tab, exportTypeParam, queryParams: req.query });
+    logger.debug('SK Terms export request received', { format, actualFormat, hasSelectedIds: !!selectedIds, providedCount, tab, exportTypeParam, userId: req.user?.id });
     
     if (!['csv', 'json', 'pdf'].includes(format)) {
       return res.status(400).json({ 
@@ -2510,7 +2509,7 @@ const exportSKTerms = async (req, res) => {
     // Create meaningful resource name for export
     const resourceName = `SK Terms Export - ${actualFormat.toUpperCase()} (${count} ${count === 1 ? 'term' : 'terms'})`;
     
-    console.log('🔍 SK Terms Export - Will create audit log with:', { userId, userType, format: actualFormat, count, resourceName, action, exportType });
+    logger.debug('SK Terms Export - Creating audit log', { userId, userType, format: actualFormat, count, action, exportType });
 
     if (format === 'json') {
       // Create audit log for JSON export (await before responding)
@@ -2533,9 +2532,9 @@ const exportSKTerms = async (req, res) => {
           userAgent: req.get('User-Agent'),
           status: 'success'
         });
-        console.log(`✅ SK Terms export audit log created: JSON export of ${count} terms`);
+        logger.debug('SK Terms export audit log created', { format: 'json', count });
       } catch (err) {
-        console.error('❌ SK Terms export audit log failed:', err);
+        logger.error('SK Terms export audit log failed', { error: err.message, stack: err.stack, format: 'json' });
       }
 
       return res.json({
@@ -2555,7 +2554,7 @@ const exportSKTerms = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error in SK Terms export:', error);
+    logger.error('Error in SK Terms export', { error: error.message, stack: error.stack, format, exportType });
     
     // Create audit log for failed export
     const userId = req.user?.id || req.user?.lydo_id || req.user?.lydoId || null;
@@ -2582,7 +2581,7 @@ const exportSKTerms = async (req, res) => {
         errorMessage: error.message
       });
     } catch (err) {
-      console.error('❌ Failed export audit log error:', err);
+      logger.error('Failed export audit log error', { error: err.message, stack: err.stack });
     }
 
     return res.status(500).json({ 

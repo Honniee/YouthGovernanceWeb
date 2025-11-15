@@ -2,6 +2,7 @@ import { query } from '../config/database.js';
 import { generateLogId } from '../utils/idGenerator.js';
 import { generateActivityMessage } from '../utils/activityLogMessageGenerator.js';
 import { maskEmail, maskContact, extractBirthYear, maskFullName } from '../utils/dataMasking.js';
+import logger from '../utils/logger.js';
 
 /**
  * Audit Logging Middleware
@@ -218,7 +219,7 @@ export const createAuditLog = async (logData) => {
           details
         );
       } catch (msgError) {
-        console.error('Error generating activity message:', msgError);
+        logger.error('Error generating activity message', { error: msgError.message, stack: msgError.stack });
         // Fallback to simple message
         finalMessage = `${userType || 'User'} performed ${action}`;
       }
@@ -238,11 +239,21 @@ export const createAuditLog = async (logData) => {
       [logId, userId, userType, action, resourceType, resourceId, resourceName || resourceId, JSON.stringify({details: maskedDetails, ipAddress, userAgent}), finalCategory, status === 'success', errorMessage, finalMessage]
     );
 
-    console.log(`📝 Audit log created: ${result.rows[0].log_id} - ${action} on ${resourceType} (${finalCategory})`);
+    logger.debug('Audit log created', { 
+      logId: result.rows[0].log_id, 
+      action, 
+      resourceType, 
+      category: finalCategory 
+    });
     return result.rows[0].log_id;
 
   } catch (error) {
-    console.error('❌ Failed to create audit log:', error);
+    logger.error('Failed to create audit log', { 
+      error: error.message, 
+      stack: error.stack,
+      action,
+      resourceType 
+    });
     // Don't throw error to avoid breaking the main operation
     return null;
   }
@@ -338,7 +349,7 @@ export const auditLogger = (options = {}) => {
 
       // Create audit log asynchronously (don't block response)
       createAuditLog(logData).catch(err => {
-        console.error('❌ Audit logging failed:', err);
+        logger.error('Audit logging failed', { error: err.message, stack: err.stack });
       });
 
       // Call original send
@@ -386,7 +397,7 @@ export const getUserAuditLogs = async (userId, options = {}) => {
     return result.rows;
 
   } catch (error) {
-    console.error('❌ Failed to get user audit logs:', error);
+    logger.error('Failed to get user audit logs', { error: error.message, stack: error.stack, userId });
     throw new Error('Failed to get audit logs');
   }
 };
@@ -412,7 +423,7 @@ export const getResourceAuditLogs = async (resource, resourceId, options = {}) =
     return result.rows;
 
   } catch (error) {
-    console.error('❌ Failed to get resource audit logs:', error);
+    logger.error('Failed to get resource audit logs', { error: error.message, stack: error.stack, resource, resourceId });
     throw new Error('Failed to get audit logs');
   }
 };
@@ -428,11 +439,11 @@ export const cleanupOldAuditLogs = async (daysOld = 365) => {
       [daysOld]
     );
 
-    console.log(`✅ Cleaned up ${result.rowCount} old audit logs`);
+    logger.info('Cleaned up old audit logs', { count: result.rowCount, daysOld });
     return result.rowCount;
 
   } catch (error) {
-    console.error('❌ Failed to cleanup old audit logs:', error);
+    logger.error('Failed to cleanup old audit logs', { error: error.message, stack: error.stack, daysOld });
     return 0;
   }
 };

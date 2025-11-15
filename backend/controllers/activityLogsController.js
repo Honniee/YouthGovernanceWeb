@@ -1,5 +1,6 @@
 import activityLogService from '../services/activityLogService.js';
 import { query } from '../config/database.js';
+import logger from '../utils/logger.js';
 
 /**
  * Activity Logs Controller
@@ -127,7 +128,7 @@ const getActivityLogs = async (req, res) => {
             }
           }
         } catch (error) {
-          console.error('Error formatting timestamp:', error, timestamp);
+          logger.error('Error formatting timestamp', { error: error.message, stack: error.stack, timestamp });
           timestamp = null;
         }
       }
@@ -157,7 +158,7 @@ const getActivityLogs = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching activity logs:', error);
+    logger.error('Error fetching activity logs', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch activity logs',
@@ -194,7 +195,7 @@ const getActivityStatistics = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching activity statistics:', error);
+    logger.error('Error fetching activity statistics', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch activity statistics',
@@ -256,7 +257,7 @@ const getUserActivityLogs = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching user activity logs:', error);
+    logger.error('Error fetching user activity logs', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch user activity logs',
@@ -309,7 +310,7 @@ const getResourceActivityLogs = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching resource activity logs:', error);
+    logger.error('Error fetching resource activity logs', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch resource activity logs',
@@ -362,7 +363,7 @@ const getRecentActivityLogs = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching recent activity logs:', error);
+    logger.error('Error fetching recent activity logs', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch recent activity logs',
@@ -448,7 +449,7 @@ const getActivityDashboard = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching activity dashboard:', error);
+    logger.error('Error fetching activity dashboard', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch activity dashboard',
@@ -506,7 +507,7 @@ const exportActivityLogs = async (req, res) => {
           format
         }
       ).catch(error => {
-        console.error('Failed to log export activity:', error);
+        logger.error('Failed to log export activity', { error: error.message, stack: error.stack });
       });
     }, 100);
 
@@ -523,7 +524,7 @@ const exportActivityLogs = async (req, res) => {
     res.send(csv);
 
   } catch (error) {
-    console.error('Error exporting activity logs:', error);
+    logger.error('Error exporting activity logs', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to export activity logs',
@@ -557,7 +558,7 @@ const cleanupOldLogs = async (req, res) => {
           }
         }
       ).catch(error => {
-        console.error('Failed to log cleanup activity:', error);
+        logger.error('Failed to log cleanup activity', { error: error.message, stack: error.stack });
       });
     }, 100);
 
@@ -571,7 +572,7 @@ const cleanupOldLogs = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error cleaning up old logs:', error);
+    logger.error('Error cleaning up old logs', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to clean up old logs',
@@ -608,7 +609,7 @@ async function getTopActiveUsers(startDate, endDate) {
       criticalCount: parseInt(row.critical_count)
     }));
   } catch (error) {
-    console.error('Error getting top active users:', error);
+    logger.error('Error getting top active users', { error: error.message, stack: error.stack });
     return [];
   }
 }

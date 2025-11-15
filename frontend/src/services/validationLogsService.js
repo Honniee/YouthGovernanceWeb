@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * Validation Logs Service
@@ -16,7 +17,7 @@ const validationLogsService = {
       const response = await api.get('/validation-logs', { params });
       return response.data;
     } catch (error) {
-      console.error('Error fetching validation logs:', error);
+      logger.error('Error fetching validation logs', error, { params });
       throw error;
     }
   }

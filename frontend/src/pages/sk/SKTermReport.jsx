@@ -37,6 +37,7 @@ import { useSKValidation } from '../../hooks/useSKValidation.js';
 import skService from '../../services/skService.js';
 import skTermsService from '../../services/skTermsService.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import logger from '../../utils/logger.js';
 
 const SKTermReport = () => {
   const navigate = useNavigate();
@@ -401,24 +402,24 @@ ${bodyRows}
 
   // Load data when component mounts or active term changes
   useEffect(() => {
-    console.log('🔍 useEffect - termIdParam changed:', termIdParam);
+    logger.debug('useEffect - termIdParam changed', { termIdParam });
     // Always load the specific term when termId is provided
     if (termIdParam) {
       const loadTerm = async () => {
         try {
           setIsLoadingReportTerm(true);
-          console.log('🔍 Loading term data for termIdParam:', termIdParam);
+          logger.debug('Loading term data for termIdParam', { termIdParam });
           const resp = await skTermsService.getSKTermById(termIdParam);
-          console.log('🔍 Term response:', resp);
+          logger.debug('Term response', { success: resp.success, hasData: !!resp.data });
           
           if (!resp.success) {
-            console.error('❌ Failed to load term:', resp.message);
+            logger.error('Failed to load term', null, { termIdParam, message: resp.message });
             showErrorToast('Failed to load term data', resp.message || 'Unknown error');
             return;
           }
           
           const term = resp?.data?.data || resp?.data || resp;
-          console.log('🔍 Processed term:', term);
+          logger.debug('Processed term', { hasTerm: !!term, termId: term?.termId || term?.term_id || term?.id });
           
           if (term) {
             const reportTermData = {
@@ -429,14 +430,14 @@ ${bodyRows}
               status: term.status,
               statistics: term.statistics // Include statistics
             };
-            console.log('🔍 Setting reportTerm:', reportTermData);
+            logger.debug('Setting reportTerm', { termId: reportTermData.termId, termName: reportTermData.termName });
             setReportTerm(reportTermData);
           } else {
-            console.error('❌ No term data found in response');
+            logger.error('No term data found in response', null, { termIdParam });
             showErrorToast('No term data found', 'The term data could not be loaded');
           }
         } catch (error) {
-          console.error('❌ Error loading term:', error);
+          logger.error('Error loading term', error, { termIdParam });
           showErrorToast('Error loading term', error.message || 'Unknown error');
         } finally {
           setIsLoadingReportTerm(false);
@@ -447,20 +448,20 @@ ${bodyRows}
   }, [termIdParam]);
 
   useEffect(() => {
-    console.log('🔍 useEffect - reportTerm?.termId changed:', reportTerm?.termId);
+    logger.debug('useEffect - reportTerm?.termId changed', { termId: reportTerm?.termId });
     // Always load term-specific data when we have a reportTerm
     if (reportTerm?.termId) {
-      console.log('🔍 Calling loadTermSpecificData for termId:', reportTerm.termId);
+      logger.debug('Calling loadTermSpecificData for termId', { termId: reportTerm.termId });
       loadTermSpecificData();
     } else {
-      console.log('🔍 No reportTerm.termId available');
+      logger.debug('No reportTerm.termId available');
     }
   }, [reportTerm?.termId]);
 
   // Force reload data when component mounts
   useEffect(() => {
     if (termIdParam && !ovrOverallVacancyStats) {
-      console.log('🔍 Force reloading data for termIdParam:', termIdParam);
+      logger.debug('Force reloading data for termIdParam', { termIdParam });
       loadTermSpecificData();
     }
   }, [termIdParam, ovrOverallVacancyStats]);
@@ -468,7 +469,7 @@ ${bodyRows}
   // Additional force reload when reportTerm is available but no override data
   useEffect(() => {
     if (reportTerm?.termId && !ovrOverallVacancyStats) {
-      console.log('🔍 Force reloading data for reportTerm.termId:', reportTerm.termId);
+      logger.debug('Force reloading data for reportTerm.termId', { termId: reportTerm.termId });
       loadTermSpecificData();
     }
   }, [reportTerm?.termId, ovrOverallVacancyStats]);
@@ -477,7 +478,7 @@ ${bodyRows}
   useEffect(() => {
     if (reportTerm?.termId && !ovrOverallVacancyStats) {
       const timer = setTimeout(() => {
-        console.log('🔍 Manual trigger - forcing loadTermSpecificData after timeout');
+        logger.debug('Manual trigger - forcing loadTermSpecificData after timeout', { termId: reportTerm.termId });
         loadTermSpecificData();
       }, 2000);
       return () => clearTimeout(timer);
@@ -502,40 +503,39 @@ ${bodyRows}
 
   // Load term-specific data when termId is provided
   const loadTermSpecificData = async () => {
-    console.log('🔍 loadTermSpecificData called with reportTerm:', reportTerm);
+    logger.debug('loadTermSpecificData called', { termId: reportTerm?.termId });
     if (!reportTerm?.termId) {
-      console.log('🔍 loadTermSpecificData - No reportTerm.termId available');
+      logger.debug('loadTermSpecificData - No reportTerm.termId available');
       return;
     }
     
     setIsLoading(true);
     try {
-      console.log('🔍 Loading term-specific data for termId:', reportTerm.termId);
+      logger.debug('Loading term-specific data for termId', { termId: reportTerm.termId });
       
       // Load all barangays first
       const barangaysResp = await skService.getAllBarangays();
-      console.log('🔍 getAllBarangays response:', barangaysResp);
+      logger.debug('getAllBarangays response', { isArray: Array.isArray(barangaysResp), success: barangaysResp?.success });
       if (Array.isArray(barangaysResp)) {
         setAllBarangays(barangaysResp);
-        console.log('🔍 Loaded barangays:', barangaysResp.length);
+        logger.debug('Loaded barangays', { count: barangaysResp.length });
       } else if (barangaysResp && barangaysResp.success) {
         setAllBarangays(barangaysResp.data || []);
-        console.log('🔍 Loaded barangays:', barangaysResp.data?.length || 0);
+        logger.debug('Loaded barangays', { count: barangaysResp.data?.length || 0 });
       } else {
-        console.log('🔍 Failed to load barangays:', barangaysResp);
+        logger.warn('Failed to load barangays', null, { response: barangaysResp });
       }
 
       // Load term-specific officials data
       const officialsResp = await skService.getTermOfficialsByBarangay(reportTerm.termId);
-      console.log('🔍 Officials response:', officialsResp);
+      logger.debug('Officials response', { success: officialsResp.success, hasData: !!officialsResp.data });
       
       if (officialsResp.success) {
         const barangaysFromApi = Array.isArray(officialsResp.data?.barangays) 
           ? officialsResp.data.barangays 
           : (Array.isArray(officialsResp.data) ? officialsResp.data : []);
         
-        console.log('🔍 Processed barangays from API:', barangaysFromApi.length);
-        console.log('🔍 Sample barangay data:', barangaysFromApi[0]);
+        logger.debug('Processed barangays from API', { count: barangaysFromApi.length, hasSample: !!barangaysFromApi[0] });
         
         // Build vacancy data from officials
         const vacancyData = {};
@@ -555,7 +555,7 @@ ${bodyRows}
         // Get all barangays to ensure we process all 33 barangays
         const allBarangays = await skService.getAllBarangays();
         const masterBarangayList = Array.isArray(allBarangays) ? allBarangays : (allBarangays?.success ? allBarangays.data : []);
-        console.log('🔍 Master barangay list:', masterBarangayList.length, 'barangays');
+        logger.debug('Master barangay list', { count: masterBarangayList.length });
         
         // Process ALL barangays (not just those with officials)
         masterBarangayList.forEach(masterBarangay => {
@@ -566,7 +566,7 @@ ${bodyRows}
           const barangayWithData = barangayWithOfficials[barangayId];
           const officials = barangayWithData?.officials || [];
           
-          console.log(`🔍 Processing barangay ${barangayId}:`, officials.length, 'officials');
+          logger.debug(`Processing barangay`, { barangayId, officialsCount: officials.length });
           
           // Count officials by position for this barangay
           const positionCounts = {};
@@ -588,18 +588,18 @@ ${bodyRows}
           });
         });
 
-        console.log('🔍 Final vacancy data:', vacancyData);
-        console.log('🔍 Final overall stats:', overallStats);
+        logger.debug('Final vacancy data', { barangayCount: Object.keys(vacancyData).length });
+        logger.debug('Final overall stats', overallStats);
 
-        console.log('🔍 loadTermSpecificData - setting data:', { vacancyData, overallStats });
+        logger.debug('loadTermSpecificData - setting data', { vacancyDataCount: Object.keys(vacancyData).length, hasOverallStats: !!overallStats });
         // Set the override data
         setOvrBarangayVacancies(vacancyData);
         setOvrOverallVacancyStats(overallStats);
       } else {
-        console.error('❌ Failed to load officials:', officialsResp.message);
+        logger.error('Failed to load officials', null, { termId: reportTerm.termId, message: officialsResp.message });
       }
     } catch (error) {
-      console.error('❌ Error in loadTermSpecificData:', error);
+      logger.error('Error in loadTermSpecificData', error, { termId: reportTerm?.termId });
       showErrorToast('Failed to load term-specific data', error.message);
     } finally {
       setIsLoading(false);
@@ -766,14 +766,11 @@ ${bodyRows}
   };
 
   const getVacancySummaryData = () => {
-    console.log('🔍 getVacancySummaryData called');
-    console.log('🔍 ovrOverallVacancyStats:', ovrOverallVacancyStats);
-    console.log('🔍 ovrOverallVacancyStats keys:', Object.keys(ovrOverallVacancyStats || {}));
-    console.log('🔍 ovrOverallVacancyStats length:', Object.keys(ovrOverallVacancyStats || {}).length);
+    logger.debug('getVacancySummaryData called', { hasOvrStats: !!ovrOverallVacancyStats, keysCount: Object.keys(ovrOverallVacancyStats || {}).length });
     
     // Use override data (barangay-specific) as primary source for consistency
     if (ovrOverallVacancyStats && Object.keys(ovrOverallVacancyStats).length > 0) {
-      console.log('🔍 getVacancySummaryData - ovrOverallVacancyStats:', ovrOverallVacancyStats);
+      logger.debug('getVacancySummaryData - using override data', { hasStats: !!ovrOverallVacancyStats });
       
       // Calculate totals from the overall stats
       const totalPositions = Object.values(ovrOverallVacancyStats).reduce((sum, pos) => sum + (pos.max || 0), 0);
@@ -781,12 +778,11 @@ ${bodyRows}
       const vacantPositions = Math.max(0, totalPositions - filledPositions);
       const vacancyRate = totalPositions > 0 ? Math.round((vacantPositions / totalPositions) * 100) : 0;
       
-      console.log('🔍 getVacancySummaryData - Using override data:', {
+      logger.debug('getVacancySummaryData - calculated from override data', {
         totalPositions,
         filledPositions,
         vacantPositions,
-        vacancyRate,
-        ovrOverallVacancyStats
+        vacancyRate
       });
       
       return { totalPositions, filledPositions, vacantPositions, vacancyRate };
@@ -794,9 +790,9 @@ ${bodyRows}
     
     // Fallback to term statistics if override data not available
     if (reportTerm?.statistics) {
-      console.log('🔍 getVacancySummaryData - using reportTerm.statistics:', reportTerm.statistics);
+      logger.debug('getVacancySummaryData - using reportTerm.statistics', { hasStatistics: !!reportTerm.statistics });
       const stats = extractTermStats(reportTerm);
-      console.log('🔍 getVacancySummaryData - extracted stats:', stats);
+      logger.debug('getVacancySummaryData - extracted stats', { hasStats: !!stats });
       if (stats) {
         const result = {
           totalPositions: stats.total || 0,
@@ -804,13 +800,13 @@ ${bodyRows}
           vacantPositions: stats.vacant || 0,
           vacancyRate: 100 - (stats.percent || 0)  // Convert completion % to vacancy %
         };
-        console.log('🔍 getVacancySummaryData - returning term stats result:', result);
+        logger.debug('getVacancySummaryData - returning term stats result', result);
         return result;
       }
     }
     
     // Alternative fallback: Use the position breakdown data that's working correctly
-    console.log('🔍 getVacancySummaryData - falling back to position breakdown calculation');
+    logger.debug('getVacancySummaryData - falling back to position breakdown calculation');
     const positionStats = getPositionStats();
     if (positionStats && positionStats.length > 0) {
       const totalPositions = positionStats.reduce((sum, stat) => sum + (stat.total || 0), 0);
@@ -818,12 +814,12 @@ ${bodyRows}
       const vacantPositions = positionStats.reduce((sum, stat) => sum + (stat.available || 0), 0);
       const vacancyRate = totalPositions > 0 ? Math.round((vacantPositions / totalPositions) * 100) : 0;
       
-      console.log('🔍 getVacancySummaryData - calculated from position stats:', {
+      logger.debug('getVacancySummaryData - calculated from position stats', {
         totalPositions,
         filledPositions,
         vacantPositions,
         vacancyRate,
-        positionStats
+        positionStatsCount: positionStats.length
       });
       
       return { totalPositions, filledPositions, vacantPositions, vacancyRate };
@@ -841,9 +837,11 @@ ${bodyRows}
 
   const getFilteredBarangays = () => {
     const source = ovrBarangayVacancies || barangayVacancies;
-    console.log('🔍 getFilteredBarangays - source:', source);
-    console.log('🔍 getFilteredBarangays - ovrBarangayVacancies:', ovrBarangayVacancies);
-    console.log('🔍 getFilteredBarangays - barangayVacancies:', barangayVacancies);
+    logger.debug('getFilteredBarangays', { 
+      hasSource: !!source,
+      hasOvrVacancies: !!ovrBarangayVacancies,
+      hasBarangayVacancies: !!barangayVacancies
+    });
     if (!source) return [];
 
     // backend shape: { [barangayId]: { barangayName, vacancies, officials } }
@@ -852,7 +850,7 @@ ${bodyRows}
       const officials = (info && info.officials) ? info.officials : [];
       const barangayName = (info && info.barangayName) || skService.getBarangayById?.(barangayId)?.name;
       
-      console.log(`🔍 Processing barangay ${barangayId} in getFilteredBarangays:`, { vacancies, officials: officials.length });
+      logger.debug('Processing barangay in getFilteredBarangays', { barangayId, officialsCount: officials.length, hasVacancies: !!vacancies });
       
       const totalPositions = Object.values(POSITION_LIMITS || {}).reduce((sum, limit) => sum + (limit || 0), 0);
       
@@ -866,7 +864,7 @@ ${bodyRows}
       const vacantPositions = Math.max(0, totalPositions - finalFilledPositions);
       const vacancyRate = totalPositions > 0 ? ((vacantPositions / totalPositions) * 100).toFixed(1) : '0.0';
 
-      console.log(`🔍 Barangay ${barangayId} summary: total=${totalPositions}, filled=${finalFilledPositions}, vacant=${vacantPositions}, rate=${vacancyRate}%`);
+      logger.debug('Barangay summary', { barangayId, totalPositions, filled: finalFilledPositions, vacant: vacantPositions, rate: vacancyRate });
 
       return {
         id: barangayId,
@@ -939,9 +937,7 @@ ${bodyRows}
       const barangayData = vacancySource && vacancySource[currentBarangayFilter];
       
       if (barangayData) {
-        console.log('🔍 getPositionStats - using barangay-specific data for:', currentBarangayFilter, barangayData);
-        console.log('🔍 barangayData.vacancies:', barangayData.vacancies);
-        console.log('🔍 barangayData.officials:', barangayData.officials);
+        logger.debug('getPositionStats - using barangay-specific data', { barangayId: currentBarangayFilter, hasVacancies: !!barangayData.vacancies, officialsCount: barangayData.officials?.length || 0 });
         
         return Object.entries(POSITION_LIMITS).map(([position, perBarangayLimit]) => {
           // Try to get filled count from vacancies first
@@ -950,14 +946,14 @@ ${bodyRows}
           // If vacancies doesn't have the data, count from officials array
           if (filled === 0 && barangayData.officials) {
             filled = barangayData.officials.filter(o => o.position === position).length;
-            console.log(`🔍 Counted ${filled} officials for position ${position} from officials array`);
+            logger.debug('Counted officials for position from officials array', { position, filled });
           }
           
           const total = perBarangayLimit;
           const available = Math.max(0, total - filled);
           const vacancyRate = total > 0 ? ((available / total) * 100).toFixed(1) : '0.0';
 
-          console.log(`🔍 Position ${position}: filled=${filled}, total=${total}, available=${available}`);
+          logger.debug('Position stats', { position, filled, total, available });
 
       return {
         position,
@@ -1118,11 +1114,11 @@ ${bodyRows}
     const filteredBarangays = getFilteredBarangays();
     
     // Debug logging
-    console.log('Overview Cards Debug:', {
+    logger.debug('Overview Cards Debug', {
       overviewBarangay,
       selectedPosition,
-      vacancySource: ovrBarangayVacancies || barangayVacancies,
-      filteredBarangays: filteredBarangays.length,
+      hasVacancySource: !!(ovrBarangayVacancies || barangayVacancies),
+      filteredBarangaysCount: filteredBarangays.length,
       currentFilter: getCurrentBarangayFilter()
     });
     
@@ -1130,11 +1126,11 @@ ${bodyRows}
     if (overviewBarangay !== 'all') {
       const vacancySource = ovrBarangayVacancies || barangayVacancies;
       const entry = vacancySource && vacancySource[overviewBarangay];
-      console.log('Barangay Entry:', { overviewBarangay, entry, vacancySourceKeys: Object.keys(vacancySource || {}) });
+      logger.debug('Barangay Entry', { overviewBarangay, hasEntry: !!entry, vacancySourceKeysCount: Object.keys(vacancySource || {}).length });
       
       if (entry) {
         const v = (entry && entry.vacancies) ? entry.vacancies : (entry || {});
-        console.log('Vacancy Data:', { v, entry });
+        logger.debug('Vacancy Data', { hasVacancies: !!v, hasEntry: !!entry });
         
         // Apply position filter if selected
         let totalPerBarangay, filledPerBarangay;
@@ -1158,25 +1154,27 @@ ${bodyRows}
           vacancyRate: rate
         };
         
-        console.log('Barangay Summary:', summary);
+        logger.debug('Barangay Summary', summary);
       }
     } else {
-      console.log('🔍 renderOverviewCards - overviewBarangay is "all", calling getVacancySummaryData');
+      logger.debug('renderOverviewCards - overviewBarangay is "all", calling getVacancySummaryData');
       // Always use getVacancySummaryData for overall summary when viewing all barangays
       const overallSummary = getVacancySummaryData();
-      console.log('🔍 getVacancySummaryData returned:', overallSummary);
+      logger.debug('getVacancySummaryData returned', { hasSummary: !!overallSummary });
       if (overallSummary) {
         summary = overallSummary;
-        console.log('🔍 Using getVacancySummaryData result:', overallSummary);
+        logger.debug('Using getVacancySummaryData result', overallSummary);
       } else {
-        console.log('🔍 getVacancySummaryData returned null/undefined');
+        logger.debug('getVacancySummaryData returned null/undefined');
       }
     }
     
-    console.log('Final Summary:', summary);
-    console.log('🔍 POSITION_LIMITS:', POSITION_LIMITS);
-    console.log('🔍 ovrOverallVacancyStats:', ovrOverallVacancyStats);
-    console.log('🔍 ovrBarangayVacancies keys:', Object.keys(ovrBarangayVacancies || {}));
+    logger.debug('Final Summary', summary);
+    logger.debug('Data sources', {
+      hasPositionLimits: !!POSITION_LIMITS,
+      hasOvrOverallStats: !!ovrOverallVacancyStats,
+      ovrBarangayVacanciesKeysCount: Object.keys(ovrBarangayVacancies || {}).length
+    });
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -1333,12 +1331,12 @@ ${bodyRows}
   };
 
   const renderPositionBreakdown = () => {
-    console.log('🔍 renderPositionBreakdown called with overviewBarangay:', overviewBarangay);
+    logger.debug('renderPositionBreakdown called', { overviewBarangay });
     
     // Always use getPositionStats() which now handles barangay filtering correctly
     const positionStats = getPositionStats();
     
-    console.log('🔍 renderPositionBreakdown - positionStats:', positionStats);
+    logger.debug('renderPositionBreakdown - positionStats', { count: positionStats?.length || 0 });
 
     // Map position to color scheme classes
     const getPositionClasses = (position) => {
@@ -1490,9 +1488,9 @@ ${bodyRows}
   };
 
   // Debug logging
-  console.log('SKTermReport Debug:', { 
+  logger.debug('SKTermReport Debug', {
     termIdParam,
-    reportTerm,
+    hasReportTerm: !!reportTerm,
     isLoadingReportTerm
   });
 

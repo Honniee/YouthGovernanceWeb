@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * Survey Tracking Service
@@ -23,7 +24,7 @@ class SurveyTrackingService {
       const response = await api.get(url);
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('Error getting participated youth:', error);
+      logger.error('Error getting participated youth', error, { batchId, params });
       return {
         success: false,
         error: error.response?.data?.message || 'Failed to load participated youth'
@@ -49,7 +50,7 @@ class SurveyTrackingService {
       const response = await api.get(url);
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('Error getting not-participated youth:', error);
+      logger.error('Error getting not-participated youth', error, { batchId, params });
       return {
         success: false,
         error: error.response?.data?.message || 'Failed to load not-participated youth'
@@ -67,7 +68,7 @@ class SurveyTrackingService {
       const response = await api.get(`/survey-tracking/${batchId}/barangay-stats`);
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('Error getting barangay stats:', error);
+      logger.error('Error getting barangay stats', error, { batchId });
       return {
         success: false,
         error: error.response?.data?.message || 'Failed to load barangay statistics'
@@ -85,7 +86,7 @@ class SurveyTrackingService {
       const response = await api.get(`/survey-tracking/sk-officials/${barangayId}`);
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('Error getting SK officials:', error);
+      logger.error('Error getting SK officials', error, { barangayId });
       return {
         success: false,
         error: error.response?.data?.message || 'Failed to load SK officials'
@@ -110,7 +111,7 @@ class SurveyTrackingService {
       const response = await api.get(url);
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('Error getting youth participation:', error);
+      logger.error('Error getting youth participation', error, { params });
       return {
         success: false,
         error: error.response?.data?.message || 'Failed to load youth participation data'
@@ -127,7 +128,7 @@ class SurveyTrackingService {
       const response = await api.get('/survey-tracking/barangay-youth');
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('Error getting barangay youth:', error);
+      logger.error('Error getting barangay youth', error);
       return {
         success: false,
         error: error.response?.data?.message || 'Failed to load barangay youth data'

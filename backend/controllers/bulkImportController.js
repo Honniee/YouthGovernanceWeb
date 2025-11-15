@@ -8,10 +8,12 @@ import { generateLYDOId } from '../utils/idGenerator.js';
 import { generateSecurePassword } from '../utils/passwordGenerator.js';
 import { generateOrgEmail } from '../utils/emailGenerator.js';
 import { validateStaffCreation, sanitizeInput } from '../utils/validation.js';
+import { validateStaffBulkImport } from '../utils/staffBulkValidation.js';
 import bcrypt from 'bcryptjs';
 import notificationService from '../services/notificationService.js';
 import { createUserForStaff, createUserForAdmin } from '../utils/usersTableHelper.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -258,12 +260,71 @@ const insertStaffRecord = async (client, staffData) => {
     staffData.createdBy
   ];
 
-  console.log('🔍 Executing SQL:', insertSQL);
-  console.log('🔍 With params:', insertParams);
+  logger.debug('Executing SQL for staff insert', { sql: insertSQL, params: insertParams });
 
   const result = await client.query(insertSQL, insertParams);
-  console.log('🔍 SQL result:', result.rows[0]);
+  logger.debug('SQL result for staff insert', { result: result.rows[0] });
   return result.rows[0];
+};
+
+const parseStaffFile = async (filePath) => {
+  const fileExt = path.extname(filePath).toLowerCase();
+  if (fileExt === '.csv') {
+    return await parseCSVFile(filePath);
+  }
+  if (fileExt === '.xlsx' || fileExt === '.xls') {
+    return parseExcelFile(filePath);
+  }
+  throw new Error('Unsupported file format');
+};
+
+export const validateStaffBulkImportFile = async (req, res) => {
+  let filePath = null;
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded'
+      });
+    }
+
+    filePath = req.file.path;
+    const { data: rawData, errors: parseErrors } = await parseStaffFile(filePath);
+
+    if (!rawData || rawData.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No data found in the file',
+        errors: parseErrors || []
+      });
+    }
+
+    const validationResult = await validateStaffBulkImport(rawData);
+
+    return res.json({
+      success: true,
+      data: {
+        ...validationResult,
+        parseErrors
+      }
+    });
+  } catch (error) {
+    logger.error('Staff bulk validation error', { error: error.message, stack: error.stack });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to validate bulk import file',
+      error: error.message
+    });
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (cleanupError) {
+        logger.error('Failed to clean up validation file', { error: cleanupError.message, stack: cleanupError.stack });
+      }
+    }
+  }
 };
 
 // Main bulk import function
@@ -279,108 +340,268 @@ export const bulkImportStaff = async (req, res) => {
     }
 
     filePath = req.file.path;
-    const fileExt = path.extname(req.file.originalname).toLowerCase();
 
-    // Parse the file based on type
-    let parseResult;
-    if (fileExt === '.csv') {
-      parseResult = await parseCSVFile(filePath);
-    } else if (fileExt === '.xlsx' || fileExt === '.xls') {
-      parseResult = parseExcelFile(filePath);
-    } else {
-      throw new Error('Unsupported file format');
-    }
+    const allowedStrategies = ['skip', 'update', 'restore'];
+    const duplicateStrategyRaw = (req.body?.duplicateStrategy || 'skip').toString().toLowerCase();
+    const duplicateStrategy = allowedStrategies.includes(duplicateStrategyRaw)
+      ? duplicateStrategyRaw
+      : 'skip';
 
-    const { data: rawData, errors: parseErrors } = parseResult;
+    const { data: rawData, errors: parseErrors = [] } = await parseStaffFile(filePath);
 
-    if (rawData.length === 0) {
+    if (!rawData || rawData.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'No data found in the file',
-        parseErrors
+        errors: parseErrors
       });
     }
 
-    // Process and insert records with individual transactions per record
+    const validationResult = await validateStaffBulkImport(rawData);
+    const validatedRows = validationResult.rows || [];
+
+    const results = {
+      total: validatedRows.length,
+      created: 0,
+      updated: 0,
+      restored: 0,
+      skipped: 0,
+      failed: 0,
+      rows: [],
+      errors: [...parseErrors]
+    };
+
     const insertedRecords = [];
-    const processingErrors = [];
 
-    for (let i = 0; i < rawData.length; i++) {
-      const client = await getClient();
-      
-      try {
-        console.log(`🔍 Processing row ${i + 1}:`, rawData[i]);
-        
-        const processed = await processStaffRecord(rawData[i], i + 1, req, client);
-        
-        if (processed.success) {
-          console.log('🔍 About to insert record:', {
-            lydoId: processed.data.lydoId,
-            firstName: processed.data.firstName,
-            lastName: processed.data.lastName,
-            email: processed.data.email,
-            personalEmail: processed.data.personalEmail,
-            roleId: processed.data.roleId
-          });
-          
-          // Start individual transaction for this record
-          await client.query('BEGIN');
-          
+    const isActiveMatch = (match) => match && match.is_active === true && match.deactivated !== true;
+    const isArchivedMatch = (match) => match && !isActiveMatch(match);
+
+    for (const rowInfo of validatedRows) {
+      const rowOutcome = {
+        rowNumber: rowInfo.rowNumber,
+        data: rowInfo.normalized,
+        validationStatus: rowInfo.status,
+        validationIssues: rowInfo.issues,
+        duplicate: rowInfo.duplicate,
+        action: null,
+        message: ''
+      };
+
+      if (rowInfo.status === 'error') {
+        results.failed++;
+        rowOutcome.action = 'invalid';
+        rowOutcome.message = 'Skipped due to validation errors';
+        rowInfo.issues.forEach((issue) => {
+          results.errors.push(`Row ${rowInfo.rowNumber}: ${issue}`);
+        });
+        results.rows.push(rowOutcome);
+        continue;
+      }
+
+      if (rowInfo.duplicate?.inFile && !rowInfo.duplicate?.isPrimaryInFile) {
+        results.skipped++;
+        rowOutcome.action = 'skipped';
+        rowOutcome.message = 'Skipped duplicate row within the uploaded file';
+        results.rows.push(rowOutcome);
+        continue;
+      }
+
+      const existingMatches = rowInfo.existingMatches || [];
+      const activeMatch = existingMatches.find(isActiveMatch);
+      const archivedMatch = existingMatches.find(isArchivedMatch);
+
+      if (existingMatches.length > 0) {
+        if (duplicateStrategy === 'skip') {
+          results.skipped++;
+          rowOutcome.action = 'skipped';
+          rowOutcome.message = 'Skipped duplicate in system (strategy: skip)';
+          results.rows.push(rowOutcome);
+          continue;
+        }
+
+        if (duplicateStrategy === 'update') {
+          const target = activeMatch || archivedMatch;
+          if (!target) {
+            results.skipped++;
+            rowOutcome.action = 'skipped';
+            rowOutcome.message = 'Duplicate found but no matching record to update';
+            results.rows.push(rowOutcome);
+            continue;
+          }
+
+          const client = await getClient();
           try {
-            const inserted = await insertStaffRecord(client, processed.data);
-            console.log('✅ Successfully inserted:', inserted);
-
-            // CRITICAL: Create Users table entry for notifications system
-            console.log('👤 Creating Users table entry for notifications...');
-            console.log('🔍 Debug: processed.data:', {
-              lydoId: processed.data.lydoId,
-              roleId: processed.data.roleId,
-              firstName: processed.data.firstName
-            });
-            
-            const userType = (processed.data.roleId === 'ROL001' || processed.data.firstName === 'Admin') ? 'admin' : 'staff';
-            console.log('🔍 Determined user type:', userType);
-            
-            try {
-              if (userType === 'admin') {
-                console.log('👑 Creating admin user entry...');
-                await createUserForAdmin(processed.data.lydoId, client);
-              } else {
-                console.log('👤 Creating staff user entry...');
-                await createUserForStaff(processed.data.lydoId, client);
-              }
-              console.log('✅ Users table entry created successfully');
-            } catch (userCreationError) {
-              console.error('❌ Failed to create Users table entry:', userCreationError);
-              console.error('🔍 LYDO ID that failed:', processed.data.lydoId);
-              throw userCreationError; // Re-throw to trigger rollback
-            }
-
-            // Commit this individual record
+            await client.query('BEGIN');
+            await client.query(
+              `
+                UPDATE "LYDO"
+                SET first_name = $1,
+                    last_name = $2,
+                    middle_name = $3,
+                    suffix = $4,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE lydo_id = $5
+              `,
+              [
+                rowInfo.normalized.first_name || null,
+                rowInfo.normalized.last_name || null,
+                rowInfo.normalized.middle_name || null,
+                rowInfo.normalized.suffix || null,
+                target.lydo_id
+              ]
+            );
             await client.query('COMMIT');
-            
-            // Create individual audit log for each staff member
-            const staffName = `${processed.data.firstName} ${processed.data.lastName}`;
+
+            results.updated++;
+            rowOutcome.action = 'updated';
+            rowOutcome.message = `Existing staff (${target.lydo_id}) updated`;
+
             setTimeout(() => {
               createAuditLog({
                 userId: req.user?.id || 'SYSTEM',
                 userType: req.user?.userType || 'admin',
-                action: 'Create',
+                action: 'Update',
                 resource: '/api/staff',
-                resourceId: processed.data.lydoId,
-                resourceName: staffName,
+                resourceId: target.lydo_id,
+                resourceName: `${rowInfo.normalized.first_name} ${rowInfo.normalized.last_name}`,
                 details: {
-                  staffName: staffName,
                   resourceType: 'staff',
-                  roleId: processed.data.roleId,
-                  email: processed.data.personalEmail,
-                  importedViaBulk: true
+                  importedViaBulk: true,
+                  duplicateStrategy: duplicateStrategy,
+                  action: 'update'
                 },
                 ipAddress: req.ip || '127.0.0.1',
                 userAgent: req.get('User-Agent') || 'Bulk Import',
                 status: 'success'
-              }).catch(err => console.error('Individual audit log failed:', err));
-            }, i * 50);
+              }).catch((err) => logger.error('Staff update audit log failed', { error: err.message, stack: err.stack, lydoId: target.lydo_id }));
+            }, 0);
+          } catch (error) {
+            await client.query('ROLLBACK');
+            results.failed++;
+            rowOutcome.action = 'failed';
+            rowOutcome.message = `Failed to update existing staff: ${error.message}`;
+            results.errors.push(`Row ${rowInfo.rowNumber}: ${error.message}`);
+          } finally {
+            client.release();
+          }
+
+          results.rows.push(rowOutcome);
+          continue;
+        }
+
+        if (duplicateStrategy === 'restore') {
+          const target = archivedMatch || activeMatch;
+          if (!target) {
+            results.skipped++;
+            rowOutcome.action = 'skipped';
+            rowOutcome.message = 'Duplicate found but no matching record to restore';
+            results.rows.push(rowOutcome);
+            continue;
+          }
+
+          const client = await getClient();
+          try {
+            await client.query('BEGIN');
+            await client.query(
+              `
+                UPDATE "LYDO"
+                SET first_name = $1,
+                    last_name = $2,
+                    middle_name = $3,
+                    suffix = $4,
+                    is_active = true,
+                    deactivated = false,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE lydo_id = $5
+              `,
+              [
+                rowInfo.normalized.first_name || null,
+                rowInfo.normalized.last_name || null,
+                rowInfo.normalized.middle_name || null,
+                rowInfo.normalized.suffix || null,
+                target.lydo_id
+              ]
+            );
+            await client.query('COMMIT');
+            
+            results.restored++;
+            rowOutcome.action = 'restored';
+            rowOutcome.message = `Existing staff (${target.lydo_id}) restored`;
+
+            setTimeout(() => {
+              createAuditLog({
+                userId: req.user?.id || 'SYSTEM',
+                userType: req.user?.userType || 'admin',
+                action: 'Restore',
+                resource: '/api/staff',
+                resourceId: target.lydo_id,
+                resourceName: `${rowInfo.normalized.first_name} ${rowInfo.normalized.last_name}`,
+                details: {
+                  resourceType: 'staff',
+                  importedViaBulk: true,
+                  duplicateStrategy: duplicateStrategy,
+                  action: 'restore'
+                },
+                ipAddress: req.ip || '127.0.0.1',
+                userAgent: req.get('User-Agent') || 'Bulk Import',
+                status: 'success'
+              }).catch((err) => logger.error('Staff restore audit log failed', { error: err.message, stack: err.stack, lydoId: target.lydo_id }));
+            }, 0);
+          } catch (error) {
+            await client.query('ROLLBACK');
+            results.failed++;
+            rowOutcome.action = 'failed';
+            rowOutcome.message = `Failed to restore existing staff: ${error.message}`;
+            results.errors.push(`Row ${rowInfo.rowNumber}: ${error.message}`);
+          } finally {
+            client.release();
+          }
+
+          results.rows.push(rowOutcome);
+          continue;
+        }
+      }
+
+      const client = await getClient();
+      try {
+        const processed = await processStaffRecord(
+          {
+            first_name: rowInfo.normalized.first_name,
+            last_name: rowInfo.normalized.last_name,
+            middle_name: rowInfo.normalized.middle_name,
+            suffix: rowInfo.normalized.suffix,
+            personal_email: rowInfo.normalized.personal_email
+          },
+          rowInfo.rowNumber,
+          req,
+          client
+        );
+
+        if (!processed.success) {
+          results.failed++;
+          rowOutcome.action = 'failed';
+          rowOutcome.message = processed.error;
+          results.errors.push(processed.error);
+          rowOutcome.validationIssues = [...rowOutcome.validationIssues, processed.error];
+          results.rows.push(rowOutcome);
+          continue;
+        }
+
+        await client.query('BEGIN');
+        try {
+          const inserted = await insertStaffRecord(client, processed.data);
+          const userType =
+            processed.data.roleId === 'ROL001' || processed.data.firstName === 'Admin'
+              ? 'admin'
+              : 'staff';
+
+          if (userType === 'admin') {
+            await createUserForAdmin(processed.data.lydoId, client);
+          } else {
+            await createUserForStaff(processed.data.lydoId, client);
+          }
+
+          await client.query('COMMIT');
             
             insertedRecords.push({
               ...inserted,
@@ -388,39 +609,56 @@ export const bulkImportStaff = async (req, res) => {
               originalData: processed.originalData
             });
             
+          results.created++;
+          rowOutcome.action = 'created';
+          rowOutcome.message = `New staff created (${processed.data.lydoId})`;
+
+          const staffName = `${processed.data.firstName} ${processed.data.lastName}`;
+          setTimeout(() => {
+            createAuditLog({
+              userId: req.user?.id || 'SYSTEM',
+              userType: req.user?.userType || 'admin',
+              action: 'Create',
+              resource: '/api/staff',
+              resourceId: processed.data.lydoId,
+              resourceName: staffName,
+              details: {
+                staffName,
+                resourceType: 'staff',
+                roleId: processed.data.roleId,
+                email: processed.data.personalEmail,
+                importedViaBulk: true,
+                duplicateStrategy
+              },
+              ipAddress: req.ip || '127.0.0.1',
+              userAgent: req.get('User-Agent') || 'Bulk Import',
+              status: 'success'
+            }).catch((err) => logger.error('Individual audit log failed for staff creation', { error: err.message, stack: err.stack, lydoId: processed.data.lydoId }));
+          }, 0);
           } catch (insertError) {
             await client.query('ROLLBACK');
-            console.error('❌ Failed to insert record:', insertError);
-            processingErrors.push(`Row ${i + 1}: Insert failed - ${insertError.message}`);
-          }
-        } else {
-          console.error('❌ Processing failed:', processed.error);
-          processingErrors.push(processed.error);
+          results.failed++;
+          rowOutcome.action = 'failed';
+          rowOutcome.message = `Insert failed: ${insertError.message}`;
+          results.errors.push(`Row ${rowInfo.rowNumber}: ${insertError.message}`);
         }
       } catch (error) {
-        console.error('❌ Unexpected error processing row:', i + 1, error);
-        processingErrors.push(`Row ${i + 1}: Unexpected error - ${error.message}`);
+        results.failed++;
+        rowOutcome.action = 'failed';
+        rowOutcome.message = `Unexpected error: ${error.message}`;
+        results.errors.push(`Row ${rowInfo.rowNumber}: ${error.message}`);
       } finally {
         client.release();
       }
+
+      results.rows.push(rowOutcome);
     }
     
-    // Send welcome emails to all imported staff (fire-and-forget, same as createStaff)
-    console.log(`📧 Sending welcome emails to ${insertedRecords.length} successfully imported staff members...`);
-    
+    // Send welcome notifications for newly created staff
+    if (insertedRecords.length > 0) {
     for (const record of insertedRecords) {
-      console.log(`📧 Sending welcome email to: ${record.first_name} ${record.last_name} (${record.lydo_id}) at ${record.personal_email}`);
-      console.log(`🔍 Email data:`, {
-        lydoId: record.lydo_id,
-        firstName: record.first_name,
-        lastName: record.last_name,
-        personalEmail: record.personal_email,
-        orgEmail: record.email,
-        hasPassword: !!record.tempPassword,
-        passwordLength: record.tempPassword ? record.tempPassword.length : 0
-      });
-      
-      notificationService.sendWelcomeNotification({
+        notificationService
+          .sendWelcomeNotification({
         lydoId: record.lydo_id,
         firstName: record.first_name,
         lastName: record.last_name,
@@ -428,51 +666,48 @@ export const bulkImportStaff = async (req, res) => {
         orgEmail: record.email,
         password: record.tempPassword,
         createdBy: req.user?.id || 'BULK_IMPORT'
-      }).catch(err => console.error(`❌ Welcome notification failed for ${record.first_name} ${record.last_name}:`, err));
+          })
+          .catch((err) =>
+            logger.error(`Welcome notification failed for staff`, { error: err.message, stack: err.stack, name: `${record.first_name} ${record.last_name}`, lydoId: record.lydo_id })
+          );
+      }
     }
-    
-    if (insertedRecords.length === 0) {
-      console.log('⚠️ No staff members were successfully imported, so no welcome emails will be sent.');
-    }
-      
-    // Send admin notification about bulk import
-    const results = {
-      summary: {
-        totalRows: rawData.length,
-        validRecords: insertedRecords.length,
-        importedRecords: insertedRecords.length,
-        errors: parseErrors.length + processingErrors.length
-      },
-      imported: insertedRecords.map(r => ({
-        lydoId: r.lydo_id,
-        name: `${r.first_name} ${r.last_name}`,
-        email: r.personal_email
-      })),
-      errors: [...parseErrors, ...processingErrors]
+
+    const summary = {
+      total: results.total,
+      created: results.created,
+      updated: results.updated,
+      restored: results.restored,
+      skipped: results.skipped,
+      failed: results.failed,
+      duplicateStrategy
     };
 
-    // Send admin notifications about staff bulk import (with req.user context fix)
+    const notificationSummary = {
+      totalRows: results.total,
+      validRecords: results.total - results.failed,
+      importedRecords: results.created + results.restored,
+      errors: results.failed + (parseErrors?.length || 0),
+      fileName: req.file.originalname,
+      createdRecords: results.created,
+      updatedRecords: results.updated,
+      restoredRecords: results.restored,
+      skippedRecords: results.skipped,
+      duplicateStrategy
+    };
+
     const currentUser = req.user;
     setTimeout(async () => {
       try {
-        await notificationService.notifyAdminsAboutStaffBulkImport(results, currentUser);
+        await notificationService.notifyAdminsAboutStaffBulkImport(notificationSummary, currentUser);
       } catch (notifError) {
-        console.error('Staff bulk import notification error:', notifError);
+        logger.error('Staff bulk import notification error', { error: notifError.message, stack: notifError.stack });
       }
     }, 100);
 
-    // Create audit log for bulk import
-    // Create meaningful resource name for bulk import
-    const importedCount = results.summary.importedRecords;
-    const errorCount = results.summary.errors;
-    const fileName = req.file.originalname;
-    
-    let resourceName;
-    if (errorCount > 0) {
-      resourceName = `Staff Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'}, ${errorCount} ${errorCount === 1 ? 'error' : 'errors'})`;
-    } else {
-      resourceName = `Staff Import - ${fileName} (${importedCount} ${importedCount === 1 ? 'member' : 'members'})`;
-    }
+    const successCount = results.created + results.updated + results.restored;
+    const errorCount = results.failed + (parseErrors?.length || 0);
+    const resourceName = `Staff Import - ${req.file.originalname} (${successCount} processed, ${errorCount} errors)`;
     
     createAuditLog({
       userId: req.user?.id || 'SYSTEM',
@@ -480,57 +715,41 @@ export const bulkImportStaff = async (req, res) => {
       action: 'Bulk Import',
       resource: '/api/staff/bulk/import',
       resourceId: null,
-      resourceName: resourceName,
+      resourceName,
       details: {
         resourceType: 'staff',
-        totalItems: results.summary.totalRows,
-        successCount: results.summary.importedRecords,
-        errorCount: results.summary.errors,
-        fileName: req.file.originalname,
-        action: 'import'
+        totalItems: results.total,
+        created: results.created,
+        updated: results.updated,
+        restored: results.restored,
+        skipped: results.skipped,
+        failed: results.failed,
+        duplicateStrategy,
+        fileName: req.file.originalname
       },
       ipAddress: req.ip || '127.0.0.1',
       userAgent: req.get('User-Agent') || 'Bulk Import',
-      status: 'success'
-    }).catch(err => console.error('Audit log failed:', err));
-    
-    // Log successful insertions for debugging
-    console.log(`✅ Successfully committed ${insertedRecords.length} records to database`);
-    console.log(`📧 Sending welcome emails to ${insertedRecords.length} staff members...`);
-    if (insertedRecords.length > 0) {
-      console.log('📝 Inserted records:', insertedRecords.map(r => ({ 
-        lydoId: r.lydo_id, 
-        name: `${r.first_name} ${r.last_name}`,
-        email: r.email
-      })));
-    }
+      status: errorCount > 0 ? 'partial' : 'success'
+    }).catch((err) => logger.error('Audit log failed for staff bulk import', { error: err.message, stack: err.stack }));
 
-    // Prepare response
-    const response = {
+    const summaryParts = [];
+    if (results.created) summaryParts.push(`${results.created} created`);
+    if (results.updated) summaryParts.push(`${results.updated} updated`);
+    if (results.restored) summaryParts.push(`${results.restored} restored`);
+    if (results.skipped) summaryParts.push(`${results.skipped} skipped`);
+    if (results.failed) summaryParts.push(`${results.failed} failed`);
+
+    const summaryText = summaryParts.length ? summaryParts.join(', ') : 'No changes applied';
+
+    return res.json({
       success: true,
-      message: `Bulk import completed. ${insertedRecords.length} staff members imported successfully.`,
-      summary: {
-        totalRows: rawData.length,
-        validRecords: insertedRecords.length,
-        importedRecords: insertedRecords.length,
-        errors: parseErrors.length + processingErrors.length,
-        emailsSent: insertedRecords.length // Track how many welcome emails should be sent
-      },
-      imported: insertedRecords.map(record => ({
-        lydoId: record.lydo_id,
-        name: `${record.first_name} ${record.last_name}`,
-        email: record.email,
-        personalEmail: record.personal_email,
-        tempPassword: record.tempPassword,
-        welcomeEmailSent: true // Indicate that welcome email should be sent
-      })),
-      errors: [...parseErrors, ...processingErrors]
-    };
-
-    return res.json(response);
+      message: `Bulk import completed. ${summaryText}.`,
+      data: results,
+      summary
+    });
 
   } catch (error) {
-    console.error('Bulk import error:', error);
+    logger.error('Bulk import error', { error: error.message, stack: error.stack });
     
     // Create audit log for failed bulk import
     const resourceName = `Staff Import - Failed`;
@@ -551,7 +770,7 @@ export const bulkImportStaff = async (req, res) => {
       userAgent: req.get('User-Agent') || 'Bulk Import',
       status: 'error',
       errorMessage: error.message
-    }).catch(err => console.error('Failed import audit log error:', err));
+    }).catch(err => logger.error('Failed import audit log error', { error: err.message, stack: err.stack }));
     
     return res.status(500).json({
       success: false,
@@ -564,7 +783,7 @@ export const bulkImportStaff = async (req, res) => {
       try {
         fs.unlinkSync(filePath);
       } catch (cleanupError) {
-        console.error('Failed to clean up file:', cleanupError);
+        logger.error('Failed to clean up file', { error: cleanupError.message, stack: cleanupError.stack });
       }
     }
   }
@@ -619,7 +838,7 @@ export const getBulkImportTemplate = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Template generation error:', error);
+    logger.error('Template generation error', { error: error.message, stack: error.stack });
     return res.status(500).json({
       success: false,
       message: 'Failed to generate template',

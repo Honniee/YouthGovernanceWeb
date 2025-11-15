@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
+import surveySubmissionService from '../../../services/surveySubmissionService';
 import { 
   CheckCircle, 
   ArrowLeft, 
@@ -21,10 +22,13 @@ import {
   Share2,
   Plus,
   BarChart3,
-  ArrowRight
+  ArrowRight,
+  Eye,
+  X
 } from 'lucide-react';
 import SurveyLayout from '../../../components/layouts/SurveyLayout';
 import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
+import logger from '../../../utils/logger.js';
 
 // Animated counter component
 const AnimatedCounter = ({ end, duration = 2000 }) => {
@@ -74,7 +78,7 @@ const SurveyThankYou = () => {
     
     // First check if we have navigation state (most reliable for recent submissions)
     if (location.state) {
-      console.log('✅ Access granted via navigation state');
+      logger.debug('Access granted via navigation state');
       return true;
     }
     
@@ -88,11 +92,11 @@ const SurveyThankYou = () => {
         const twentyFourHours = 24 * 60 * 60 * 1000;
         
         if (currentTime - backupTime <= twentyFourHours) {
-          console.log('✅ Access granted via valid backup data');
+          logger.debug('Access granted via valid backup data');
           return true;
         }
       } catch (error) {
-        console.error('Error parsing backup data:', error);
+        logger.error('Error parsing backup data', error);
       }
     }
     
@@ -104,13 +108,13 @@ const SurveyThankYou = () => {
       const thirtyMinutes = 30 * 60 * 1000;
       
       if (currentTime - verificationTime <= thirtyMinutes) {
-        console.log('✅ Access granted via reCAPTCHA verification');
+        logger.debug('Access granted via reCAPTCHA verification');
         return true;
       }
     }
     
     // If no valid access method found, redirect
-    console.log('🚫 No valid access found, redirecting to survey landing');
+    logger.debug('No valid access found, redirecting to survey landing');
     navigate('/kk-survey', { replace: true });
     return false;
   };
@@ -134,29 +138,31 @@ const SurveyThankYou = () => {
         const twentyFourHours = 24 * 60 * 60 * 1000;
         
         if (currentTime - backupTime > twentyFourHours) {
-          console.log('⏰ Backup submission data is too old, redirecting to survey landing');
+          logger.debug('Backup submission data is too old, redirecting to survey landing');
           localStorage.removeItem('kk_survey_submitted');
           navigate('/kk-survey', { replace: true });
           return null;
         }
         
         return {
-          batchName: activeSurvey?.batch_name || activeSurvey?.batchName || 'KK Survey 2025',
+          batchName: activeSurvey?.batch_name || activeSurvey?.batchName,
           submissionId: parsed.submission_id,
           youthId: parsed.youth_id,
           status: parsed.status,
           submittedAt: parsed.submitted_at,
           isNewYouth: parsed.isNewYouth || false,
           validationStatus: parsed.validation_status || 'pending',
-          validationTier: parsed.validation_tier || 'manual'
+          validationTier: parsed.validation_tier || 'manual',
+          personal: parsed.personal || null, // Include personal data from localStorage backup
+          accessToken: parsed.accessToken || null
         };
       } catch (error) {
-        console.error('Error parsing backup submission data:', error);
+        logger.error('Error parsing backup submission data', error);
       }
     }
     
     // If no data found, redirect to survey landing
-    console.warn('No submission data found, redirecting to survey landing');
+    logger.warn('No submission data found, redirecting to survey landing');
     navigate('/kk-survey', { replace: true });
     return null;
   };
@@ -169,8 +175,7 @@ const SurveyThankYou = () => {
   const submissionData = getSubmissionData();
   
   // Debug: Log the submission data to see what's available
-  console.log('🔍 SurveyThankYou - submissionData:', submissionData);
-  console.log('🔍 SurveyThankYou - location.state:', location.state);
+  logger.debug('SurveyThankYou - submissionData', { hasData: !!submissionData, hasLocationState: !!location.state });
   
   // If no submission data, component will redirect
   if (!submissionData) {
@@ -187,6 +192,49 @@ const SurveyThankYou = () => {
     validationStatus, 
     validationTier 
   } = submissionData;
+
+  // Get personal data from either location.state or submissionData
+  // Also check if we have accessToken to fetch from API as fallback
+  const [apiPersonalData, setApiPersonalData] = useState(null);
+  
+  // Try to fetch personal data from API if we have accessToken but no personal data
+  useEffect(() => {
+    const fetchPersonalDataFromAPI = async () => {
+      const accessToken = location.state?.accessToken || submissionData?.accessToken;
+      const hasPersonalData = location.state?.personal || submissionData?.personal;
+      
+      // Only fetch if we have token but no personal data
+      if (accessToken && !hasPersonalData) {
+        try {
+          const response = await surveySubmissionService.getSubmissionByToken(accessToken);
+          if (response.success && response.data) {
+            // Map API response (snake_case) to personal data format (camelCase)
+            setApiPersonalData({
+              firstName: response.data.first_name,
+              middleName: response.data.middle_name,
+              lastName: response.data.last_name,
+              suffix: response.data.suffix,
+              email: response.data.email
+            });
+          }
+        } catch (error) {
+          logger.error('Failed to fetch personal data from API', error);
+        }
+      }
+    };
+    
+    fetchPersonalDataFromAPI();
+  }, [location.state?.accessToken, submissionData?.accessToken]);
+  
+  // Get personal data from multiple sources with priority
+  const personalData = location.state?.personal || submissionData?.personal || apiPersonalData || {};
+  
+  // Debug: Log personal data to see what's available
+  logger.debug('SurveyThankYou - personal data sources', { 
+    hasLocationStatePersonal: !!location.state?.personal,
+    hasSubmissionDataPersonal: !!submissionData?.personal,
+    hasApiPersonalData: !!apiPersonalData
+  });
 
   // Handle page refresh and browser navigation
   useEffect(() => {
@@ -224,7 +272,7 @@ const SurveyThankYou = () => {
           url: window.location.origin
         });
       } catch (error) {
-        console.error('Share failed:', error);
+        logger.error('Share failed', error);
         handleFallbackShare();
       }
     } else {
@@ -292,49 +340,79 @@ const SurveyThankYou = () => {
                    </div>
                    <h3 className="text-sm font-bold text-gray-900">Submission Confirmed</h3>
                  </div>
-                 <div className="text-xs text-gray-500 mt-1">KK Survey 2025</div>
+                 <div className="text-xs text-gray-500 mt-1">Katipunan ng Kabataan Survey</div>
                </div>
                
                {/* Receipt content */}
                <div className="px-4 py-4">
                  <div className="space-y-3 text-sm">
                    <div className="flex justify-between items-center py-1">
-                     <span className="text-gray-600 font-medium">Name</span>
+                     <span className="text-gray-600 font-medium">Name:</span>
                      <span className="text-gray-900 font-semibold text-right max-w-48 truncate">
-                       {(submissionData.personal?.firstName || location.state?.personal?.firstName) && (submissionData.personal?.lastName || location.state?.personal?.lastName)
-                         ? (() => {
-                             const personal = submissionData.personal || location.state?.personal || {};
-                             return `${personal.firstName || ''} ${personal.middleName ? personal.middleName + ' ' : ''}${personal.lastName || ''}${personal.suffix ? ' ' + personal.suffix : ''}`.trim();
-                           })()
-                         : '-'
-                       }
+                       {(() => {
+                         const firstName = personalData?.firstName || personalData?.first_name || '';
+                         const middleName = personalData?.middleName || personalData?.middle_name || '';
+                         const lastName = personalData?.lastName || personalData?.last_name || '';
+                         const suffix = personalData?.suffix || '';
+                         
+                         if (firstName && lastName) {
+                           return `${firstName}${middleName ? ' ' + middleName : ''}${lastName ? ' ' + lastName : ''}${suffix ? ' ' + suffix : ''}`.trim();
+                         }
+                         return '-';
+                       })()}
                      </span>
                    </div>
                    
                    <div className="flex justify-between items-center py-1">
-                     <span className="text-gray-600 font-medium">Survey Batch</span>
-                     <span className="text-gray-900 font-semibold text-right max-w-48 truncate">{batchName}</span>
-                   </div>
-                   
-                   <div className="flex justify-between items-center py-1">
-                     <span className="text-gray-600 font-medium">Response ID</span>
-                     <span className="text-gray-900 font-semibold font-mono text-xs">{submissionId}</span>
+                     <span className="text-gray-600 font-medium">Email:</span>
+                     <span className="text-gray-900 font-semibold text-right max-w-48 truncate">
+                       {personalData?.email || personalData?.personal_email || '-'}
+                     </span>
                    </div>
                    
                    {youthId && (
                      <div className="flex justify-between items-center py-1">
-                       <span className="text-gray-600 font-medium">Youth ID</span>
+                       <span className="text-gray-600 font-medium">Youth ID:</span>
                        <span className="text-gray-900 font-semibold font-mono text-xs">{youthId}</span>
                      </div>
                    )}
                    
+                   <div className="flex justify-between items-center py-1">
+                     <span className="text-gray-600 font-medium">Survey Batch name:</span>
+                     <span className="text-gray-900 font-semibold text-right max-w-48 truncate">{batchName}</span>
+                   </div>
                    
                    <div className="flex justify-between items-center py-1">
-                     <span className="text-gray-600 font-medium">Submitted</span>
+                     <span className="text-gray-600 font-medium">Response ID:</span>
+                     <span className="text-gray-900 font-semibold font-mono text-xs">{submissionId}</span>
+                   </div>
+                   
+                   <div className="flex justify-between items-center py-1">
+                     <span className="text-gray-600 font-medium">Submitted:</span>
                      <span className="text-gray-900 font-semibold text-xs">
                        {submittedAt 
-                         ? new Date(submittedAt).toLocaleDateString() + ' at ' + new Date(submittedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-                         : new Date().toLocaleDateString() + ' at ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                         ? (() => {
+                             const date = new Date(submittedAt);
+                             const month = String(date.getMonth() + 1).padStart(2, '0');
+                             const day = String(date.getDate()).padStart(2, '0');
+                             const year = date.getFullYear();
+                             const hours = date.getHours();
+                             const minutes = String(date.getMinutes()).padStart(2, '0');
+                             const ampm = hours >= 12 ? 'PM' : 'AM';
+                             const displayHours = hours % 12 || 12;
+                             return `${month}/${day}/${year} at ${displayHours}:${minutes} ${ampm}`;
+                           })()
+                         : (() => {
+                             const date = new Date();
+                             const month = String(date.getMonth() + 1).padStart(2, '0');
+                             const day = String(date.getDate()).padStart(2, '0');
+                             const year = date.getFullYear();
+                             const hours = date.getHours();
+                             const minutes = String(date.getMinutes()).padStart(2, '0');
+                             const ampm = hours >= 12 ? 'PM' : 'AM';
+                             const displayHours = hours % 12 || 12;
+                             return `${month}/${day}/${year} at ${displayHours}:${minutes} ${ampm}`;
+                           })()
                        }
                      </span>
                    </div>
@@ -342,14 +420,59 @@ const SurveyThankYou = () => {
                  
                  {/* Receipt footer */}
                  <div className="mt-4 pt-3 border-t border-gray-100">
-                   <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
-                     <CheckCircle className="w-3 h-3 text-green-600" />
-                     <span>
-                       {isNewYouth 
-                         ? 'New profile created' 
-                         : 'Profile updated'
-                       }
-                     </span>
+                   <div className="flex items-center justify-center gap-2">
+                     {(() => {
+                       const status = validationStatus || 'pending';
+                       const statusConfig = {
+                         pending: {
+                           icon: Clock,
+                           color: 'text-amber-600',
+                           bgColor: 'bg-amber-50',
+                           borderColor: 'border-amber-200',
+                           label: 'Pending Validation'
+                         },
+                         validated: {
+                           icon: CheckCircle,
+                           color: 'text-green-600',
+                           bgColor: 'bg-green-50',
+                           borderColor: 'border-green-200',
+                           label: 'Validated'
+                         },
+                         approved: {
+                           icon: CheckCircle,
+                           color: 'text-green-600',
+                           bgColor: 'bg-green-50',
+                           borderColor: 'border-green-200',
+                           label: 'Approved'
+                         },
+                         rejected: {
+                           icon: X,
+                           color: 'text-red-600',
+                           bgColor: 'bg-red-50',
+                           borderColor: 'border-red-200',
+                           label: 'Rejected'
+                         },
+                         in_progress: {
+                           icon: Clock,
+                           color: 'text-blue-600',
+                           bgColor: 'bg-blue-50',
+                           borderColor: 'border-blue-200',
+                           label: 'In Progress'
+                         }
+                       };
+                       
+                       const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
+                       const StatusIcon = config.icon;
+                       
+                       return (
+                         <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${config.bgColor} ${config.borderColor} border`}>
+                           <StatusIcon className={`w-3.5 h-3.5 ${config.color}`} />
+                           <span className={`text-xs font-medium ${config.color}`}>
+                             {config.label}
+                           </span>
+                         </div>
+                       );
+                     })()}
                    </div>
                  </div>
                </div>
@@ -380,6 +503,25 @@ const SurveyThankYou = () => {
                 </button>
 
                 {/* Return to Home Button */}
+                {/* View Submission Status Button (if token available) */}
+                {(location.state?.accessToken || submissionData?.accessToken) && (
+                  <button
+                    onClick={() => {
+                      const token = location.state?.accessToken || submissionData?.accessToken;
+                      navigate(`/survey-submission/status?token=${token}`);
+                    }}
+                    className="group inline-flex items-center gap-3 px-6 py-3 bg-[#24345A] text-white rounded-full hover:bg-[#1e2a47] hover:shadow-md transition-all duration-200"
+                  >
+                    <div className="w-8 h-8 rounded-full grid place-items-center bg-white/20 ring-1 ring-white/30">
+                      <Eye className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-semibold">View Submission Status</div>
+                      <div className="text-xs text-white/80">Track your submission</div>
+                    </div>
+                  </button>
+                )}
+                
                 <button
                   onClick={handleReturnHome}
                   className="group inline-flex items-center gap-3 px-6 py-3 bg-white border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 hover:shadow-md transition-all duration-200"
@@ -403,9 +545,15 @@ const SurveyThankYou = () => {
                 <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <Shield className="w-4 h-4 text-green-600" />
                 </div>
-                <div>
+                <div className="flex-1">
                   <h3 className="font-semibold text-green-900 text-xs sm:text-sm mb-1">Data Protected</h3>
-                  <p className="text-green-700 text-xs leading-relaxed">Your information is secure and will be used only for official purposes.</p>
+                  <p className="text-green-700 text-xs leading-relaxed mb-2">Your information is secure and will be used only for official purposes.</p>
+                  <Link 
+                    to="/data-subject-rights" 
+                    className="text-green-700 hover:text-green-900 underline font-medium text-xs"
+                  >
+                    Manage your data (Access, Edit, Delete) →
+                  </Link>
                 </div>
               </div>
             </div>

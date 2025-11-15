@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger.js';
 
 const youthService = {
   async getYouth(params = {}) {
@@ -13,7 +14,7 @@ const youthService = {
       // Expected shape: { success, data: [...], stats? }
       return res?.data || res;
     } catch (e) {
-      console.error('youthService.getYouth error:', e);
+      logger.error('youthService.getYouth error', e, { params });
       return { success: false, message: e?.message || 'Failed to fetch youth' };
     }
   },

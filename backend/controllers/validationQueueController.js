@@ -2,6 +2,10 @@ import { getClient } from '../config/database.js';
 import { emitToAdmins, emitToRole, emitToRoom, emitBroadcast } from '../services/realtime.js';
 import { generateId } from '../utils/idGenerator.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import { getUserIdFromUsersTable } from '../utils/usersTableHelper.js';
+import { parseContactMismatch, isContactMismatch } from '../utils/contactMismatchParser.js';
+import emailService from '../services/emailService.js';
+import logger from '../utils/logger.js';
 
 // Get validation queue items with pagination and filters
 export const getValidationQueue = async (req, res) => {
@@ -486,8 +490,7 @@ export const getValidationQueue = async (req, res) => {
     queryParams.push(offset);
     }
 
-    console.log('🔍 Validation Queue Query:', query);
-    console.log('📊 Query Params:', queryParams);
+    logger.debug('Validation Queue Query', { query, queryParams });
 
     const result = await client.query(query, queryParams);
 
@@ -673,15 +676,35 @@ export const getValidationQueue = async (req, res) => {
     const validationItems = result.rows.map(row => {
       // Debug logging for rejected items
       if (row.validation_status === 'rejected') {
-        console.log(`🔍 Rejected item debug - Response ID: ${row.response_id}`);
-        console.log(`  validated_by: ${row.validated_by}`);
-        console.log(`  validator_user_id: ${row.validator_user_id}`);
-        console.log(`  validator_name: ${row.validator_name}`);
+        logger.debug('Rejected item debug', {
+          response_id: row.response_id,
+          validated_by: row.validated_by,
+          validator_user_id: row.validator_user_id,
+          validator_name: row.validator_name
+        });
       }
       
       const validatedBy = (row.validator_name && row.validator_name.trim() !== '') 
         ? row.validator_name 
         : (row.validator_user_id || row.validated_by || null);
+      
+      // Parse contact mismatch info from validation comments
+      const contactMismatchInfo = parseContactMismatch(row.validation_comments || '');
+      
+      // For contact mismatch cases, use NEW contact info from submission (not old from profile)
+      // This ensures the displayed email/contact matches what was submitted
+      let displayContactNumber = row.contact_number;
+      let displayEmail = row.email;
+      
+      if (contactMismatchInfo && contactMismatchInfo.new) {
+        // Use new contact info from submission when contact mismatch is detected
+        displayContactNumber = contactMismatchInfo.new.contact || row.contact_number;
+        displayEmail = contactMismatchInfo.new.email || row.email;
+        logger.debug('Contact mismatch detected - using NEW contact info', {
+          new: `${displayContactNumber} / ${displayEmail}`,
+          old: `${contactMismatchInfo.existing?.contact} / ${contactMismatchInfo.existing?.email}`
+        });
+      }
       
       return {
         id: row.queue_id || row.response_id, // Use response_id as id for rejected items (queue_id is NULL)
@@ -694,8 +717,8 @@ export const getValidationQueue = async (req, res) => {
       age: row.age,
       gender: row.gender,
       birthDate: row.birth_date,
-      contactNumber: row.contact_number,
-      email: row.email,
+      contactNumber: displayContactNumber, // Use new contact if mismatch, otherwise use profile contact
+      email: displayEmail, // Use new email if mismatch, otherwise use profile email
       barangay: row.barangay_name,
       barangayId: row.barangay_id,
       batchId: row.batch_id,
@@ -710,11 +733,13 @@ export const getValidationQueue = async (req, res) => {
         validatorBarangay: row.validator_barangay || null,
       validatedAt: row.validation_date,
       submittedAt: row.submitted_at,
-      comments: row.validation_comments
+      comments: row.validation_comments,
+      // Add contact mismatch info if present (includes both existing and new)
+      contactMismatch: contactMismatchInfo
       };
     });
 
-    console.log(`✅ Found ${validationItems.length} validation items (${totalItems} total)`);
+    logger.info(`Found ${validationItems.length} validation items (${totalItems} total)`);
 
     res.json({
       success: true,
@@ -728,7 +753,7 @@ export const getValidationQueue = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching validation queue:', error);
+    logger.error('Error fetching validation queue', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch validation queue',
@@ -866,7 +891,7 @@ export const getValidationQueueStats = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching validation queue stats:', error);
+    logger.error('Error fetching validation queue stats', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch validation queue statistics',
@@ -977,7 +1002,7 @@ export const getCompletedValidationsToday = async (req, res) => {
 
     res.json({ success: true, data: items });
   } catch (error) {
-    console.error('❌ Error fetching completed validations today:', error);
+    logger.error('Error fetching completed validations today', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, message: 'Failed to fetch completed validations today', error: error.message });
   } finally {
     client.release();
@@ -988,30 +1013,40 @@ export const getCompletedValidationsToday = async (req, res) => {
 export const validateQueueItem = async (req, res) => {
   const client = await getClient();
   try {
+    await client.query('BEGIN');
+
     const { id } = req.params;
     const { action, comments } = req.body;
     const { user } = req; // From auth middleware
 
     if (!action || !['approve', 'reject'].includes(action)) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         success: false,
         message: 'Invalid action. Must be "approve" or "reject"'
       });
     }
 
-    // Get the queue item details with youth name
+    // Get the queue item details with youth name, email, batch info, and validation comments
     const queueQuery = `
       SELECT 
         vq.*, 
         ksr.response_id, 
+        ksr.batch_id,
         ksr.validation_status,
+        ksr.validation_tier,
+        ksr.validation_comments,
         yp.first_name,
         yp.last_name,
         yp.middle_name,
-        yp.suffix
+        yp.suffix,
+        yp.email,
+        yp.contact_number,
+        kb.batch_name
       FROM "Validation_Queue" vq
       LEFT JOIN "KK_Survey_Responses" ksr ON vq.response_id = ksr.response_id
       LEFT JOIN "Youth_Profiling" yp ON vq.youth_id = yp.youth_id
+      LEFT JOIN "KK_Survey_Batches" kb ON ksr.batch_id = kb.batch_id
       WHERE vq.queue_id = $1
     `;
 
@@ -1029,6 +1064,72 @@ export const validateQueueItem = async (req, res) => {
     const youthName = queueItem.first_name && queueItem.last_name
       ? `${queueItem.first_name}${queueItem.middle_name ? ' ' + queueItem.middle_name : ''} ${queueItem.last_name}${queueItem.suffix ? ' ' + queueItem.suffix : ''}`.trim()
       : queueItem.youth_id || 'Unknown Youth';
+
+    // Check if this is a "same person" scenario (contact mismatch with updateContactInfo)
+    const contactMismatchInfo = parseContactMismatch(queueItem.validation_comments || '');
+    const shouldUpdateContact = req.body.updateContactInfo === true && contactMismatchInfo;
+    
+    // If marked as "same person", check for existing responses in the same batch
+    let existingResponseId = null;
+    let existingResponseStatus = null;
+    let replacedValidatedResponseId = null;
+    if (action === 'approve' && shouldUpdateContact && queueItem.batch_id) {
+      logger.debug(`Checking for existing responses in batch ${queueItem.batch_id} for youth ${queueItem.youth_id}`);
+      const existingResponseCheck = await client.query(`
+        SELECT response_id, validation_status
+        FROM "KK_Survey_Responses"
+        WHERE batch_id = $1 
+          AND youth_id = $2
+          AND response_id != $3
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [queueItem.batch_id, queueItem.youth_id, queueItem.response_id]);
+      
+      if (existingResponseCheck.rows.length > 0) {
+        existingResponseId = existingResponseCheck.rows[0].response_id;
+        existingResponseStatus = existingResponseCheck.rows[0].validation_status;
+        logger.warn(`Found existing response: ${existingResponseId} with status: ${existingResponseStatus}`);
+        
+        // If existing response is validated, reject the new one (can't override validated)
+        if (existingResponseStatus === 'validated') {
+          logger.info(`Existing validated response ${existingResponseId} detected. Superseding it with the new submission ${queueItem.response_id}.`);
+          
+          const supersedeComment = `Superseded on ${(new Date()).toISOString()} by response ${queueItem.response_id} during contact info update. Previous response archived to prevent duplicates.`;
+          
+          await client.query(`
+            UPDATE "KK_Survey_Responses"
+            SET 
+              validation_status = 'rejected',
+              validation_comments = CASE 
+                WHEN validation_comments IS NULL OR validation_comments = '' THEN $2
+                ELSE validation_comments || '\n\n' || $2
+              END,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE response_id = $1
+          `, [existingResponseId, supersedeComment]);
+          
+          logger.info(`Marked existing validated response ${existingResponseId} as rejected (superseded).`);
+          replacedValidatedResponseId = existingResponseId;
+          existingResponseStatus = 'replaced';
+          existingResponseId = null;
+        }
+        
+        // If existing response is pending/rejected, delete it (we'll use the new one)
+        logger.info(`Deleting old ${existingResponseStatus} response ${existingResponseId} - will use new response ${queueItem.response_id}`);
+        await client.query(`
+          DELETE FROM "KK_Survey_Responses"
+          WHERE response_id = $1
+        `, [existingResponseId]);
+        
+        // Also remove from validation queue if it exists
+        await client.query(`
+          DELETE FROM "Validation_Queue"
+          WHERE response_id = $1
+        `, [existingResponseId]);
+        
+        logger.info(`Deleted old response ${existingResponseId} - will validate new response ${queueItem.response_id}`);
+      }
+    }
 
     // Update the survey response
     const newStatus = action === 'approve' ? 'validated' : 'rejected';
@@ -1053,21 +1154,71 @@ export const validateQueueItem = async (req, res) => {
 
     // If approved, also update the youth profile validation status
     if (action === 'approve') {
+      // Get user_id from Users table (validated_by must reference Users.user_id, not LYDO or SK IDs)
+      const validatorUserId = await getUserIdFromUsersTable(
+        user.id || user.user_id || user.lydo_id || user.lydoId,
+        user.sk_id,
+        client
+      );
+      
+      if (!validatorUserId) {
+        logger.warn(`Could not find user_id for validator: ${user.id || user.user_id || user.lydo_id || user.lydoId || user.sk_id}`);
+      }
+      
+      // Contact mismatch info already parsed above
+      
+      // Build update query - only set validated_by if we have a valid user_id
+      const updateFields = [
+        'validation_status = $1',
+        'validation_tier = $2',
+        'validation_date = (NOW() AT TIME ZONE \'Asia/Manila\')'
+      ];
+      const updateParams = ['validated', 'manual'];
+      let paramIndex = 3;
+      
+      if (validatorUserId) {
+        updateFields.push(`validated_by = $${paramIndex}`);
+        updateParams.push(validatorUserId);
+        paramIndex++;
+      } else {
+        updateFields.push('validated_by = NULL');
+      }
+      
+      // If contact mismatch and admin wants to update contact info
+      if (shouldUpdateContact && contactMismatchInfo.new) {
+        logger.debug('Updating youth profile contact info', {
+          existing: contactMismatchInfo.existing,
+          new: contactMismatchInfo.new
+        });
+        
+        // Update contact number if provided
+        if (contactMismatchInfo.new.contact) {
+          updateFields.push(`contact_number = $${paramIndex}`);
+          updateParams.push(contactMismatchInfo.new.contact);
+          paramIndex++;
+        }
+        
+        // Update email if provided
+        if (contactMismatchInfo.new.email) {
+          updateFields.push(`email = $${paramIndex}`);
+          updateParams.push(contactMismatchInfo.new.email);
+          paramIndex++;
+        }
+        
+        logger.info(`Will update contact info for youth ${queueItem.youth_id}`);
+      }
+      
+      updateParams.push(queueItem.youth_id);
+      const finalParamIndex = updateParams.length;
+      
       const updateYouthProfileQuery = `
         UPDATE "Youth_Profiling"
-        SET 
-          validation_status = 'validated',
-          validation_tier = 'manual',
-          validated_by = $1,
-          validation_date = (NOW() AT TIME ZONE 'Asia/Manila')
-        WHERE youth_id = $2
+        SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+        WHERE youth_id = $${finalParamIndex}
           AND (validation_status IS NULL OR validation_status != 'validated')
       `;
-      await client.query(updateYouthProfileQuery, [
-        user.id || user.user_id,
-        queueItem.youth_id
-      ]);
-      console.log(`✅ Updated youth profile ${queueItem.youth_id} validation status to 'validated'`);
+      await client.query(updateYouthProfileQuery, updateParams);
+      logger.info(`Updated youth profile ${queueItem.youth_id} validation status to 'validated'${shouldUpdateContact ? ' with contact info update' : ''}`);
     }
 
     // Remove from validation queue
@@ -1079,7 +1230,9 @@ export const validateQueueItem = async (req, res) => {
 
     const deleteResult = await client.query(deleteQueueQuery, [id]);
 
-    console.log(`✅ Validation ${action}ed: ${id} by ${user.id || user.user_id}`);
+    await client.query('COMMIT');
+
+    logger.info(`Validation ${action}ed: ${id} by ${user.id || user.user_id}`);
 
     // Realtime: notify dashboards and queues
     try {
@@ -1122,16 +1275,87 @@ export const validateQueueItem = async (req, res) => {
           validation_comments: comments || null,
           validated_by: user.id || user.user_id || user.sk_id || user.lydo_id || user.lydoId,
           queue_id: id,
-          batch_id: queueItem.batch_id || null
+          batch_id: queueItem.batch_id || null,
+          update_contact_info: req.body.updateContactInfo || false,
+          superseded_response_id: replacedValidatedResponseId || null,
+          existing_response_deleted: existingResponseId || null,
+          existing_response_status: existingResponseStatus || null
         },
         ipAddress: req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'] || 'unknown',
         userAgent: req.get('User-Agent'),
         status: 'success'
       });
-      console.log('📝 Validation activity logged with id:', logId);
+      logger.debug('Validation activity logged', { logId });
     } catch (logError) {
-      console.error('❌ Failed to log validation activity:', logError);
+      logger.error('Failed to log validation activity', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
+    }
+
+    // Send email notification to youth (async, don't block response)
+    if (queueItem.email) {
+      setTimeout(async () => {
+        const emailClient = await getClient();
+        try {
+          const baseUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+          
+          // Build full name
+          const firstName = queueItem.first_name || '';
+          const middleName = queueItem.middle_name || '';
+          const lastName = queueItem.last_name || '';
+          const suffix = queueItem.suffix || '';
+          const fullName = [firstName, middleName, lastName, suffix]
+            .filter(part => part && part.trim() !== '')
+            .join(' ')
+            .trim() || firstName || 'Valued Youth';
+
+          // Get submission date from response
+          let submittedAt = queueItem.created_at || new Date().toISOString();
+          try {
+            const responseResult = await emailClient.query(
+              `SELECT created_at FROM "KK_Survey_Responses" WHERE response_id = $1`,
+              [queueItem.response_id]
+            );
+            if (responseResult.rows.length > 0 && responseResult.rows[0].created_at) {
+              submittedAt = responseResult.rows[0].created_at;
+            }
+          } catch (err) {
+            logger.error('Error getting submission date', { error: err.message, stack: err.stack });
+          }
+
+          // Construct tracking URL (users can resend email to get access token)
+          const trackingUrl = `${baseUrl}/survey-submission/status?resend=true`;
+
+          const templateName = action === 'approve' ? 'surveyValidated' : 'surveyRejected';
+          const emailData = {
+            userName: fullName,
+            email: queueItem.email,
+            batchName: queueItem.batch_name || 'KK Survey',
+            validationDate: new Date().toISOString(),
+            validationTier: queueItem.validation_tier || 'manual',
+            trackingUrl: trackingUrl,
+            responseId: queueItem.response_id,
+            youthId: queueItem.youth_id,
+            submittedAt: submittedAt,
+            frontendUrl: baseUrl,
+            ...(action === 'reject' && comments ? { comments: comments } : {})
+          };
+
+          await emailService.sendTemplatedEmail(
+            templateName,
+            emailData,
+            queueItem.email
+          );
+          
+          logger.info(`${action === 'approve' ? 'Validation' : 'Rejection'} email sent to ${queueItem.email} for response ${queueItem.response_id}`);
+        } catch (emailError) {
+          logger.error(`Failed to send ${action === 'approve' ? 'validation' : 'rejection'} email to ${queueItem.email}`, { error: emailError.message, stack: emailError.stack });
+          // Don't fail the request if email fails
+        } finally {
+          emailClient.release();
+        }
+      }, 100); // Small delay to ensure response is sent first
+    } else {
+      logger.info(`No email address for youth ${queueItem.youth_id}, skipping email notification`);
     }
 
     res.json({
@@ -1147,7 +1371,8 @@ export const validateQueueItem = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error validating queue item:', error);
+    await client.query('ROLLBACK');
+    logger.error('Error validating queue item', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to validate queue item',
@@ -1182,6 +1407,7 @@ export const bulkValidateQueueItems = async (req, res) => {
     const newStatus = action === 'approve' ? 'validated' : 'rejected';
     const results = [];
     const processedItems = [];
+    const emailNotifications = [];
 
     // Process each item
     for (const id of ids) {
@@ -1267,6 +1493,23 @@ export const bulkValidateQueueItems = async (req, res) => {
           batchName: queueItem.batch_name || null
         });
 
+        if (queueItem.email) {
+          emailNotifications.push({
+            email: queueItem.email,
+            firstName: queueItem.first_name || '',
+            middleName: queueItem.middle_name || '',
+            lastName: queueItem.last_name || '',
+            suffix: queueItem.suffix || '',
+            batchName: queueItem.batch_name || 'KK Survey',
+            validationTier: queueItem.validation_tier || 'manual',
+            responseId: queueItem.response_id,
+            youthId: queueItem.youth_id,
+            createdAt: queueItem.created_at || null,
+            action,
+            comments: comments || null
+          });
+        }
+
         results.push({ id, success: true });
         
         // Log individual activity for each item
@@ -1298,11 +1541,11 @@ export const bulkValidateQueueItems = async (req, res) => {
             status: 'success'
           });
         } catch (logError) {
-          console.error(`❌ Failed to log activity for item ${id}:`, logError);
+          logger.error(`Failed to log activity for item ${id}`, { error: logError.message, stack: logError.stack });
           // Continue processing even if logging fails
         }
       } catch (itemError) {
-        console.error(`❌ Error processing item ${id}:`, itemError);
+        logger.error(`Error processing item ${id}`, { error: itemError.message, stack: itemError.stack });
         results.push({ id, success: false, message: itemError.message });
       }
     }
@@ -1310,7 +1553,7 @@ export const bulkValidateQueueItems = async (req, res) => {
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;
 
-    console.log(`✅ Bulk validation completed: ${successCount} success, ${failCount} failed`);
+    logger.info(`Bulk validation completed: ${successCount} success, ${failCount} failed`);
 
     // Realtime: bulk notify
     try {
@@ -1364,8 +1607,68 @@ export const bulkValidateQueueItems = async (req, res) => {
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log bulk validation activity:', logError);
+      logger.error('Failed to log bulk validation activity', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
+    }
+
+    // Send email notifications asynchronously (do not block response)
+    if (emailNotifications.length > 0) {
+      emailNotifications.forEach((notification) => {
+        setTimeout(async () => {
+          const emailClient = await getClient();
+          try {
+            const baseUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+
+            const nameParts = [
+              notification.firstName,
+              notification.middleName,
+              notification.lastName,
+              notification.suffix
+            ].filter(part => part && part.trim() !== '');
+            const fullName = nameParts.join(' ').trim() || notification.firstName || 'Valued Youth';
+
+            let submittedAt = notification.createdAt || new Date().toISOString();
+            try {
+              const responseResult = await emailClient.query(
+                `SELECT created_at FROM "KK_Survey_Responses" WHERE response_id = $1`,
+                [notification.responseId]
+              );
+              if (responseResult.rows.length > 0 && responseResult.rows[0].created_at) {
+                submittedAt = responseResult.rows[0].created_at;
+              }
+            } catch (err) {
+              logger.error('Error getting submission date for email notification', { error: err.message, stack: err.stack });
+            }
+
+            const templateName = notification.action === 'approve' ? 'surveyValidated' : 'surveyRejected';
+            const emailData = {
+              userName: fullName,
+              email: notification.email,
+              batchName: notification.batchName,
+              validationDate: new Date().toISOString(),
+              validationTier: notification.validationTier,
+              trackingUrl: `${baseUrl}/survey-submission/status?resend=true`,
+              responseId: notification.responseId,
+              youthId: notification.youthId,
+              submittedAt,
+              frontendUrl: baseUrl,
+              ...(notification.action === 'reject' && notification.comments ? { comments: notification.comments } : {})
+            };
+
+            await emailService.sendTemplatedEmail(
+              templateName,
+              emailData,
+              notification.email
+            );
+
+            logger.info(`${notification.action === 'approve' ? 'Validation' : 'Rejection'} email sent to ${notification.email} for response ${notification.responseId}`);
+          } catch (emailError) {
+            logger.error(`Failed to send ${notification.action === 'approve' ? 'validation' : 'rejection'} email to ${notification.email}`, { error: emailError.message, stack: emailError.stack });
+          } finally {
+            emailClient.release();
+          }
+        }, 100);
+      });
     }
 
     res.json({
@@ -1380,7 +1683,7 @@ export const bulkValidateQueueItems = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error in bulk validation:', error);
+    logger.error('Error in bulk validation', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to perform bulk validation',
@@ -1403,7 +1706,7 @@ export const exportValidationQueue = async (req, res) => {
   try {
     // Support both GET (query) and POST (body)
     const source = req.method === 'POST' ? req.body : req.query;
-    console.log('📦 [Export] validation-queue/export hit:', {
+    logger.debug('[Export] validation-queue/export hit', {
       method: req.method,
       payload: source,
       user: { id: req.user?.id || req.user?.user_id, type: req.user?.userType || req.user?.user_type }
@@ -1478,9 +1781,9 @@ export const exportValidationQueue = async (req, res) => {
         userAgent: req.get('User-Agent'),
         status: 'success'
       });
-      console.log('📝 [Export] audit log created:', logId);
+      logger.debug('[Export] audit log created', { logId });
     } catch (err) {
-      console.error('❌ [Export] audit log failed:', err);
+      logger.error('[Export] audit log failed', { error: err.message, stack: err.stack });
     }
 
     return res.json({
@@ -1492,7 +1795,7 @@ export const exportValidationQueue = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ [Export] Error in validation queue export:', error);
+    logger.error('[Export] Error in validation queue export', { error: error.message, stack: error.stack });
     
     const userId = req.user?.user_id || req.user?.id || req.user?.sk_id || req.user?.lydo_id || req.user?.lydoId || null;
     const userType = req.user?.userType || req.user?.user_type || 'admin';
@@ -1517,9 +1820,9 @@ export const exportValidationQueue = async (req, res) => {
         status: 'error',
         errorMessage: error.message
       });
-      console.log('📝 [Export] error audit log created:', logId);
+      logger.debug('[Export] error audit log created', { logId });
     } catch (err) {
-      console.error('❌ [Export] Failed export audit log error:', err);
+      logger.error('[Export] Failed export audit log error', { error: err.message, stack: err.stack });
     }
 
     return res.status(500).json({ 
@@ -1527,6 +1830,214 @@ export const exportValidationQueue = async (req, res) => {
       message: 'Failed to log validation queue export',
       error: error.message
     });
+  }
+};
+
+// Reassign survey response to a different youth profile (for "different person" scenario)
+export const reassignResponseToNewYouth = async (req, res) => {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    const { id } = req.params; // queue_id
+    const { newYouthId, createNewProfile, personalData } = req.body;
+    const { user } = req;
+
+    if (!newYouthId && !createNewProfile) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'Either newYouthId or createNewProfile with personalData must be provided'
+      });
+    }
+
+    // Get the queue item and response details
+    const queueQuery = `
+      SELECT 
+        vq.*, 
+        ksr.response_id, 
+        ksr.youth_id as current_youth_id,
+        ksr.validation_comments,
+        ksr.batch_id,
+        yp.first_name,
+        yp.last_name,
+        yp.middle_name,
+        yp.suffix,
+        yp.barangay_id
+      FROM "Validation_Queue" vq
+      LEFT JOIN "KK_Survey_Responses" ksr ON vq.response_id = ksr.response_id
+      LEFT JOIN "Youth_Profiling" yp ON vq.youth_id = yp.youth_id
+      WHERE vq.queue_id = $1
+    `;
+
+    const queueResult = await client.query(queueQuery, [id]);
+    if (queueResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Validation queue item not found'
+      });
+    }
+
+    const queueItem = queueResult.rows[0];
+    let targetYouthId = newYouthId;
+
+    // If creating a new profile, create it first
+    if (createNewProfile && personalData) {
+      targetYouthId = await generateId('YTH');
+      const newUserId = await generateId('USR');
+
+      // Create new youth profile
+      const createYouthQuery = `
+        INSERT INTO "Youth_Profiling" (
+          youth_id, first_name, last_name, middle_name, suffix,
+          age, gender, contact_number, email, barangay_id, purok_zone, birth_date,
+          last_activity_date, data_retention_date
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, (CURRENT_TIMESTAMP + INTERVAL '5 years')::DATE)
+        RETURNING *;
+      `;
+
+      await client.query(createYouthQuery, [
+        targetYouthId,
+        personalData.first_name,
+        personalData.last_name,
+        personalData.middle_name || null,
+        personalData.suffix || null,
+        personalData.age,
+        personalData.gender,
+        personalData.contact_number,
+        personalData.email,
+        personalData.barangay_id,
+        personalData.purok_zone || null,
+        personalData.birth_date
+      ]);
+
+      // Create user account
+      const userQuery = `
+        INSERT INTO "Users" (user_id, youth_id, user_type)
+        VALUES ($1, $2, 'youth')
+        RETURNING *;
+      `;
+      await client.query(userQuery, [newUserId, targetYouthId]);
+
+      logger.info(`Created new youth profile: ${targetYouthId} and user: ${newUserId}`);
+    } else if (!targetYouthId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'newYouthId is required when createNewProfile is false'
+      });
+    }
+
+    // Verify target youth exists
+    const targetYouthCheck = await client.query(`
+      SELECT youth_id FROM "Youth_Profiling" WHERE youth_id = $1
+    `, [targetYouthId]);
+
+    if (targetYouthCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: `Target youth profile ${targetYouthId} not found`
+      });
+    }
+
+    // Update the survey response to use the new youth_id
+    const updateResponseQuery = `
+      UPDATE "KK_Survey_Responses"
+      SET 
+        youth_id = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE response_id = $2
+      RETURNING *;
+    `;
+
+    await client.query(updateResponseQuery, [targetYouthId, queueItem.response_id]);
+
+    // Update the validation queue entry
+    const updateQueueQuery = `
+      UPDATE "Validation_Queue"
+      SET 
+        youth_id = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE queue_id = $2
+      RETURNING *;
+    `;
+
+    await client.query(updateQueueQuery, [targetYouthId, id]);
+
+    await client.query('COMMIT');
+
+    // Build youth name for resource name
+    const youthName = queueItem.first_name && queueItem.last_name
+      ? `${queueItem.first_name}${queueItem.middle_name ? ' ' + queueItem.middle_name : ''} ${queueItem.last_name}${queueItem.suffix ? ' ' + queueItem.suffix : ''}`.trim()
+      : queueItem.youth_id || 'Unknown Youth';
+
+    // Log activity
+    try {
+      await createAuditLog({
+        userId: user.id || user.user_id,
+        userType: user.userType || 'admin',
+        action: 'ReassignResponse',
+        resource: `/api/validation-queue/${id}/reassign`,
+        resourceId: targetYouthId,
+        resourceName: youthName,
+        resourceType: 'validation',
+        category: 'Survey Validation',
+        details: {
+          queue_id: id,
+          response_id: queueItem.response_id,
+          old_youth_id: queueItem.current_youth_id,
+          new_youth_id: targetYouthId,
+          action: createNewProfile ? 'created_new_profile' : 'reassigned_to_existing'
+        },
+        ipAddress: req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'] || 'unknown',
+        userAgent: req.get('User-Agent'),
+        status: 'success'
+      });
+    } catch (logError) {
+      logger.error('Failed to create audit log', { error: logError.message, stack: logError.stack });
+    }
+
+    // Realtime: notify dashboards
+    try {
+      const payload = {
+        type: 'reassigned',
+        responseId: queueItem.response_id,
+        queueId: id,
+        oldYouthId: queueItem.current_youth_id,
+        newYouthId: targetYouthId,
+        batchId: queueItem.batch_id || null,
+        by: user.id || user.user_id,
+        at: new Date().toISOString()
+      };
+      emitToAdmins('validation:queueUpdated', payload);
+      emitToRole('staff', 'validation:queueUpdated', payload);
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      message: createNewProfile 
+        ? 'New youth profile created and response reassigned successfully'
+        : 'Response reassigned to different youth profile successfully',
+      data: {
+        queue_id: id,
+        response_id: queueItem.response_id,
+        old_youth_id: queueItem.current_youth_id,
+        new_youth_id: targetYouthId
+      }
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    logger.error('Error reassigning response', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reassign response',
+      error: error.message
+    });
+  } finally {
+    client.release();
   }
 };
 

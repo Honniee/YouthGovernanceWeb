@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import barangaysService from '../services/barangaysService';
+import logger from '../utils/logger.js';
 
 /**
  * Custom hook for managing barangay data
@@ -25,7 +26,7 @@ export const useBarangays = (params = {}) => {
         setBarangays([]);
       }
     } catch (err) {
-      console.error('Error loading barangays:', err);
+      logger.error('Error loading barangays', err);
       setError(err.response?.data?.message || err.message || 'Failed to load barangays');
       setBarangays([]);
     } finally {
@@ -73,7 +74,7 @@ export const useBarangayStatistics = () => {
         setStatistics(null);
       }
     } catch (err) {
-      console.error('Error loading barangay statistics:', err);
+      logger.error('Error loading barangay statistics', err);
       setError(err.response?.data?.message || err.message || 'Failed to load barangay statistics');
       setStatistics(null);
     } finally {
@@ -125,7 +126,7 @@ export const useBarangay = (id) => {
         setBarangay(null);
       }
     } catch (err) {
-      console.error('Error loading barangay details:', err);
+      logger.error('Error loading barangay details', err, { barangayId: id });
       setError(err.response?.data?.message || err.message || 'Failed to load barangay details');
       setBarangay(null);
     } finally {
@@ -186,7 +187,7 @@ export const useBarangayYouth = (id, params = {}) => {
         setBarangayInfo(null);
       }
     } catch (err) {
-      console.error('Error loading barangay youth:', err);
+      logger.error('Error loading barangay youth', err, { barangayId });
       setError(err.response?.data?.message || err.message || 'Failed to load barangay youth');
       setYouth([]);
       setPagination(null);

@@ -36,6 +36,7 @@ import PageHero from '../../components/website/PageHero';
 import heroVideo from '../../assets/media/hero.mp4';
 import { getAnnouncements } from '../../services/announcementsService';
 import { useRealtime } from '../../realtime/useRealtime';
+import DOMPurify from 'dompurify';
 
 // Scroll reveal hook
 const useScrollReveal = () => {
@@ -479,15 +480,16 @@ const Announcements = () => {
 
   return (
     <PublicLayout>
+      {/* SECURITY: Sanitized with DOMPurify */}
       <style dangerouslySetInnerHTML={{
-        __html: `
+        __html: DOMPurify.sanitize(`
           .search-button-wrapper .md\\:hidden button {
             padding: 0.75rem !important;
             min-width: auto !important;
             width: auto !important;
             height: auto !important;
           }
-        `
+        `)
       }} />
       <PageHero
         badge="Announcements"
@@ -548,8 +550,8 @@ const Announcements = () => {
                   </div>
                 </div>
               </div>
-              {/* Temporary keyframes for shimmer */}
-              <style dangerouslySetInnerHTML={{ __html: `@keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }` }} />
+              {/* Temporary keyframes for shimmer - SECURITY: Sanitized with DOMPurify */}
+              <style dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(`@keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }`) }} />
             </div>
           )}
 

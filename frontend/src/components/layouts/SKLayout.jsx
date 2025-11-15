@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import SKSidebar from '../porrtal/SKSidebar';
 import SKHeader from '../porrtal/SKHeader';
+import logger from '../../utils/logger.js';
 
 
 
@@ -50,7 +51,7 @@ const SKLayout = ({ children }) => {
       await logout(source);
       navigate('/');
     } catch (error) {
-      console.error('Logout error:', error);
+      logger.error('Logout error', error, { source });
       // Still navigate to home even if logout fails
     navigate('/');
     }

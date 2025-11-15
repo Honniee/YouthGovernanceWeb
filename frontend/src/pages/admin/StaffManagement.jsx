@@ -23,13 +23,15 @@ import {
   UserPlus,
   ChevronDown,
   Upload,
-  ChevronUp
+  ChevronUp,
+  FileText
 } from 'lucide-react';
 import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, FilterButton, SortButton, SortModal, Pagination, useSortModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, TabbedDetailModal } from '../../components/portal_main_content';
-import { ToastContainer, showStaffSuccessToast, showErrorToast, ConfirmationModal } from '../../components/universal';
+import { ToastContainer, showStaffSuccessToast, showSuccessToast, showErrorToast, showInfoToast, showWarningToast, ConfirmationModal } from '../../components/universal';
 import useConfirmation from '../../hooks/useConfirmation';
 import staffService from '../../services/staffService.js';
 import { staffDetailConfig } from '../../components/portal_main_content/tabbedModalConfigs.jsx';
+import logger from '../../utils/logger.js';
 
 const StaffManagement = () => {
   // Use our reusable tab state hook
@@ -102,115 +104,250 @@ const StaffManagement = () => {
   
   // Action menu positioning is now handled by the ActionMenu component
   
-  // Bulk upload state
-  const [uploadFile, setUploadFile] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  
-  const handleUploadFileChange = (e) => {
-    const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
-    setUploadFile(file);
-  };
-  
-  const handleUpload = async (e) => {
-    e.preventDefault();
-    if (!uploadFile) return;
+  // Bulk import state
+  const fileInputRef = useRef(null);
+  const [uploadCollapsed, setUploadCollapsed] = useState(true);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [validationResult, setValidationResult] = useState(null);
+  const [duplicateStrategy, setDuplicateStrategy] = useState('skip');
+  const [importSummary, setImportSummary] = useState(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
-    // Validate file
-    const validation = staffService.validateBulkImportFile(uploadFile);
-    if (!validation.isValid) {
-      showErrorToast('Invalid File', validation.errors.join(', '));
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0] ?? null;
+    setUploadedFile(file);
+    setValidationResult(null);
+    setImportSummary(null);
+    setDuplicateStrategy('skip');
+  };
+
+  const clearFile = () => {
+    setUploadedFile(null);
+    setValidationResult(null);
+    setImportSummary(null);
+    setDuplicateStrategy('skip');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const validateFile = async () => {
+    if (!uploadedFile) return;
+
+    setIsValidating(true);
+    try {
+      const response = await staffService.validateBulkImport(uploadedFile);
+      if (response.success) {
+        const result = response.data;
+        setValidationResult(result);
+        setImportSummary(null);
+
+        const summary = result.summary || {};
+        const totalRecords = summary.totalRecords ?? 0;
+        const invalidRecords = summary.invalidRecords ?? 0;
+        const duplicateRecords = summary.duplicateRecords ?? 0;
+        const validRecords = summary.validRecords ?? Math.max(totalRecords - invalidRecords, 0);
+
+        if (invalidRecords > 0) {
+          showInfoToast(
+            'Validation Complete',
+            `${validRecords}/${totalRecords} valid, ${invalidRecords} invalid records found. Fix issues and re-validate.`
+          );
+        } else if (duplicateRecords > 0) {
+          showInfoToast(
+            'Validation Complete',
+            `${validRecords}/${totalRecords} records ready. ${duplicateRecords} duplicates detected – choose how to handle them before importing.`
+          );
+        } else {
+          showSuccessToast(
+            'Validation Complete',
+            `${validRecords}/${totalRecords} valid records. Ready to import.`
+          );
+        }
+      }
+    } catch (error) {
+      showErrorToast('Validation Failed', error.message);
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const importFile = async () => {
+    const invalidCount = validationResult?.summary?.invalidRecords ?? 0;
+    if (!uploadedFile || invalidCount !== 0) return;
+
+    setIsImporting(true);
+    try {
+      const response = await staffService.bulkImportStaff(uploadedFile, duplicateStrategy);
+      if (response.success) {
+        const result = response.data || {};
+        const summaryPayload = response.summary || {};
+        const computedSummary = {
+          total: summaryPayload.total ?? result.total ?? 0,
+          created: summaryPayload.created ?? result.created ?? 0,
+          updated: summaryPayload.updated ?? result.updated ?? 0,
+          restored: summaryPayload.restored ?? result.restored ?? 0,
+          skipped: summaryPayload.skipped ?? result.skipped ?? 0,
+          failed: summaryPayload.failed ?? result.failed ?? 0,
+          duplicateStrategy: summaryPayload.duplicateStrategy ?? result.duplicateStrategy ?? duplicateStrategy
+        };
+
+        // Extract errors from rows or parse error strings
+        let parsedErrors = [];
+        if (result.rows && Array.isArray(result.rows)) {
+          // Extract errors from failed/invalid rows
+          const failedRows = result.rows.filter(
+            (row) => row.action === 'failed' || row.action === 'invalid' || row.validationStatus === 'error'
+          );
+          parsedErrors = failedRows.map((row) => ({
+            row: row.rowNumber || row.row || 0,
+            reason: row.message || row.validationIssues?.join('; ') || row.issues?.join('; ') || 'Unknown error'
+          }));
+        }
+
+        // Also check result.errors array (fallback)
+        if (parsedErrors.length === 0 && result.errors && Array.isArray(result.errors)) {
+          // Parse error strings like "Row 1: error message"
+          parsedErrors = result.errors.map((errorStr) => {
+            if (typeof errorStr === 'string') {
+              const match = errorStr.match(/^Row (\d+):\s*(.+)$/);
+              if (match) {
+                return { row: parseInt(match[1]), reason: match[2] };
+              }
+              return { row: 0, reason: errorStr };
+            }
+            // If it's already an object
+            return { row: errorStr.row || 0, reason: errorStr.reason || errorStr.message || 'Unknown error' };
+          });
+        }
+
+        // Log for debugging if we have failures but no errors extracted
+        if (computedSummary.failed > 0 && parsedErrors.length === 0) {
+          logger.warn('Import had failures but no errors extracted', { failed: computedSummary.failed, total: computedSummary.total });
+        }
+
+        setImportSummary({ ...result, summary: computedSummary, errors: parsedErrors });
+
+        const importedCount =
+          (computedSummary.created ?? 0) +
+          (computedSummary.updated ?? 0) +
+          (computedSummary.restored ?? 0);
+
+        const parts = [];
+        if (computedSummary.created) parts.push(`${computedSummary.created} created`);
+        if (computedSummary.updated) parts.push(`${computedSummary.updated} updated`);
+        if (computedSummary.restored) parts.push(`${computedSummary.restored} restored`);
+        if (computedSummary.skipped) parts.push(`${computedSummary.skipped} skipped`);
+        if (computedSummary.failed) parts.push(`${computedSummary.failed} failed`);
+        const summaryText = parts.length ? parts.join(', ') : 'No changes applied';
+
+        if (computedSummary.failed > 0) {
+          showWarningToast(
+            'Import Completed with Issues',
+            `${importedCount}/${computedSummary.total} processed. ${summaryText}.`
+          );
+        } else if (computedSummary.skipped > 0 || computedSummary.updated > 0 || computedSummary.restored > 0) {
+          showInfoToast(
+            'Import Completed',
+            `${importedCount}/${computedSummary.total} processed. ${summaryText}.`
+          );
+      } else {
+          showSuccessToast(
+            'Import Completed',
+            `${importedCount}/${computedSummary.total} staff members imported successfully.`
+          );
+        }
+
+        await loadStaffData();
+        await loadStaffStats();
+      }
+    } catch (error) {
+      showErrorToast('Import Failed', error.message);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const downloadReportCsv = (rows, filename) => {
+    if (!rows || rows.length === 0) {
+      showErrorToast('No data available for export');
       return;
     }
 
-    setIsUploading(true);
-    
-    try {
-      const response = await staffService.bulkImportStaff(uploadFile, (progress) => {
-        // You can add progress tracking here if needed
-        console.log(`Upload progress: ${progress}%`);
-      });
+    const headers = Object.keys(rows[0]);
+    const csvLines = [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => {
+            const value = row[header] ?? '';
+            const formatted = String(value).replace(/"/g, '""');
+            return `"${formatted}"`;
+          })
+          .join(',')
+      )
+    ];
 
-      if (response.success) {
-        const { summary, imported, errors } = response.data;
-        
-        let message = `✅ Bulk import completed!\n\n`;
-        message += `📊 Summary:\n`;
-        message += `• Total rows: ${summary.totalRows}\n`;
-        message += `• Valid records: ${summary.validRecords}\n`;
-        message += `• Successfully imported: ${summary.importedRecords}\n`;
-        message += `• Errors: ${summary.errors}\n\n`;
-
-        if (imported.length > 0) {
-          message += `✅ Successfully imported staff:\n`;
-          imported.slice(0, 5).forEach(staff => {
-            message += `• ${staff.name} (${staff.lydoId})\n`;
-          });
-          if (imported.length > 5) {
-            message += `... and ${imported.length - 5} more\n`;
-          }
-          message += `\n📧 Email Notifications:\n`;
-          message += `• Welcome emails with login credentials sent to all ${summary.importedRecords} staff members\n`;
-          imported.slice(0, 3).forEach(staff => {
-            message += `  → ${staff.name}: ${staff.personalEmail}\n`;
-          });
-          if (imported.length > 3) {
-            message += `  → ... and ${imported.length - 3} more staff emails\n`;
-          }
-          message += `• Admin notification sent confirming bulk import completion\n`;
-          message += `• All staff members can now log in with their credentials\n\n`;
-          message += `✨ Check your email for admin confirmation!`;
-        }
-
-        if (errors.length > 0) {
-          message += `\n❌ Errors encountered:\n`;
-          errors.slice(0, 3).forEach(error => {
-            message += `• ${error}\n`;
-          });
-          if (errors.length > 3) {
-            message += `... and ${errors.length - 3} more errors\n`;
-          }
-        }
-
-        // Show beautiful success toast instead of alert
-        showStaffSuccessToast('imported', null, [
-          {
-            label: `View ${imported.length} Imported Staff`,
-            onClick: () => {
-              // Set filter to show all staff after import
-              setActiveTab('all');
-              setCurrentPage(1);
-            }
-          },
-          {
-            label: "Import More",
-            onClick: () => {
-              setUploadCollapsed(false);
-              setUploadFile(null);
-            }
-          }
-        ]);
-        
-        // Reload staff data if any were imported
-        if (summary.importedRecords > 0) {
-          console.log('🔄 Reloading staff data after successful import...');
-          await loadStaffData();
-          await loadStaffStats();
-          console.log('✅ Staff data reloaded');
-        }
-      } else {
-        showErrorToast('Import Failed', response.message);
-      }
-    } catch (error) {
-      console.error('Bulk import error:', error);
-      showErrorToast('Import Error', 'An error occurred during import. Please try again.');
-    } finally {
-      setIsUploading(false);
-      setUploadFile(null);
-    }
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
-  
-  // Collapse state for Bulk Import
-  const [uploadCollapsed, setUploadCollapsed] = useState(true);
+
+  const handleDownloadValidationReport = () => {
+    if (!validationResult?.rows?.length) {
+      showErrorToast('No validation details available');
+      return;
+    }
+
+    const csvRows = validationResult.rows.map((row) => ({
+      Row: row.rowNumber,
+      Status: row.status,
+      Issues: row.issues.join('; '),
+      First_Name: row.normalized?.first_name ?? '',
+      Last_Name: row.normalized?.last_name ?? '',
+      Middle_Name: row.normalized?.middle_name ?? '',
+      Suffix: row.normalized?.suffix ?? '',
+      Personal_Email: row.normalized?.personal_email ?? '',
+      Duplicate_In_File: row.duplicate?.inFile
+        ? row.duplicate?.isPrimaryInFile
+          ? 'Yes (first occurrence)'
+          : 'Yes'
+        : 'No',
+      Duplicate_System_Active: row.duplicate?.inDbActive ? 'Yes' : 'No',
+      Duplicate_System_Inactive: row.duplicate?.inDbArchived ? 'Yes' : 'No'
+    }));
+
+    downloadReportCsv(csvRows, 'staff_validation_report.csv');
+  };
+
+  const handleDownloadImportReport = () => {
+    if (!importSummary?.rows?.length) {
+      showErrorToast('No import results available');
+      return;
+    }
+
+    const csvRows = importSummary.rows.map((row) => ({
+      Row: row.rowNumber,
+      Action: row.action ?? '',
+      Message: row.message ?? '',
+      First_Name: row.data?.first_name ?? '',
+      Last_Name: row.data?.last_name ?? '',
+      Middle_Name: row.data?.middle_name ?? '',
+      Suffix: row.data?.suffix ?? '',
+      Personal_Email: row.data?.personal_email ?? '',
+      Validation_Status: row.validationStatus ?? '',
+      Validation_Issues: (row.validationIssues || []).join('; ')
+    }));
+
+    downloadReportCsv(csvRows, 'staff_import_report.csv');
+  };
 
   // Modal state management using custom hooks
   const sortModal = useSortModal(sortBy, sortOrder);
@@ -339,11 +476,11 @@ ${rowXml}
           const apiModule = await import('../../services/api.js');
           const api = apiModule.default;
           api.get(`/staff/export?${queryParams.toString()}`).catch(err => {
-            console.error('Failed to log export activity:', err);
+            logger.error('Failed to log export activity', err, { format });
           });
-        } catch (err) {
-          console.error('Failed to log export activity:', err);
-        }
+      } catch (err) {
+        logger.error('Failed to log export activity', err, { format });
+      }
         
         return { success: true };
       } catch (error) {
@@ -387,11 +524,11 @@ ${rowXml}
           const apiModule = await import('../../services/api.js');
           const api = apiModule.default;
           api.get(`/staff/export?${queryParams.toString()}`).catch(err => {
-            console.error('Failed to log export activity:', err);
+            logger.error('Failed to log export activity', err, { format });
           });
-        } catch (err) {
-          console.error('Failed to log export activity:', err);
-        }
+      } catch (err) {
+        logger.error('Failed to log export activity', err, { format });
+      }
         
         return { success: true };
       } catch (error) {
@@ -428,11 +565,11 @@ ${rowXml}
         setStaffData(response.data.items || []);
         setTotalStaff(response.data.total || 0);
       } else {
-        console.error('Failed to load staff:', response.message);
+        logger.error('Failed to load staff', null, { message: response.message, params });
         showErrorToast('Load Error', 'Failed to load staff data: ' + response.message);
       }
     } catch (error) {
-      console.error('Error loading staff:', error);
+      logger.error('Error loading staff', error, { params });
       showErrorToast('Load Error', 'Error loading staff data');
     } finally {
       setIsLoading(false);
@@ -445,12 +582,12 @@ ${rowXml}
       const response = await staffService.getStaffStats();
       if (response.success) {
         setStaffStats(response.data);
-        console.log('Staff stats loaded:', response.data);
+        logger.debug('Staff stats loaded', { statsKeys: Object.keys(response.data || {}) });
       } else {
-        console.error('Failed to load staff stats:', response.message);
+        logger.error('Failed to load staff stats', null, { message: response.message });
       }
     } catch (error) {
-      console.error('Error loading staff stats:', error);
+      logger.error('Error loading staff stats', error);
     }
   };
 
@@ -508,13 +645,11 @@ ${rowXml}
     const statusAction = item.isActive && !item.deactivated ? 'deactivate' : 'activate';
     const statusLabel = item.isActive && !item.deactivated ? 'Deactivate' : 'Activate';
     
-    console.log('🔧 Action Menu Items Debug:', {
+    logger.debug('Action Menu Items', {
       lydoId: item.lydoId,
       name: `${item.firstName} ${item.lastName}`,
       isActive: item.isActive,
-      deactivated: item.deactivated,
-      statusAction,
-      statusLabel
+      statusAction
     });
     
     return [
@@ -540,7 +675,7 @@ ${rowXml}
   };
 
   const handleActionClick = async (action, item) => {
-    console.log('🔍 Action Menu Debug:', { 
+    logger.debug('Action Menu', { 
       action, 
       itemStatus: { 
         isActive: item.isActive, 
@@ -624,7 +759,7 @@ ${rowXml}
         alert('Failed to update status: ' + response.message);
       }
     } catch (error) {
-      console.error('Error updating status:', error);
+      logger.error('Error updating status', error, { id });
       // Keep original error handling for now
       alert('Error updating staff status');
     }
@@ -650,7 +785,7 @@ ${rowXml}
         showErrorToast('Delete Failed', response.message);
       }
     } catch (error) {
-      console.error('Error deleting staff:', error);
+      logger.error('Error deleting staff', error, { id });
       showErrorToast('Delete Error', 'Error deleting staff member');
     }
   };
@@ -686,7 +821,7 @@ ${rowXml}
         showErrorToast('Update Failed', response.message);
       }
     } catch (error) {
-      console.error('Error updating staff:', error);
+      logger.error('Error updating staff', error, { lydoId: updatedStaffMember.lydoId });
       showErrorToast('Update Error', 'Error updating staff member');
     } finally {
       setIsEditingSaving(false);
@@ -756,7 +891,7 @@ ${rowXml}
         showErrorToast('Bulk Operation Failed', response.message);
       }
     } catch (error) {
-      console.error('Error in bulk operation:', error);
+      logger.error('Error in bulk operation', error, { bulkAction, itemIds: selectedItems });
       confirmation.hideConfirmation();
       setBulkAction(''); // Reset bulk action on error
       showErrorToast('Bulk Operation Error', 'Error performing bulk operation');
@@ -822,7 +957,7 @@ ${rowXml}
         showErrorToast('Creation Failed', response.message);
       }
     } catch (error) {
-      console.error('Error creating staff:', error);
+      logger.error('Error creating staff', error);
       showErrorToast('Creation Error', 'Error creating staff member');
     }
   };
@@ -834,6 +969,26 @@ ${rowXml}
 
 
   // Sort modal content is now handled by the reusable SortModal component
+
+
+  const validationSummary = validationResult?.summary || null;
+  const hasFileSelected = !!uploadedFile;
+  const hasValidation = !!validationResult;
+  const invalidCount = validationSummary?.invalidRecords ?? 0;
+  const duplicateCount = validationSummary?.duplicateRecords ?? 0;
+  const isValidationPass = hasValidation && invalidCount === 0;
+  const validationState = !hasValidation
+    ? null
+    : invalidCount > 0
+      ? 'error'
+      : duplicateCount > 0
+        ? 'warning'
+        : 'success';
+  const canImport = isValidationPass;
+  const currentStep = !hasFileSelected ? 1 : !hasValidation ? 2 : canImport ? 3 : 2;
+  const problemRows = hasValidation
+    ? (validationResult.rows || []).filter((row) => row.status !== 'valid').slice(0, 5)
+    : [];
 
   return (
     <div className="space-y-5">
@@ -1129,58 +1284,300 @@ ${rowXml}
               <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${uploadCollapsed ? 'rotate-180' : 'rotate-0'}`} />
             </button>
             <div className={`p-5 space-y-4 ${uploadCollapsed ? 'hidden' : ''}`}>
-              <label className="block">
-                <span className="block text-sm font-medium text-gray-700 mb-2">Select file</span>
+              {/* Stepper */}
+              <div className="flex items-center justify-between text-xs font-medium">
+                <div className={`flex items-center flex-1 min-w-0 ${currentStep >= 1 ? 'text-indigo-700' : 'text-gray-400'}`}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 ${currentStep >= 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>1</div>
+                  <span className="truncate">Select File</span>
+                </div>
+                <div className={`h-px flex-1 mx-2 ${currentStep > 1 ? 'bg-indigo-300' : 'bg-gray-200'}`} />
+                <div className={`flex items-center flex-1 min-w-0 ${currentStep >= 2 ? 'text-indigo-700' : 'text-gray-400'}`}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 ${currentStep >= 2 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>2</div>
+                  <span className="truncate">Validate</span>
+                </div>
+                <div className={`h-px flex-1 mx-2 ${currentStep > 2 ? 'bg-indigo-300' : 'bg-gray-200'}`} />
+                <div className={`flex items-center flex-1 min-w-0 ${currentStep >= 3 ? 'text-indigo-700' : 'text-gray-400'}`}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 ${currentStep >= 3 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>3</div>
+                  <span className="truncate">Import</span>
+                </div>
+              </div>
+
+              {/* Template links */}
+              <div className="flex items-center justify-between text-xs text-gray-600">
+                <span>Need a sample? Includes required columns.</span>
+                <div className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => staffService.downloadTemplate('csv')}
+                    disabled={isValidating || isImporting}
+                    className="inline-flex items-center text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                  >
+                    <FileText className="w-3.5 h-3.5 mr-1" /> CSV Template
+                  </button>
+                  <span className="text-gray-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => staffService.downloadTemplate('xlsx')}
+                    disabled={isValidating || isImporting}
+                    className="inline-flex items-center text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                  >
+                    <FileText className="w-3.5 h-3.5 mr-1" /> Excel Template
+                  </button>
+                </div>
+              </div>
+
+              {/* Choose File */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Choose file</label>
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                  onChange={handleUploadFileChange}
-                  className="block w-full text-sm text-gray-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                  onChange={handleFileChange}
+                  className="hidden"
                 />
-              </label>
-              {uploadFile && (
-                <div className="text-sm text-gray-600">
-                  Selected: <span className="font-medium text-gray-900">{uploadFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                  disabled={isValidating || isImporting}
+                  className={`w-full border-2 border-dashed rounded-lg p-4 text-left transition-colors duration-200 ${uploadedFile ? 'border-emerald-300 bg-emerald-50/30 hover:bg-emerald-50' : 'border-gray-300 hover:bg-gray-50'}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center mr-3 ${uploadedFile ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                        <Upload className={`w-5 h-5 ${uploadedFile ? 'text-emerald-600' : 'text-gray-500'}`} />
                 </div>
-              )}
-              <div className="flex items-center space-x-3 pt-1">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">
+                          {uploadedFile ? uploadedFile.name : 'Click to select a CSV or Excel file'}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Supported: .csv, .xlsx • Max 10MB
+                        </div>
+                      </div>
+                    </div>
+                    {uploadedFile ? (
+                      <div className="flex items-center space-x-2">
                 <button
                   type="button"
-                  onClick={() => staffService.downloadTemplate('csv')}
-                  disabled={isUploading}
-                  className="px-4 py-2 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                >
-                  📄 CSV Template
+                          onClick={(e) => { e.stopPropagation(); fileInputRef.current && fileInputRef.current.click(); }}
+                          disabled={isValidating || isImporting}
+                          className="px-2.5 py-1 text-xs font-medium rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          Change
                 </button>
                 <button
                   type="button"
-                  onClick={() => staffService.downloadTemplate('xlsx')}
-                  disabled={isUploading}
-                  className="px-4 py-2 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                >
-                  📊 Excel Template
+                          onClick={(e) => { e.stopPropagation(); clearFile(); }}
+                          disabled={isValidating || isImporting}
+                          className="px-2.5 py-1 text-xs font-medium rounded border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Clear
                 </button>
+                      </div>
+                    ) : (
+                      <div className="text-xs font-medium text-indigo-700">Browse</div>
+                    )}
+                  </div>
+                </button>
+                {uploadedFile && (
+                  <div className="mt-2 text-xs text-gray-600">
+                    {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB • {uploadedFile.type || 'File'}
+                  </div>
+                )}
               </div>
               
               <div className="flex items-center space-x-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setUploadFile(null)}
-                  disabled={!uploadFile || isUploading}
+                  onClick={clearFile}
+                  disabled={!uploadedFile || isValidating || isImporting}
                   className="px-4 py-2 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
                 >
                   Clear
                 </button>
                 <button
                   type="button"
-                  onClick={handleUpload}
-                  disabled={!uploadFile || isUploading}
-                  className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                  onClick={validateFile}
+                  disabled={!uploadedFile || isValidating || isImporting}
+                  className={`inline-flex items-center px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 ${uploadedFile ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-300'}`}
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  {isUploading ? 'Uploading...' : 'Upload'}
+                  {isValidating ? 'Validating...' : 'Validate'}
                 </button>
               </div>
+
+              {/* Validation summary */}
+              {hasValidation && (
+                <div
+                  className={`rounded-lg border p-3 ${
+                    validationState === 'success'
+                      ? 'border-green-200 bg-green-50'
+                      : validationState === 'warning'
+                        ? 'border-amber-200 bg-amber-50'
+                        : 'border-red-200 bg-red-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">
+                      {validationState === 'success'
+                        ? 'Validation passed'
+                        : validationState === 'warning'
+                          ? 'Validation passed with duplicates'
+                          : 'Validation completed with issues'}
+                    </div>
+                    {validationState === 'success' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-gray-700">
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Total:</span> {validationSummary?.totalRecords ?? 0}
+                    </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Valid:</span> {validationSummary?.validRecords ?? 0}
+                    </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Invalid:</span> {validationSummary?.invalidRecords ?? 0}
+                    </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Duplicates:</span> {duplicateCount}
+                    </div>
+                  </div>
+                  {duplicateCount > 0 && (
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-600">
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Within file:</span> {validationSummary?.duplicateInFile ?? 0}
+                      </div>
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Existing active:</span> {validationSummary?.duplicateInDbActive ?? 0}
+                      </div>
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Existing inactive:</span> {validationSummary?.duplicateInDbArchived ?? 0}
+                      </div>
+                    </div>
+                  )}
+                  {validationState === 'error' && (
+                    <div className="mt-2 text-xs text-red-600">
+                      Fix the highlighted issues in your file and re-validate.
+                    </div>
+                  )}
+                  {validationState === 'warning' && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      Duplicates detected. Choose how to handle them before importing.
+                    </div>
+                  )}
+                  {problemRows.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-700">First few issues</p>
+                      <ul className="mt-1 space-y-1 text-xs text-gray-600">
+                        {problemRows.map((row) => (
+                          <li key={row.rowNumber}>
+                            <span className="font-medium">Row {row.rowNumber}:</span>{' '}
+                            {row.issues.length > 0 ? row.issues.join('; ') : 'Potential duplicate'}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadValidationReport}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50"
+                    >
+                      <FileText className="w-4 h-4 mr-1.5" />
+                      Download validation report
+                    </button>
+                  </div>
+                  {validationState !== 'error' && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">Duplicate handling</p>
+                      <div className="flex flex-col gap-1 text-xs text-gray-600">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="staffDuplicateStrategy"
+                            value="skip"
+                            checked={duplicateStrategy === 'skip'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Skip duplicates (no changes to existing staff)</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="staffDuplicateStrategy"
+                            value="update"
+                            checked={duplicateStrategy === 'update'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Update existing staff when a duplicate is active</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="staffDuplicateStrategy"
+                            value="restore"
+                            checked={duplicateStrategy === 'restore'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Restore inactive duplicates (and update details)</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {importSummary && (
+                <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">Last Import Summary</div>
+                    <button
+                      type="button"
+                      onClick={handleDownloadImportReport}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100"
+                    >
+                      <FileText className="w-4 h-4 mr-1.5" />
+                      Download import report
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div><span className="font-medium text-gray-900">Created:</span> {importSummary.summary?.created ?? importSummary.created ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Updated:</span> {importSummary.summary?.updated ?? importSummary.updated ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Restored:</span> {importSummary.summary?.restored ?? importSummary.restored ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Skipped:</span> {importSummary.summary?.skipped ?? importSummary.skipped ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Failed:</span> {importSummary.summary?.failed ?? importSummary.failed ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Total:</span> {importSummary.summary?.total ?? importSummary.total ?? 0}</div>
+                  </div>
+                  {importSummary.errors?.length > 0 && (
+                    <div className="mt-2">
+                      <p className="font-semibold text-xs text-gray-800">First few issues</p>
+                      <ul className="mt-1 space-y-1 text-xs text-gray-600">
+                        {importSummary.errors.slice(0, 5).map((item, idx) => (
+                          <li key={`error-${idx}-${item.row || idx}`}>
+                            <span className="font-medium">
+                              {item.row ? `Row ${item.row}:` : 'Error:'}
+                            </span>{' '}
+                            {item.reason || item.message || 'Unknown error'}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canImport && (
+                <button
+                  type="button"
+                  onClick={importFile}
+                  disabled={isImporting}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {isImporting ? 'Importing...' : 'Import Staff'}
+                </button>
+              )}
+
               <p className="text-xs text-gray-500">Supported formats: CSV, XLSX. Max 10MB.</p>
             </div>
           </div>

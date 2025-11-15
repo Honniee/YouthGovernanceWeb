@@ -9,6 +9,8 @@
  * - Expected impact
  */
 
+import logger from '../utils/logger.js';
+
 class RecommendationService {
 
   /**
@@ -17,7 +19,7 @@ class RecommendationService {
    * @returns {Array} Array of program recommendations
    */
   async generateForSegment(segment) {
-    console.log(`\n💡 Generating recommendations for: ${segment.name}`);
+    logger.debug(`Generating recommendations for: ${segment.name}`, { segmentName: segment.name, segmentId: segment.segmentId });
     
     const recommendations = [];
     const { characteristics, youthCount } = segment;
@@ -49,7 +51,7 @@ class RecommendationService {
       rec.targetYouthCount = Math.ceil(youthCount * 0.7); // Target 70% of segment
     });
 
-    console.log(`   Generated ${recommendations.length} recommendations`);
+    logger.debug(`Generated ${recommendations.length} recommendations`, { segmentName: segment.name, count: recommendations.length });
     
     return recommendations;
   }

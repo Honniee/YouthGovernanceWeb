@@ -25,6 +25,7 @@ import { ToastContainer, showErrorToast } from '../../components/universal';
 import skTermsService from '../../services/skTermsService';
 import { useActiveTerm } from '../../hooks/useActiveTerm';
 import { useRealtime } from '../../realtime/useRealtime';
+import logger from '../../utils/logger.js';
 
 const SKTermsManagement = () => {
   const navigate = useNavigate();
@@ -157,7 +158,7 @@ const SKTermsManagement = () => {
   // Sync pagination state when totalTerms changes
   useEffect(() => {
     if (totalTerms > 0 && pagination.totalItems !== totalTerms) {
-      console.log('🔄 Syncing pagination with totalTerms:', { totalTerms, paginationTotal: pagination.totalItems });
+      logger.debug('Syncing pagination with totalTerms', { totalTerms, paginationTotal: pagination.totalItems });
     }
   }, [totalTerms, pagination.totalItems]);
 
@@ -189,21 +190,20 @@ const SKTermsManagement = () => {
       };
 
       const response = await skTermsService.getSKTerms(params);
-      console.log('🔍 Frontend - API Response:', response);
+      logger.debug('SK terms API response', { success: response.success, hasData: !!response.data });
       
       if (response.success) {
         const termData = response.data.data?.terms || response.data.data || [];
-        console.log('🔍 Frontend - Term Data:', termData);
-        console.log('🔍 Frontend - First Term:', termData[0]);
+        logger.debug('SK terms loaded', { count: termData.length, firstTerm: termData[0]?.termId || termData[0]?.id });
         
         setTerms(termData);
         setTotalTerms(response.data.data?.pagination?.totalRecords || response.data.data?.pagination?.total || termData.length || 0);
       } else {
-        console.error('Failed to load terms:', response.message);
+        logger.error('Failed to load terms', null, { message: response.message });
         showErrorToast('Load Error', 'Failed to load SK terms: ' + response.message);
       }
     } catch (error) {
-      console.error('Error loading terms:', error);
+      logger.error('Error loading terms', error);
       if (!silent) showErrorToast('Load Error', 'Error loading SK term data');
     } finally {
       if (!silent) setIsLoading(false);
@@ -213,7 +213,7 @@ const SKTermsManagement = () => {
   // Load SK term statistics (supports silent refresh)
   const loadTermStats = async (opts = { silent: false }) => {
     try {
-      console.log('🔍 Loading term statistics...');
+      logger.debug('Loading term statistics');
       
       // Get all terms for stats calculation
       const statsParams = {
@@ -223,11 +223,11 @@ const SKTermsManagement = () => {
       };
       
       const statsResponse = await skTermsService.getSKTerms(statsParams);
-      console.log('🔍 Term stats response:', statsResponse);
+      logger.debug('Term stats response', { success: statsResponse.success });
       
       if (statsResponse.success) {
         const allTerms = statsResponse.data.data?.terms || statsResponse.data.data || [];
-        console.log('🔍 All terms data:', allTerms);
+        logger.debug('All terms data loaded', { count: allTerms.length });
         
         const mappedStats = {
           total: allTerms.length,
@@ -235,13 +235,13 @@ const SKTermsManagement = () => {
           upcoming: allTerms.filter(t => t.status === 'upcoming').length,
           completed: allTerms.filter(t => t.status === 'completed').length
         };
-        console.log('🔍 Mapped stats:', mappedStats);
+        logger.debug('Mapped term stats', mappedStats);
         setTermStats(mappedStats);
             } else {
-        console.error('Failed to load term stats:', statsResponse.message);
+        logger.error('Failed to load term stats', null, { message: statsResponse.message });
             }
           } catch (error) {
-      console.error('Error loading term stats:', error);
+      logger.error('Error loading term stats', error);
     }
   };
 
@@ -327,12 +327,12 @@ const SKTermsManagement = () => {
 
   const handleFilterApply = (appliedValues) => {
     setFilterValues(appliedValues);
-    console.log('Filters applied:', appliedValues);
+    logger.debug('Filters applied', appliedValues);
   };
 
   const handleFilterClear = (clearedValues) => {
     setFilterValues(clearedValues);
-    console.log('Filters cleared');
+    logger.debug('Filters cleared');
   };
 
   // Get action menu items for a term (view-only for staff)
@@ -355,7 +355,7 @@ const SKTermsManagement = () => {
   };
 
   const handleSelectItem = (id) => {
-    console.log('🔍 handleSelectItem called with id:', id, 'current selectedItems:', selectedItems);
+    logger.debug('handleSelectItem called', { id, currentSelectedCount: selectedItems.length });
     setSelectedItems(prev => 
       prev.includes(id) 
         ? prev.filter(item => item !== id)
@@ -365,7 +365,7 @@ const SKTermsManagement = () => {
 
   const handleSelectAll = () => {
     const allTermIds = terms.map(item => item.termId).filter(Boolean);
-    console.log('🔍 handleSelectAll - allTermIds:', allTermIds, 'current selectedItems:', selectedItems);
+    logger.debug('handleSelectAll called', { allTermIdsCount: allTermIds.length, currentSelectedCount: selectedItems.length });
     setSelectedItems(selectedItems.length === allTermIds.length ? [] : allTermIds);
   };
 
@@ -429,7 +429,7 @@ const SKTermsManagement = () => {
           daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
           isOverdue = daysRemaining < 0;
         } catch (error) {
-          console.error('Error calculating days remaining:', error);
+          logger.error('Error calculating days remaining', error);
         }
       }
       
@@ -736,10 +736,10 @@ ${bodyRows}
           const apiModule = await import('../../services/api.js');
           const api = apiModule.default;
           api.get(`/sk-terms/export?${queryParams.toString()}`).catch(err => {
-            console.error('Failed to log export activity:', err);
+            logger.error('Failed to log export activity', err);
           });
         } catch (err) {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log export activity', err);
         }
         
         return { success: true };
@@ -783,10 +783,10 @@ ${bodyRows}
           const apiModule = await import('../../services/api.js');
           const api = apiModule.default;
           api.get(`/sk-terms/export?${queryParams.toString()}`).catch(err => {
-            console.error('Failed to log export activity:', err);
+            logger.error('Failed to log export activity', err);
           });
         } catch (err) {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log export activity', err);
         }
         
         return { success: true };

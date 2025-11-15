@@ -6,6 +6,7 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleCheck.js';
+import { validateCSRF } from '../middleware/csrf.js';
 import { getValidatedYouth, getYouthStats, archiveYouth, unarchiveYouth, exportYouth, bulkUpdateStatus } from '../controllers/youthController.js';
 
 const router = express.Router();
@@ -32,14 +33,16 @@ router.get('/stats', getYouthStats);
  * @desc    Archive a youth (set is_active=false)
  * @access  Private (Admin/Staff)
  */
-router.patch('/:id/archive', requireRole(['admin', 'lydo_staff']), archiveYouth);
+// SECURITY: CSRF protection applied
+router.patch('/:id/archive', requireRole(['admin', 'lydo_staff']), validateCSRF, archiveYouth);
 
 /**
  * @route   PATCH /api/youth/:id/unarchive
  * @desc    Unarchive a youth (set is_active=true)
  * @access  Private (Admin/Staff)
  */
-router.patch('/:id/unarchive', requireRole(['admin', 'lydo_staff']), unarchiveYouth);
+// SECURITY: CSRF protection applied
+router.patch('/:id/unarchive', requireRole(['admin', 'lydo_staff']), validateCSRF, unarchiveYouth);
 
 /**
  * @route   GET /api/youth/export
@@ -53,6 +56,7 @@ router.get('/export', requireRole(['admin', 'lydo_staff']), exportYouth);
  * @desc    Bulk archive/unarchive youth
  * @access  Private (Admin/Staff)
  */
-router.post('/bulk', requireRole(['admin', 'lydo_staff']), bulkUpdateStatus);
+// SECURITY: CSRF protection applied
+router.post('/bulk', requireRole(['admin', 'lydo_staff']), validateCSRF, bulkUpdateStatus);
 
 export default router;

@@ -117,22 +117,22 @@ class StaffService {
         queryParams.append('style', style);
       }
       
-      console.log('🚀 Frontend exportStaff called with:', { format, status, selectedIds, style, selectedIdsType: typeof selectedIds });
+      logger.debug('Frontend exportStaff called', { format, status, selectedIdsCount: selectedIds?.length, style });
       
       // If specific IDs are provided, add them to the query
       if (selectedIds && selectedIds.length > 0) {
         const idsString = selectedIds.join(',');
         queryParams.append('selectedIds', idsString);
-        console.log('✅ Adding selectedIds to query:', idsString);
+        logger.debug('Adding selectedIds to query', { count: selectedIds.length });
       } else if (status !== 'all') {
         // Only apply status filter if not filtering by specific IDs
         queryParams.append('status', status);
-        console.log('📋 Adding status filter to query:', status);
+        logger.debug('Adding status filter to query', { status });
       } else {
-        console.log('📋 No filters - exporting all staff');
+        logger.debug('No filters - exporting all staff');
       }
       
-      console.log('🌐 Final query URL:', `/staff/export?${queryParams.toString()}`);
+      logger.debug('Final query URL', { url: `/staff/export?${queryParams.toString()}` });
 
       const response = await api.get(`/staff/export?${queryParams.toString()}`, {
         responseType: format === 'csv' || format === 'pdf' ? 'blob' : 'json'
@@ -299,10 +299,11 @@ class StaffService {
   /**
    * Bulk import staff from CSV/Excel file
    */
-  async bulkImportStaff(file, onProgress = null) {
+  async bulkImportStaff(file, duplicateStrategy = 'skip', onProgress = null) {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('duplicateStrategy', duplicateStrategy);
 
       const response = await api.post('/staff/bulk/import', formData, {
         headers: {
@@ -316,9 +317,29 @@ class StaffService {
         }
       });
 
-      return { success: true, data: response.data };
+      return response.data;
     } catch (error) {
-      return this.handleError(error, 'Failed to import staff data');
+      throw this.handleError(error, 'Failed to import staff data');
+    }
+  }
+
+  /**
+   * Validate staff bulk import file on the backend
+   */
+  async validateBulkImport(file) {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await api.post('/staff/bulk/validate', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, 'Failed to validate staff import file');
     }
   }
 
@@ -391,7 +412,7 @@ class StaffService {
    * Handle API errors consistently
    */
   handleError(error, defaultMessage) {
-    console.error('Staff service error:', error);
+    logger.error('Staff service error', error);
     
     let message = defaultMessage;
     let details = null;

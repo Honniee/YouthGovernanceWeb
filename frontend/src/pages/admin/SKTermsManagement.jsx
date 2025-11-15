@@ -54,6 +54,7 @@ import { extractTermStats } from '../../utils/termStats';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import skTermsService from '../../services/skTermsService';
 import { useActiveTerm } from '../../hooks/useActiveTerm';
+import logger from '../../utils/logger.js';
 
 const SKTermsManagement = () => {
   const navigate = useNavigate();
@@ -177,7 +178,7 @@ const SKTermsManagement = () => {
   // Sync pagination state when totalTerms changes
   useEffect(() => {
     if (totalTerms > 0 && pagination.totalItems !== totalTerms) {
-      console.log('🔄 Syncing pagination with totalTerms:', { totalTerms, paginationTotal: pagination.totalItems });
+      logger.debug('Syncing pagination with totalTerms', { totalTerms, paginationTotal: pagination.totalItems });
     }
   }, [totalTerms, pagination.totalItems]);
 
@@ -202,21 +203,20 @@ const SKTermsManagement = () => {
       };
 
       const response = await skTermsService.getSKTerms(params);
-      console.log('🔍 Frontend - API Response:', response);
+      logger.debug('Frontend - SK terms response', { response });
       
       if (response.success) {
         const termData = response.data.data?.terms || response.data.data || [];
-        console.log('🔍 Frontend - Term Data:', termData);
-        console.log('🔍 Frontend - First Term:', termData[0]);
+        logger.debug('Frontend - Term data', { termData, firstTerm: termData[0] });
         
         setTerms(termData);
         setTotalTerms(response.data.data?.pagination?.totalRecords || response.data.data?.pagination?.total || termData.length || 0);
       } else {
-        console.error('Failed to load terms:', response.message);
+        logger.error('Failed to load SK terms', null, { message: response.message });
         showErrorToast('Load Error', 'Failed to load SK terms: ' + response.message);
       }
     } catch (error) {
-      console.error('Error loading terms:', error);
+      logger.error('Error loading SK terms', error);
       showErrorToast('Load Error', 'Error loading SK term data');
     } finally {
       setIsLoading(false);
@@ -226,7 +226,7 @@ const SKTermsManagement = () => {
   // Load SK term statistics
   const loadTermStats = async () => {
     try {
-      console.log('🔍 Loading term statistics...');
+      logger.debug('Loading term statistics');
       
       // Get all terms for stats calculation
       const statsParams = {
@@ -236,11 +236,11 @@ const SKTermsManagement = () => {
       };
       
       const statsResponse = await skTermsService.getSKTerms(statsParams);
-      console.log('🔍 Term stats response:', statsResponse);
+      logger.debug('Term stats response', { response: statsResponse });
       
       if (statsResponse.success) {
         const allTerms = statsResponse.data.data?.terms || statsResponse.data.data || [];
-        console.log('🔍 All terms data:', allTerms);
+        logger.debug('All terms data', { termCount: allTerms.length });
         
         const mappedStats = {
           total: allTerms.length,
@@ -248,13 +248,13 @@ const SKTermsManagement = () => {
           upcoming: allTerms.filter(t => t.status === 'upcoming').length,
           completed: allTerms.filter(t => t.status === 'completed').length
         };
-        console.log('🔍 Mapped stats:', mappedStats);
+        logger.debug('Mapped stats', mappedStats);
         setTermStats(mappedStats);
       } else {
-        console.error('Failed to load term stats:', statsResponse.message);
+        logger.error('Failed to load term stats', null, { message: statsResponse.message });
       }
     } catch (error) {
-      console.error('Error loading term stats:', error);
+      logger.error('Error loading term stats', error);
     }
   };
 
@@ -322,12 +322,12 @@ const SKTermsManagement = () => {
 
   const handleFilterApply = (appliedValues) => {
     setFilterValues(appliedValues);
-    console.log('Filters applied:', appliedValues);
+    logger.debug('Filters applied', { appliedValues });
   };
 
   const handleFilterClear = (clearedValues) => {
     setFilterValues(clearedValues);
-    console.log('Filters cleared');
+    logger.debug('Filters cleared');
   };
 
   // Get action menu items for a term
@@ -429,20 +429,20 @@ const SKTermsManagement = () => {
           
           confirmation.setLoading(true);
           try {
-            console.log('🔧 Attempting to activate term:', item.termId, item.termName, shouldForce ? '(force)' : '(normal)');
+            logger.debug('Attempting to activate SK term', { termId: item.termId, termName: item.termName, force: shouldForce });
             let response;
             if (shouldForce) {
               response = await skTermsService.updateTermStatus(item.termId, 'active', 'force-activate');
             } else {
               response = await skTermsService.activateSKTerm(item.termId);
             }
-
+              
             if (response.success) {
               showSuccessToast('Term activated', `${item.termName} has been activated successfully${shouldForce ? ' (start date adjusted)' : ''}`);
               await loadTermData(); // Reload data
               await loadTermStats(); // Reload stats
             } else {
-              console.error('❌ Activation failed:', response);
+              logger.error('Term activation failed', null, { response });
               let errorMessage = response.message || 'Unknown error occurred';
               
               // If there are specific validation errors, show them
@@ -465,12 +465,12 @@ const SKTermsManagement = () => {
               showErrorToast('Term Activation Failed', errorMessage);
             }
           } catch (error) {
-            console.error('❌ Exception during activation:', error);
+            logger.error('Exception during term activation', error);
             let errorMessage = 'An error occurred while activating the term';
             
             if (error.response) {
               const { data, status } = error.response;
-              console.error('❌ HTTP Error:', status, data);
+              logger.error('HTTP error during term activation', null, { status, data });
               
               if (data && data.message) {
                 errorMessage = data.message;
@@ -524,7 +524,7 @@ const SKTermsManagement = () => {
   };
 
   const handleSelectItem = (id) => {
-    console.log('🔍 handleSelectItem called with id:', id, 'current selectedItems:', selectedItems);
+    logger.debug('handleSelectItem called', { id, currentSelectedItems: selectedItems });
     setSelectedItems(prev => 
       prev.includes(id) 
         ? prev.filter(item => item !== id)
@@ -534,7 +534,7 @@ const SKTermsManagement = () => {
 
   const handleSelectAll = () => {
     const allTermIds = terms.map(item => item.termId).filter(Boolean);
-    console.log('🔍 handleSelectAll - allTermIds:', allTermIds, 'current selectedItems:', selectedItems);
+    logger.debug('handleSelectAll', { allTermIds, currentSelectedItems: selectedItems });
     setSelectedItems(selectedItems.length === allTermIds.length ? [] : allTermIds);
   };
 
@@ -563,7 +563,7 @@ const SKTermsManagement = () => {
     try {
       // Call API to create term
       const response = await skTermsService.createSKTerm(formData);
-      console.log('🔍 Create Term Response:', response);
+      logger.debug('Create term response', { response });
       
       if (response.success) {
         showSuccessToast('Term created', `${formData.termName} has been created successfully`);
@@ -602,14 +602,14 @@ const SKTermsManagement = () => {
         
         // Log suggested dates for debugging
         if (response.details && response.details.suggestions) {
-          console.log('💡 Suggested dates:', response.details.suggestions);
+          logger.debug('Suggested dates from create term response', { suggestions: response.details.suggestions });
         }
         
         showErrorToast('Term Creation Failed', errorMessage);
-        console.error('🔍 API Error Response:', response);
+        logger.error('API error response while creating term', null, { response });
       }
     } catch (error) {
-      console.error('🔍 Error creating term:', error);
+      logger.error('Error creating term', error);
       
       // Enhanced error message for network/technical errors
       let errorMessage = 'Failed to create term';
@@ -688,7 +688,7 @@ const SKTermsManagement = () => {
           daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
           isOverdue = daysRemaining < 0;
         } catch (error) {
-          console.error('Error calculating days remaining:', error);
+          logger.error('Error calculating days remaining', error);
         }
       }
       
@@ -995,10 +995,10 @@ ${bodyRows}
           const apiModule = await import('../../services/api.js');
           const api = apiModule.default;
           api.get(`/sk-terms/export?${queryParams.toString()}`).catch(err => {
-            console.error('Failed to log export activity:', err);
+            logger.error('Failed to log export activity', err);
           });
         } catch (err) {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log export activity', err);
         }
         
         return { success: true };
@@ -1042,10 +1042,10 @@ ${bodyRows}
           const apiModule = await import('../../services/api.js');
           const api = apiModule.default;
           api.get(`/sk-terms/export?${queryParams.toString()}`).catch(err => {
-            console.error('Failed to log export activity:', err);
+            logger.error('Failed to log export activity', err);
           });
         } catch (err) {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log export activity', err);
         }
         
         return { success: true };
@@ -1712,7 +1712,7 @@ ${bodyRows}
                       showErrorToast('Update failed', details);
                     }
                   } catch (error) {
-                    console.error('Update error:', error);
+                    logger.error('Update error', error);
                     const details = error?.response?.data?.message || error?.message || 'An error occurred while updating the term';
                     showErrorToast('Update failed', details);
                   } finally {
@@ -1783,7 +1783,7 @@ ${bodyRows}
                       showErrorToast('Extension failed', resp.message || resp.error || 'Failed to extend term');
                     }
                   } catch (error) {
-                    console.error('Extension error:', error);
+                    logger.error('Extension error', error);
                     showErrorToast('Extension failed', error?.message || 'An error occurred while extending the term');
                   }
                 }}

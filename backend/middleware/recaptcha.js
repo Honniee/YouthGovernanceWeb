@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { logSecurity } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import { STATUS_CODES, MESSAGES } from '../utils/constants.js';
 
 /**
@@ -27,7 +28,7 @@ export const verifyRecaptcha = async (req, res, next) => {
     const secretKey = process.env.RECAPTCHA_SECRET_KEY;
     
     if (!secretKey) {
-      console.error('❌ reCAPTCHA secret key not configured');
+      logger.error('reCAPTCHA secret key not configured');
       return res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({
         message: MESSAGES.SERVER_ERROR
       });
@@ -96,12 +97,12 @@ export const verifyRecaptcha = async (req, res, next) => {
     }
 
     // reCAPTCHA verification successful
-    console.log('✅ reCAPTCHA verification successful');
+    logger.debug('reCAPTCHA verification successful', { ip: req.ip, endpoint: req.originalUrl });
     req.recaptchaVerified = true;
     next();
 
   } catch (error) {
-    console.error('❌ reCAPTCHA verification error:', error.message);
+    logger.error('reCAPTCHA verification error', { error: error.message, stack: error.stack, ip: req.ip });
     
     logSecurity('recaptcha_error', {
       error: error.message,
@@ -164,7 +165,7 @@ export const bypassRecaptchaInDev = (req, res, next) => {
   // In development, bypass reCAPTCHA if no environment is set or if explicitly bypassed
   if (process.env.NODE_ENV !== 'production' && 
       (process.env.BYPASS_RECAPTCHA === 'true' || !process.env.RECAPTCHA_SECRET_KEY)) {
-    console.log('⚠️  reCAPTCHA bypassed in development mode');
+    logger.warn('reCAPTCHA bypassed in development mode', { ip: req.ip });
     req.recaptchaVerified = true;
     return next();
   }

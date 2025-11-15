@@ -158,6 +158,15 @@ const AdminSidebar = ({ sidebarOpen, setSidebarOpen, onLogout }) => {
       icon: Database,
       description: 'Monitor uptime and system errors',
       category: 'audit'
+    },
+    
+    // 🔒 Data Privacy & Compliance
+    { 
+      name: 'Data Subject Requests', 
+      href: '/admin/data-privacy/data-subject-requests', 
+      icon: Shield,
+      description: 'Manage data subject rights requests under RA 10173',
+      category: 'audit'
     }
   ];
 

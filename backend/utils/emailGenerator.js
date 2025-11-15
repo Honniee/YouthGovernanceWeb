@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import logger from './logger.js';
 
 /**
  * Generates a unique organizational email for new staff members
@@ -31,11 +32,11 @@ export const generateOrgEmail = async (firstName, lastName) => {
       }
     }
     
-    console.log(`📧 Generated organizational email: ${orgEmail}`);
+    logger.debug(`Generated organizational email: ${orgEmail}`, { orgEmail, firstName, lastName, counter });
     return orgEmail;
     
   } catch (error) {
-    console.error('❌ Error generating organizational email:', error);
+    logger.error('Error generating organizational email', { error: error.message, stack: error.stack, firstName, lastName });
     throw new Error('Failed to generate organizational email');
   }
 };
@@ -82,7 +83,7 @@ const emailExists = async (email) => {
     return parseInt(result.rows[0].count) > 0;
     
   } catch (error) {
-    console.error('❌ Error checking email existence:', error);
+    logger.error('Error checking email existence', { error: error.message, stack: error.stack, email });
     // If we can't check, assume it exists to be safe
     return true;
   }
@@ -188,11 +189,11 @@ export const generateSKOrgEmail = async (firstName, lastName, barangayName) => {
       }
     }
     
-    console.log(`📧 Generated SK organizational email: ${orgEmail}`);
+    logger.debug(`Generated SK organizational email: ${orgEmail}`, { orgEmail, firstName, lastName, barangayName, counter });
     return orgEmail;
     
   } catch (error) {
-    console.error('❌ Error generating SK organizational email:', error);
+    logger.error('Error generating SK organizational email', { error: error.message, stack: error.stack, firstName, lastName, barangayName });
     throw new Error('Failed to generate SK organizational email');
   }
 };
@@ -224,7 +225,7 @@ const skEmailExists = async (email) => {
     return (lydoCount + skCount) > 0;
     
   } catch (error) {
-    console.error('❌ Error checking SK email existence:', error);
+    logger.error('Error checking SK email existence', { error: error.message, stack: error.stack, email });
     // If we can't check, assume it exists to be safe
     return true;
   }

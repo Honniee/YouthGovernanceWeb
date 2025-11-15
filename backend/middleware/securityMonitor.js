@@ -1,4 +1,5 @@
 import { logSecurity, logAuth } from '../utils/logger.js';
+import logger from '../utils/logger.js';
 import { query } from '../config/database.js';
 
 /**
@@ -134,7 +135,7 @@ class SecurityMonitor {
       }
 
     } catch (error) {
-      console.error('Error checking suspicious login:', error);
+      logger.error('Error checking suspicious login', { error: error.message, stack: error.stack, userId: user?.id });
     }
   }
 
@@ -283,7 +284,7 @@ class SecurityMonitor {
         JSON.stringify(incident)
       ]);
     } catch (error) {
-      console.error('Error logging security incident:', error);
+      logger.error('Error logging security incident', { error: error.message, stack: error.stack, incidentType: incident.type });
     }
   }
 
@@ -312,7 +313,7 @@ class SecurityMonitor {
         incidents: stats.rows
       };
     } catch (error) {
-      console.error('Error getting security stats:', error);
+      logger.error('Error getting security stats', { error: error.message, stack: error.stack });
       return null;
     }
   }
@@ -341,7 +342,10 @@ class SecurityMonitor {
       }
     }
 
-    console.log('Security monitor cleanup completed');
+    logger.debug('Security monitor cleanup completed', { 
+      blockedIPs: this.suspiciousIPs.size,
+      failedLogins: this.failedLogins.size 
+    });
   }
 }
 

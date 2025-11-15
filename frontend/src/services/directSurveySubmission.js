@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger.js';
 
 /**
  * Direct Survey Submission Service
@@ -13,7 +14,7 @@ import api from './api';
  */
 export const submitSurveyDirectly = async (surveyData, recaptchaToken) => {
   try {
-    console.log('📤 Submitting survey data directly:', surveyData);
+    logger.debug('Submitting survey data directly', { surveyDataKeys: Object.keys(surveyData || {}) });
     
     const response = await api.post('/survey-responses/direct-submit', {
       survey_data: surveyData,
@@ -22,7 +23,7 @@ export const submitSurveyDirectly = async (surveyData, recaptchaToken) => {
     
     return response.data;
   } catch (error) {
-    console.error('Error submitting survey directly:', error);
+    logger.error('Error submitting survey directly', error);
     throw error;
   }
 };
@@ -32,20 +33,29 @@ export const submitSurveyDirectly = async (surveyData, recaptchaToken) => {
  * @param {object} personalData - Personal information data
  * @param {object} surveyData - Complete survey data
  * @param {string} recaptchaToken - reCAPTCHA verification token
+ * @param {object} acceptedSections - Consent/terms acceptance data
  */
-export const createProfileAndSubmitSurvey = async (personalData, surveyData, recaptchaToken) => {
+export const createProfileAndSubmitSurvey = async (personalData, surveyData, recaptchaToken, acceptedSections = null) => {
   try {
-    console.log('📤 Creating profile and submitting survey:', { personalData, surveyData });
+    logger.debug('Creating profile and submitting survey', { personalDataKeys: Object.keys(personalData || {}), surveyDataKeys: Object.keys(surveyData || {}) });
     
-    const response = await api.post('/survey-responses/create-and-submit', {
+    const requestBody = {
       personal_data: personalData,
       survey_data: surveyData,
       recaptchaToken: recaptchaToken
-    });
+    };
+    
+    // Include consent data if provided
+    if (acceptedSections) {
+      requestBody.acceptedSections = acceptedSections;
+      requestBody.consent = acceptedSections; // Also include as 'consent' for backend compatibility
+    }
+    
+    const response = await api.post('/survey-responses/create-and-submit', requestBody);
     
     return response.data;
   } catch (error) {
-    console.error('Error creating profile and submitting survey:', error);
+    logger.error('Error creating profile and submitting survey', error);
     throw error;
   }
 };

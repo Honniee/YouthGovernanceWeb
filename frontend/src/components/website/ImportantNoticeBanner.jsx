@@ -1,9 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useContext } from 'react';
 import { X } from 'lucide-react';
-import { useNotice } from '../../context/NoticeContext';
+import NoticeContext from '../../context/NoticeContext';
 
 const ImportantNoticeBanner = () => {
-  const { showNotice, setShowNotice, notice, loading } = useNotice();
+  // Safely get notice context - use useContext directly to handle missing provider gracefully
+  const noticeContext = useContext(NoticeContext);
+  const showNotice = noticeContext?.showNotice || false;
+  const setShowNotice = noticeContext?.setShowNotice || (() => {});
+  const notice = noticeContext?.notice || {};
+  const loading = noticeContext?.loading || false;
 
   // Don't render if notice is not visible
   if (loading || !showNotice) return null;

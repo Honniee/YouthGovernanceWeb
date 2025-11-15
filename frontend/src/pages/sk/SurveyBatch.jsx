@@ -47,6 +47,7 @@ import surveyBatchesService from '../../services/surveyBatchesService';
 import { useActiveSurvey } from '../../hooks/useActiveSurvey';
 import { useRealtime } from '../../realtime/useRealtime';
 import { useAuth } from '../../context/AuthContext';
+import logger from '../../utils/logger.js';
 
 const SurveyBatch = () => {
   const navigate = useNavigate();
@@ -182,7 +183,7 @@ const SurveyBatch = () => {
   // Sync pagination state when totalBatches changes - RESTORED like StaffManagement
   useEffect(() => {
     if (totalBatches > 0 && pagination.totalItems !== totalBatches) {
-      console.log('🔄 Syncing pagination with totalBatches:', { totalBatches, paginationTotal: pagination.totalItems });
+      logger.debug('Syncing pagination with totalBatches', { totalBatches, paginationTotal: pagination.totalItems });
     }
   }, [totalBatches, pagination.totalItems]);
 
@@ -195,17 +196,17 @@ const SurveyBatch = () => {
 
   // Debug itemsPerPage changes
   useEffect(() => {
-    console.log('🔍 Frontend - itemsPerPage changed to:', itemsPerPage);
+    logger.debug('itemsPerPage changed', { itemsPerPage });
   }, [itemsPerPage]);
 
   // Debug currentPage changes
   useEffect(() => {
-    console.log('🔍 Frontend - currentPage changed to:', currentPage);
+    logger.debug('currentPage changed', { currentPage });
   }, [currentPage]);
 
   // Debug pagination hook state
   useEffect(() => {
-    console.log('🔍 Frontend - pagination hook state:', {
+    logger.debug('Pagination hook state', {
       currentPage: pagination.currentPage,
       itemsPerPage: pagination.itemsPerPage,
       totalItems: pagination.totalItems
@@ -228,7 +229,7 @@ const SurveyBatch = () => {
       }
       return false;
     } catch (error) {
-      console.error(`Error checking batch ${batchId} for barangay responses:`, error);
+      logger.error('Error checking batch for barangay responses', error, { batchId });
       return false;
     }
   }, [skBarangay]);
@@ -280,7 +281,7 @@ const SurveyBatch = () => {
       }
       return { total: 0, validated: 0, pending: 0, rejected: 0 };
     } catch (error) {
-      console.error(`Error getting barangay stats for batch ${batchId}:`, error);
+      logger.error('Error getting barangay stats for batch', error, { batchId });
       return { total: 0, validated: 0, pending: 0, rejected: 0 };
     }
   }, [skBarangay]);
@@ -309,17 +310,17 @@ const SurveyBatch = () => {
       };
 
       const response = await surveyBatchesService.getSurveyBatches(params);
-      console.log('🔍 Frontend - API Response (all batches):', response);
+      logger.debug('API Response (all batches)', { success: response.success, hasData: !!response.data });
       
       if (response.success) {
         let batchData = response.data.data || [];
-        console.log('🔍 Frontend - Fetched ALL batches:', batchData.length, 'batches (all statuses)');
+        logger.debug('Fetched ALL batches', { count: batchData.length });
         
         // Step 2: Apply status filter if needed
         const effectiveStatusFilter = customStatus !== null ? (customStatus !== 'all' ? customStatus : undefined) : (statusFilter !== 'all' ? statusFilter : undefined);
         if (effectiveStatusFilter) {
           batchData = batchData.filter(batch => (batch.status || '').toLowerCase() === effectiveStatusFilter.toLowerCase());
-          console.log('🔍 Frontend - Batches after status filter:', batchData.length, 'batches');
+          logger.debug('Batches after status filter', { count: batchData.length, filter: effectiveStatusFilter });
         }
         
         // Step 3: Apply search filter if needed
@@ -394,11 +395,11 @@ const SurveyBatch = () => {
         setBatches(paginatedBatches);
         setTotalBatches(batchData.length); // Total is the filtered count (by status)
       } else {
-        console.error('Failed to load batches:', response.message);
+        logger.error('Failed to load batches', null, { message: response.message });
         showErrorToast('Load Error', 'Failed to load survey batches: ' + response.message);
       }
     } catch (error) {
-      console.error('Error loading batches:', error);
+      logger.error('Error loading batches', error);
       showErrorToast('Load Error', 'Error loading survey batch data');
     } finally {
       if (!silent) setIsLoading(false);
@@ -409,7 +410,7 @@ const SurveyBatch = () => {
   // For SK users, calculate stats from filtered batches
   const loadBatchStats = useCallback(async (opts = { silent: false }) => {
     try {
-      console.log('🔍 Loading batch statistics...');
+      logger.debug('Loading batch statistics');
       
       // Fetch all batches to calculate stats
       const response = await surveyBatchesService.getSurveyBatches({
@@ -440,13 +441,13 @@ const SurveyBatch = () => {
           draft: allBatches.filter(b => (b.status || '').toLowerCase() === 'draft').length,
           closed: allBatches.filter(b => (b.status || '').toLowerCase() === 'closed').length
         };
-        console.log('🔍 Mapped stats (from filtered batches):', mappedStats);
+        logger.debug('Mapped stats (from filtered batches)', mappedStats);
         setBatchStats(mappedStats);
       } else {
-        console.error('Failed to load batch stats:', response.message || response.error);
+        logger.error('Failed to load batch stats', null, { message: response.message || response.error });
       }
     } catch (error) {
-      console.error('Error loading batch stats:', error);
+      logger.error('Error loading batch stats', error);
     }
   }, [skBarangay, batchHasBarangayResponses]);
 
@@ -517,16 +518,16 @@ const SurveyBatch = () => {
     }
 
     if (batchesToUpdate.length > 0) {
-      console.log(`🔄 Auto-updating ${batchesToUpdate.length} survey batch statuses...`, batchesToUpdate);
+      logger.debug('Auto-updating survey batch statuses', { count: batchesToUpdate.length, batches: batchesToUpdate });
       
       // Update each batch
       for (const update of batchesToUpdate) {
         try {
           // Use the appropriate action for the status transition
           await surveyBatchesService.updateBatchStatus(update.batchId, update.newStatus, update.action, update.reason);
-          console.log(`✅ Updated ${update.batchName} from ${update.currentStatus} to ${update.newStatus}`);
+          logger.info('Updated batch status', { batchName: update.batchName, from: update.currentStatus, to: update.newStatus });
         } catch (error) {
-          console.error(`❌ Failed to update ${update.batchName}:`, error);
+          logger.error('Failed to update batch status', error, { batchName: update.batchName, batchId: update.batchId });
         }
       }
       
@@ -622,16 +623,16 @@ const SurveyBatch = () => {
 
   const handleFilterApply = (appliedValues) => {
     setFilterValues(appliedValues);
-    console.log('Filters applied:', appliedValues);
+    logger.debug('Filters applied', appliedValues);
   };
 
   const handleFilterClear = (clearedValues) => {
     setFilterValues(clearedValues);
-    console.log('Filters cleared');
+    logger.debug('Filters cleared');
   };
 
   const handleSelectItem = (id) => {
-    console.log('🔍 handleSelectItem called with id:', id, 'current selectedItems:', selectedItems);
+    logger.debug('handleSelectItem called', { id, currentSelectedCount: selectedItems.length });
     setSelectedItems(prev => 
       prev.includes(id) 
         ? prev.filter(item => item !== id)
@@ -641,7 +642,7 @@ const SurveyBatch = () => {
 
   const handleSelectAll = () => {
     const allBatchIds = batches.map(item => item.batchId).filter(Boolean); // Filter out any undefined values
-    console.log('🔍 handleSelectAll - allBatchIds:', allBatchIds, 'current selectedItems:', selectedItems);
+    logger.debug('handleSelectAll called', { allBatchIdsCount: allBatchIds.length, currentSelectedCount: selectedItems.length });
     setSelectedItems(selectedItems.length === allBatchIds.length ? [] : allBatchIds);
   };
 
@@ -694,7 +695,7 @@ const SurveyBatch = () => {
           daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
           isOverdue = daysRemaining < 0;
           
-          console.log('📅 Days calculation:', {
+          logger.debug('Days calculation', {
             today: today.toISOString().split('T')[0],
             endDate: endDate.toISOString().split('T')[0],
             timeDiff,
@@ -702,14 +703,14 @@ const SurveyBatch = () => {
             isOverdue
           });
         } catch (error) {
-          console.error('Error calculating days remaining:', error);
+          logger.error('Error calculating days remaining', error);
           daysRemaining = null;
           isOverdue = false;
         }
       }
       
       // Debug: Log the item data to see what we're receiving (without responseRate)
-      console.log('🔍 Batch item data:', {
+      logger.debug('Batch item data', {
         batchId: item.batchId,
         status: item.status,
         endDate: item.endDate,
@@ -725,20 +726,15 @@ const SurveyBatch = () => {
       });
       
       // Debug: Log the raw item object to see all available fields
-      console.log('🔍 Raw item object:', item);
+      logger.debug('Raw batch item object', { batchId: item.batchId, status: item.status });
       
       // Debug: Check if statistics fields exist
-      console.log('🔍 Statistics field check:', {
+      logger.debug('Statistics field check', {
         hasTotalResponses: 'statisticsTotalResponses' in item,
         hasValidatedResponses: 'statisticsValidatedResponses' in item,
         hasPendingResponses: 'statisticsPendingResponses' in item,
         hasRejectedResponses: 'statisticsRejectedResponses' in item,
-        hasTotalYouths: 'statisticsTotalYouths' in item,
-        totalResponsesValue: item.statisticsTotalResponses,
-        validatedResponsesValue: item.statisticsValidatedResponses,
-        pendingResponsesValue: item.statisticsPendingResponses,
-        rejectedResponsesValue: item.statisticsRejectedResponses,
-        totalYouthsValue: item.statisticsTotalYouths
+        hasTotalYouths: 'statisticsTotalYouths' in item
       });
       
       return (

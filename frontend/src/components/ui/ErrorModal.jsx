@@ -13,7 +13,8 @@ const ErrorModal = ({
   type = "error", // "error", "warning", "success", "info"
   onRetry = null,
   onContactSupport = null,
-  showCloseButton = true
+  showCloseButton = true,
+  disableClose = false // When true, prevents closing via backdrop or close button
 }) => {
   // Icon and color configuration based on type
   const getTypeConfig = () => {
@@ -60,6 +61,23 @@ const ErrorModal = ({
   const config = getTypeConfig();
   const IconComponent = config.icon;
 
+  // Prevent ESC key from closing when disableClose is true
+  React.useEffect(() => {
+    if (!isOpen || !disableClose) return;
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen, disableClose]);
+
   if (!isOpen) return null;
 
   return createPortal(
@@ -67,7 +85,8 @@ const ErrorModal = ({
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/30 backdrop-blur-[2px] transition-opacity"
-        onClick={onClose}
+        onClick={disableClose ? undefined : onClose}
+        style={{ cursor: disableClose ? 'default' : 'pointer' }}
       />
       
       {/* Modal */}
@@ -86,7 +105,7 @@ const ErrorModal = ({
                 {message}
               </p>
             </div>
-            {showCloseButton && (
+            {showCloseButton && !disableClose && (
               <button
                 onClick={onClose}
                 className="flex-shrink-0 p-1 rounded-full hover:bg-gray-100 transition-colors"
@@ -98,34 +117,45 @@ const ErrorModal = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200 justify-center">
-            {onRetry && (
-              <button
-                onClick={onRetry}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-              >
-                Try Again
-              </button>
-            )}
-            
-            {onContactSupport && (
-              <button
-                onClick={onContactSupport}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-              >
-                Contact Support
-              </button>
-            )}
-            
-            {!onRetry && !onContactSupport && (
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-              >
-                Close
-              </button>
-            )}
-          </div>
+          {!disableClose && (
+            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200 justify-center">
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Try Again
+                </button>
+              )}
+              
+              {onContactSupport && (
+                <button
+                  onClick={onContactSupport}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+                >
+                  Contact Support
+                </button>
+              )}
+              
+              {!onRetry && !onContactSupport && (
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+                >
+                  Close
+                </button>
+              )}
+            </div>
+          )}
+          
+          {/* Loading message for disabled close modals */}
+          {disableClose && (
+            <div className="pt-4 border-t border-gray-200">
+              <p className="text-center text-sm text-gray-500">
+                Redirecting you to the thank you page...
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>,

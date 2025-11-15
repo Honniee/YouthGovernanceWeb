@@ -13,6 +13,7 @@ import {
 import PublicLayout from '../../components/layouts/PublicLayout';
 import PageHero from '../../components/website/PageHero';
 import heroVideo from '../../assets/media/hero.mp4';
+import logger from '../../utils/logger.js';
 
 // Helper to resolve absolute URLs for images
 const getFileUrl = (p) => {
@@ -252,7 +253,7 @@ const SKOfficials = () => {
           setActiveTerm(null);
         }
       } catch (error) {
-        console.error('Error loading active term:', error);
+        logger.error('Error loading active term', error);
         setTermError(error.message);
         setActiveTerm(null);
       } finally {
@@ -305,7 +306,7 @@ const SKOfficials = () => {
           });
         setFederationOfficers(normalized);
       } catch (error) {
-        console.error('Error loading federation officers:', error);
+        logger.error('Error loading federation officers', error, { termId: activeTerm?.termId });
         setFederationError(error.message);
         setFederationOfficers([]);
       } finally {
@@ -344,7 +345,7 @@ const SKOfficials = () => {
           setChairpersonsByBarangay([]);
         }
       } catch (error) {
-        console.error('Error loading chairpersons:', error);
+        logger.error('Error loading chairpersons', error, { termId: activeTerm?.termId });
         setChairpersonsError(error.message);
         setChairpersonsByBarangay([]);
       } finally {
@@ -392,7 +393,7 @@ const SKOfficials = () => {
           setBarangayOfficialsData([]);
         }
       } catch (error) {
-        console.error('Error loading barangay officials:', error);
+        logger.error('Error loading barangay officials', error, { termId: activeTerm?.termId });
         setOfficialsError(error.message);
         setBarangayOfficialsData([]);
       } finally {
@@ -722,7 +723,7 @@ const SKOfficials = () => {
                 
                 // Debug logging (can be removed later)
                 if (hasChairperson && profilePicture) {
-                  console.log('Profile picture for', name, ':', profilePicture);
+                  logger.debug('Profile picture found', { name, hasPicture: !!profilePicture });
                 }
                 
                 return (

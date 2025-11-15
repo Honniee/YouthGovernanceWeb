@@ -21,7 +21,9 @@ const developmentCors = cors({
     'X-Requested-With',
     'Accept',
     'Origin',
-    'X-API-Key'
+    'X-API-Key',
+    'X-CSRF-Token',
+    'X-XSRF-Token'
   ],
   exposedHeaders: [
     'X-Total-Count',
@@ -40,7 +42,9 @@ const productionCors = cors({
   allowedHeaders: [
     'Content-Type',
     'Authorization',
-    'X-Requested-With'
+    'X-Requested-With',
+    'X-CSRF-Token',
+    'X-XSRF-Token'
   ],
   exposedHeaders: [
     'X-Total-Count',
@@ -60,7 +64,9 @@ const staffApiCors = cors({
     'Content-Type',
     'Authorization',
     'X-Requested-With',
-    'X-API-Key'
+    'X-API-Key',
+    'X-CSRF-Token',
+    'X-XSRF-Token'
   ],
   exposedHeaders: [
     'X-Total-Count',
@@ -78,14 +84,37 @@ export const corsMiddleware = process.env.NODE_ENV === 'production'
 export const staffCorsMiddleware = staffApiCors;
 
 // Preflight handler for complex requests
+// SECURITY FIX: Validate origin before allowing CORS
 export const handlePreflight = (req, res, next) => {
   if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', req.headers.origin);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-API-Key');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Max-Age', '86400');
-    res.status(200).end();
+    const origin = req.headers.origin;
+    
+    // Validate origin against allowed origins
+    const allowedOrigins = process.env.NODE_ENV === 'production'
+      ? [process.env.FRONTEND_URL].filter(Boolean)
+      : [
+          'http://localhost:3000',
+          'http://localhost:5173',
+          'http://127.0.0.1:3000',
+          'http://127.0.0.1:5173',
+          process.env.FRONTEND_URL
+        ].filter(Boolean);
+    
+    // Only allow CORS if origin is in allowed list
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-API-Key, X-CSRF-Token, X-XSRF-Token');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Max-Age', '86400');
+      res.status(200).end();
+    } else {
+      // Origin not allowed - reject preflight
+      res.status(403).json({ 
+        success: false, 
+        message: 'CORS policy: Origin not allowed' 
+      });
+    }
   } else {
     next();
   }

@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { query } from '../config/database.js';
 import { validateJWTSecret } from './security.js';
+import logger from './logger.js';
 
 /**
  * Advanced Token Management System
@@ -21,13 +22,21 @@ class TokenManager {
   getJWTSecret() {
     const secret = process.env.JWT_SECRET;
     
-    // Validate secret strength
-    const validation = validateJWTSecret(secret);
-    if (!validation.isValid && process.env.NODE_ENV === 'production') {
-      throw new Error(`JWT Secret validation failed: ${validation.issues.join(', ')}`);
+    // Strict validation: Fail fast if JWT_SECRET is not set in production
+    if (!secret && process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET must be set in production environment');
     }
     
-    return secret || 'development-fallback-secret';
+    // Validate secret strength
+    if (secret) {
+      const validation = validateJWTSecret(secret);
+      if (!validation.isValid && process.env.NODE_ENV === 'production') {
+        throw new Error(`JWT Secret validation failed: ${validation.issues.join(', ')}`);
+      }
+    }
+    
+    // Use fallback ONLY in development/test environments
+    return secret || (process.env.NODE_ENV === 'test' ? 'test-jwt-secret' : 'development-fallback-secret');
   }
 
   /**
@@ -159,7 +168,7 @@ class TokenManager {
         expiresAt
       ]);
     } catch (error) {
-      console.error('Error storing refresh token:', error);
+      logger.error('Error storing refresh token', { error: error.message, stack: error.stack, userId, userType });
       throw error;
     }
   }
@@ -183,7 +192,7 @@ class TokenManager {
 
       return result.rows.length > 0;
     } catch (error) {
-      console.error('Error validating refresh token:', error);
+      logger.error('Error validating refresh token', { error: error.message, stack: error.stack });
       return false;
     }
   }
@@ -203,7 +212,7 @@ class TokenManager {
         WHERE token_id = $1
       `, [decoded.jti]);
     } catch (error) {
-      console.error('Error revoking refresh token:', error);
+      logger.error('Error revoking refresh token', { error: error.message, stack: error.stack });
     }
   }
 
@@ -220,7 +229,7 @@ class TokenManager {
         WHERE user_id = $1 AND user_type = $2 AND revoked = FALSE
       `, [userId, userType]);
     } catch (error) {
-      console.error('Error revoking all user tokens:', error);
+      logger.error('Error revoking all user tokens', { error: error.message, stack: error.stack, userId, userType });
     }
   }
 
@@ -234,9 +243,9 @@ class TokenManager {
         WHERE expires_at < NOW() OR revoked = TRUE
       `);
       
-      console.log(`Cleaned up ${result.rowCount} expired/revoked tokens`);
+      logger.info(`Cleaned up ${result.rowCount} expired/revoked tokens`, { rowCount: result.rowCount });
     } catch (error) {
-      console.error('Error cleaning up tokens:', error);
+      logger.error('Error cleaning up tokens', { error: error.message, stack: error.stack });
     }
   }
 
@@ -257,7 +266,7 @@ class TokenManager {
 
       return result.rows[0];
     } catch (error) {
-      console.error('Error getting token stats:', error);
+      logger.error('Error getting token stats', { error: error.message, stack: error.stack });
       return null;
     }
   }
@@ -298,7 +307,7 @@ class TokenManager {
         }
       };
     } catch (error) {
-      console.error('Error refreshing access token:', error);
+      logger.error('Error refreshing access token', { error: error.message, stack: error.stack });
       return null;
     }
   }
@@ -347,7 +356,7 @@ class TokenManager {
       const result = await query(userQuery, [userId]);
       return result.rows[0] || null;
     } catch (error) {
-      console.error('Error getting user by ID:', error);
+      logger.error('Error getting user by ID', { error: error.message, stack: error.stack, userId, userType });
       return null;
     }
   }

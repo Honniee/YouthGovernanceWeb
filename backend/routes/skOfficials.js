@@ -11,6 +11,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleCheck.js';
 // Validation handled within controllers
 import { apiLimiter, bulkOperationLimiter, exportLimiter } from '../middleware/rateLimiter.js';
+import { validateCSRF } from '../middleware/csrf.js';
 // Security headers handled by server.js middleware
 
 const router = express.Router();
@@ -82,16 +83,19 @@ router.get('/vacancies/overall',
 
 router.post('/validate-position',
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   apiLimiter,
   skOfficialsController.validatePosition
 );
 
 // === BULK OPERATIONS ROUTES (skBulkController) ===
 // NOTE: Bulk routes must come BEFORE parameterized routes to avoid conflicts
+// SECURITY: CSRF protection applied to all state-changing routes
 
 // Bulk import
 router.post('/bulk/import', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   bulkOperationLimiter,
   upload.single('file'),
   skBulkController.bulkImportSKOfficials
@@ -100,6 +104,7 @@ router.post('/bulk/import',
 // Bulk validation (new)
 router.post('/bulk/validate', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   bulkOperationLimiter,
   upload.single('file'),
   skBulkController.validateBulkImport
@@ -107,6 +112,7 @@ router.post('/bulk/validate',
 
 router.post('/bulk/validate-data', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   bulkOperationLimiter,
   skBulkController.validateBulkData
 );
@@ -120,6 +126,7 @@ router.get('/bulk/template',
 // Bulk status operations
 router.put('/bulk/status', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   bulkOperationLimiter,
   skBulkController.bulkUpdateStatus
 );
@@ -156,18 +163,21 @@ router.get('/:id',
 
 router.post('/', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   apiLimiter,
   skOfficialsController.createSKOfficial
 );
 
 router.put('/:id', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   apiLimiter,
   skOfficialsController.updateSKOfficial
 );
 
 router.delete('/:id', 
   requireRole('admin'), // Only admins can delete
+  validateCSRF,
   apiLimiter,
   skOfficialsController.deleteSKOfficial
 );
@@ -175,6 +185,7 @@ router.delete('/:id',
 // Status management
 router.put('/:id/status', 
   requireRole(['admin', 'lydo_staff']),
+  validateCSRF,
   apiLimiter,
   skOfficialsController.updateSKStatus
 );

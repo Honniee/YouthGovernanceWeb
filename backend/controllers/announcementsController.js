@@ -4,6 +4,7 @@ import activityLogService from '../services/activityLogService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import notificationService from '../services/notificationService.js';
 import { emitToRole, emitBroadcast } from '../services/realtime.js';
+import logger from '../utils/logger.js';
 
 /**
  * Announcements Controller
@@ -137,7 +138,7 @@ export const getAllAnnouncements = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching announcements:', error);
+    logger.error('Error fetching announcements', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch announcements',
@@ -190,7 +191,7 @@ export const getAnnouncementById = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching announcement:', error);
+    logger.error('Error fetching announcement', { error: error.message, stack: error.stack, announcementId: req.params.id });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch announcement',
@@ -202,8 +203,7 @@ export const getAnnouncementById = async (req, res) => {
 // Create new announcement
 export const createAnnouncement = async (req, res) => {
   try {
-    console.log('🔍 Creating announcement - Request body:', req.body);
-    console.log('🔍 User info:', req.user);
+    logger.debug('Creating announcement', { userId: req.user?.id, userType: req.user?.userType, hasBody: !!req.body });
     
     const {
       title,
@@ -239,14 +239,14 @@ export const createAnnouncement = async (req, res) => {
           // ID is unique, break out of loop
           break;
         } else {
-          console.log(`⚠️ Generated ID ${announcement_id} already exists, retrying...`);
+          logger.warn('Generated ID already exists, retrying', { announcement_id, attempts });
           attempts++;
           if (attempts >= maxAttempts) {
             throw new Error('Failed to generate unique announcement ID after multiple attempts');
           }
         }
       } catch (error) {
-        console.error('❌ Error generating announcement ID:', error);
+        logger.error('Error generating announcement ID', { error: error.message, stack: error.stack });
         throw error;
       }
     } while (attempts < maxAttempts);
@@ -263,24 +263,23 @@ export const createAnnouncement = async (req, res) => {
       
       if (userResult.rows.length > 0) {
         created_by = userResult.rows[0].user_id;
-        console.log('🔍 Found user_id in Users table:', created_by);
+        logger.debug('Found user_id in Users table', { user_id: created_by, lydo_id: req.user?.id });
       } else {
-        console.error('❌ No corresponding user_id found in Users table');
+        logger.error('No corresponding user_id found in Users table', { lydo_id: req.user?.id, userType: req.user?.userType });
         return res.status(400).json({
           success: false,
           message: 'User not found in system'
         });
       }
     } catch (userError) {
-      console.error('❌ Error looking up user_id:', userError);
+      logger.error('Error looking up user_id', { error: userError.message, stack: userError.stack, lydo_id: req.user?.id });
       return res.status(500).json({
         success: false,
         message: 'Error validating user'
       });
     }
     
-    console.log('🔍 Generated announcement_id:', announcement_id);
-    console.log('🔍 Created by user_id:', created_by);
+    logger.debug('Announcement ID generated', { announcement_id, created_by });
 
     // Validate required fields
     if (!title || !content) {
@@ -316,7 +315,7 @@ export const createAnnouncement = async (req, res) => {
     let finalImageUrl = image_url;
     if (req.file) {
       try {
-        console.log('🖼️ Processing uploaded image:', req.file.originalname);
+        logger.debug('Processing uploaded image', { filename: req.file.originalname, announcement_id });
         
         // Import required modules for image processing
         const sharp = (await import('sharp')).default;
@@ -352,14 +351,14 @@ export const createAnnouncement = async (req, res) => {
         
         // Set the image URL for database storage
         finalImageUrl = `/uploads/announcements/${fileName}`;
-        console.log('✅ Image processed and saved:', finalImageUrl);
+        logger.debug('Image processed and saved', { imageUrl: finalImageUrl, announcement_id });
         
       } catch (imageError) {
-        console.error('❌ Image processing error:', imageError);
+        logger.error('Image processing error', { error: imageError.message, stack: imageError.stack, announcement_id, filename: req.file?.originalname });
         // Continue without image if processing fails
         finalImageUrl = null;
         // Log the error but don't fail the entire request
-        console.warn('⚠️ Image processing failed, continuing without image');
+        logger.warn('Image processing failed, continuing without image', { announcement_id });
       }
     }
 
@@ -378,14 +377,14 @@ export const createAnnouncement = async (req, res) => {
       finalPublishedAt, created_by, location || null, finalEventDate, finalEndDate
     ];
 
-    console.log('📝 Executing SQL query with values:', values);
+    logger.debug('Executing SQL query for announcement', { announcement_id, hasImage: !!finalImageUrl });
     let announcement;
     try {
       const result = await query(sqlQuery, values);
-      console.log('✅ Database query successful, result:', result.rows[0]);
+      logger.debug('Database query successful', { announcement_id });
       announcement = result.rows[0];
     } catch (dbError) {
-      console.error('❌ Database error:', dbError);
+      logger.error('Database error creating announcement', { error: dbError.message, stack: dbError.stack, announcement_id });
       throw dbError;
     }
 
@@ -406,7 +405,7 @@ export const createAnnouncement = async (req, res) => {
         status: 'success'
       });
     } catch (activityError) {
-      console.error('❌ Error logging activity:', activityError);
+      logger.error('Error logging activity', { error: activityError.message, stack: activityError.stack, announcement_id });
     }
 
     // Send notification if published
@@ -420,9 +419,9 @@ export const createAnnouncement = async (req, res) => {
         priority: is_featured ? 'high' : 'normal',
         created_by: created_by
       });
-        console.log('✅ Notification sent successfully');
+        logger.debug('Notification sent successfully', { announcement_id, userId: req.user?.id });
       } catch (notificationError) {
-        console.error('❌ Error sending notification:', notificationError);
+        logger.error('Error sending notification', { error: notificationError.message, stack: notificationError.stack, announcement_id });
       }
     }
 
@@ -446,13 +445,13 @@ export const createAnnouncement = async (req, res) => {
   } catch (_) {}
 
   } catch (error) {
-    console.error('❌ Error creating announcement:', error);
-    console.error('❌ Error stack:', error.stack);
-    console.error('❌ Error details:', {
-      message: error.message,
-      code: error.code,
-      detail: error.detail,
-      hint: error.hint
+    logger.error('Error creating announcement', { 
+      error: error.message, 
+      stack: error.stack, 
+      code: error.code, 
+      detail: error.detail, 
+      hint: error.hint,
+      userId: req.user?.id 
     });
     res.status(500).json({
       success: false,
@@ -500,7 +499,7 @@ export const updateAnnouncement = async (req, res) => {
     let finalImageUrl = image_url;
     if (req.file) {
       try {
-        console.log('🖼️ Processing uploaded image for update:', req.file.originalname);
+        logger.debug('Processing uploaded image for update', { filename: req.file.originalname, announcement_id: id });
         
         // Import required modules for image processing
         const sharp = (await import('sharp')).default;
@@ -536,13 +535,13 @@ export const updateAnnouncement = async (req, res) => {
         
         // Set the image URL for database storage
         finalImageUrl = `/uploads/announcements/${fileName}`;
-        console.log('✅ Image processed and saved:', finalImageUrl);
+        logger.debug('Image processed and saved', { imageUrl: finalImageUrl, announcement_id: id });
         
       } catch (imageError) {
-        console.error('❌ Image processing error:', imageError);
+        logger.error('Image processing error', { error: imageError.message, stack: imageError.stack, announcement_id: id });
         // Continue without image if processing fails
         finalImageUrl = image_url;
-        console.warn('⚠️ Image processing failed, keeping existing image');
+        logger.warn('Image processing failed, keeping existing image', { announcement_id: id });
       }
     }
 
@@ -675,13 +674,12 @@ export const updateAnnouncement = async (req, res) => {
       RETURNING *
     `;
 
-    console.log('🔍 Update query:', updateQuery);
-    console.log('🔍 Update values:', values);
+    logger.debug('Updating announcement', { announcement_id: id, fieldCount: updateFields.length });
 
     const result = await query(updateQuery, values);
     const announcement = result.rows[0];
     
-    console.log('✅ Update successful, announcement:', announcement);
+    logger.debug('Update successful', { announcement_id: id, title: announcement.title });
 
     // Audit log
     try {
@@ -704,7 +702,7 @@ export const updateAnnouncement = async (req, res) => {
         status: 'success'
       });
     } catch (activityError) {
-      console.error('❌ Error logging activity:', activityError);
+      logger.error('Error logging activity', { error: activityError.message, stack: activityError.stack, announcement_id });
     }
 
     // Send notification if status changed to published
@@ -718,9 +716,9 @@ export const updateAnnouncement = async (req, res) => {
         priority: announcement.is_featured ? 'high' : 'normal',
           created_by: req.user.id
       });
-        console.log('✅ Notification sent successfully');
+        logger.debug('Notification sent successfully', { announcement_id, userId: req.user?.id });
       } catch (notificationError) {
-        console.error('❌ Error sending notification:', notificationError);
+        logger.error('Error sending notification', { error: notificationError.message, stack: notificationError.stack, announcement_id });
         // Don't fail the request if notification fails
       }
     }
@@ -745,7 +743,7 @@ export const updateAnnouncement = async (req, res) => {
   } catch (_) {}
 
   } catch (error) {
-    console.error('Error updating announcement:', error);
+    logger.error('Error updating announcement', { error: error.message, stack: error.stack, announcement_id: id });
     res.status(500).json({
       success: false,
       message: 'Failed to update announcement',
@@ -773,7 +771,7 @@ export const deleteAnnouncement = async (req, res) => {
     const deleteQuery = 'DELETE FROM "Announcements" WHERE announcement_id = $1';
     await query(deleteQuery, [id]);
     
-    console.log('✅ Delete successful for announcement:', id);
+    logger.debug('Delete successful', { announcement_id: id, title: getResult.rows[0].title });
 
     // Audit log
     try {
@@ -792,7 +790,7 @@ export const deleteAnnouncement = async (req, res) => {
         status: 'success'
       });
     } catch (activityError) {
-      console.error('❌ Error logging delete activity:', activityError);
+      logger.error('Error logging delete activity', { error: activityError.message, stack: activityError.stack, announcement_id: id });
     }
 
     res.json({
@@ -808,7 +806,7 @@ export const deleteAnnouncement = async (req, res) => {
   } catch (_) {}
 
   } catch (error) {
-    console.error('Error deleting announcement:', error);
+    logger.error('Error deleting announcement', { error: error.message, stack: error.stack, announcement_id: id });
     res.status(500).json({
       success: false,
       message: 'Failed to delete announcement',
@@ -865,7 +863,7 @@ export const getAnnouncementStatistics = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching announcement statistics:', error);
+    logger.error('Error fetching announcement statistics', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch announcement statistics',
@@ -900,7 +898,7 @@ export const uploadAnnouncementImage = async (req, res) => {
     const currentAnnouncement = currentResult.rows[0];
 
     try {
-      console.log('🖼️ Processing uploaded image for announcement:', req.file.originalname);
+      logger.debug('Processing uploaded image for announcement', { filename: req.file.originalname, announcement_id: id });
       
       // Import required modules for image processing
       const sharp = (await import('sharp')).default;
@@ -936,7 +934,7 @@ export const uploadAnnouncementImage = async (req, res) => {
       
       // Set the image URL for database storage
       const finalImageUrl = `/uploads/announcements/${fileName}`;
-      console.log('✅ Image processed and saved:', finalImageUrl);
+      logger.debug('Image processed and saved', { imageUrl: finalImageUrl, announcement_id: id });
       
       // Update the announcement with new image URL
       const updateQuery = `
@@ -949,7 +947,7 @@ export const uploadAnnouncementImage = async (req, res) => {
       const result = await query(updateQuery, [finalImageUrl, id]);
       const updatedAnnouncement = result.rows[0];
       
-      console.log('✅ Announcement image updated successfully');
+      logger.debug('Announcement image updated successfully', { announcement_id: id, imageUrl: finalImageUrl });
       
       // Log activity
       try {
@@ -967,9 +965,9 @@ export const uploadAnnouncementImage = async (req, res) => {
           },
           category: 'Announcement'
         });
-        console.log('✅ Activity logged successfully');
+        logger.debug('Activity logged successfully', { announcement_id: id });
       } catch (activityError) {
-        console.error('❌ Error logging activity:', activityError);
+        logger.error('Error logging activity', { error: activityError.message, stack: activityError.stack, announcement_id: id });
         // Don't fail the request if activity logging fails
       }
       
@@ -983,7 +981,7 @@ export const uploadAnnouncementImage = async (req, res) => {
       });
       
     } catch (imageError) {
-      console.error('❌ Image processing error:', imageError);
+      logger.error('Image processing error', { error: imageError.message, stack: imageError.stack, announcement_id: id });
       return res.status(500).json({
         success: false,
         message: 'Failed to process image'
@@ -991,7 +989,7 @@ export const uploadAnnouncementImage = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('❌ Error uploading announcement image:', error);
+    logger.error('Error uploading announcement image', { error: error.message, stack: error.stack, announcement_id: id });
     res.status(500).json({
       success: false,
       message: 'Internal server error'
@@ -1004,7 +1002,7 @@ export const bulkUpdateAnnouncementStatus = async (req, res) => {
   try {
     const { announcement_ids, status } = req.body;
     
-    console.log('🔍 Bulk update request:', { announcement_ids, status });
+    logger.debug('Bulk update request', { announcement_ids_count: announcement_ids?.length, status, userId: req.user?.id });
 
     if (!announcement_ids || !Array.isArray(announcement_ids) || announcement_ids.length === 0) {
       return res.status(400).json({
@@ -1036,15 +1034,14 @@ export const bulkUpdateAnnouncementStatus = async (req, res) => {
     `;
 
     const values = [...announcement_ids, status];
-    console.log('🔍 Bulk update query:', query);
-    console.log('🔍 Bulk update values:', values);
+    logger.debug('Executing bulk update query', { announcement_ids_count: announcement_ids.length, status });
     
     let result;
     try {
       result = await query(query, values);
-      console.log('✅ Bulk update successful, updated:', result.rows.length, 'announcements');
+      logger.info('Bulk update successful', { count: result.rows.length, status });
     } catch (queryError) {
-      console.error('❌ Database query failed:', queryError);
+      logger.error('Database query failed', { error: queryError.message, stack: queryError.stack, status });
       throw queryError;
     }
 
@@ -1066,7 +1063,7 @@ export const bulkUpdateAnnouncementStatus = async (req, res) => {
           status: 'success'
         });
       } catch (activityError) {
-        console.error(`❌ Error logging bulk update activity for ${announcement.announcement_id}:`, activityError);
+        logger.error('Error logging bulk update activity', { error: activityError.message, stack: activityError.stack, announcement_id: announcement.announcement_id });
       }
     }
 
@@ -1085,7 +1082,7 @@ export const bulkUpdateAnnouncementStatus = async (req, res) => {
     } catch (_) {}
 
   } catch (error) {
-    console.error('Error bulk updating announcement status:', error);
+    logger.error('Error bulk updating announcement status', { error: error.message, stack: error.stack, status, announcement_ids_count: announcement_ids?.length });
     res.status(500).json({
       success: false,
       message: 'Failed to bulk update announcement status',

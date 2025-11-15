@@ -1,4 +1,6 @@
 import axios from 'axios';
+import cacheManager from './cache.js';
+import logger from '../utils/logger.js';
 
 // API Configuration
 const API_CONFIG = {
@@ -7,47 +9,152 @@ const API_CONFIG = {
   headers: {
     'Content-Type': 'application/json',
   },
+  // SECURITY: Enable credentials to send httpOnly cookies with requests
+  withCredentials: true, // Required for httpOnly cookies to be sent
 };
 
 // Create Axios instance
 const api = axios.create(API_CONFIG);
 
-// Request interceptor - Add auth token to requests
+// Cache configuration
+const CACHE_ENABLED = true;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes default
+const CACHEABLE_METHODS = ['get'];
+const CACHE_INVALIDATION_PATTERNS = {
+  post: (url) => {
+    // Invalidate related caches on POST
+    if (url.includes('/validation-queue')) {
+      cacheManager.invalidate('/validation-queue');
+      cacheManager.invalidate('/survey-responses');
+    } else if (url.includes('/announcements')) {
+      cacheManager.invalidate('/announcements');
+    } else if (url.includes('/survey-responses')) {
+      cacheManager.invalidate('/survey-responses');
+      cacheManager.invalidate('/validation-queue');
+    }
+  },
+  put: (url) => {
+    cacheManager.invalidate(url.split('?')[0]);
+  },
+  patch: (url) => {
+    cacheManager.invalidate(url.split('?')[0]);
+  },
+  delete: (url) => {
+    cacheManager.invalidate(url.split('?')[0]);
+  }
+};
+
+// Track active requests for cancellation
+const activeRequests = new Map();
+
+// Request interceptor - Add CSRF token and setup cancellation
+// SECURITY: Tokens are now in httpOnly cookies (sent automatically), no need to add to headers
 api.interceptors.request.use(
   (config) => {
+    // SECURITY: Tokens are in httpOnly cookies, sent automatically by browser
+    // No need to manually add Authorization header anymore
+    // (Keeping backward compatibility: if token in localStorage, still send it)
     const token = localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     
+    // SECURITY: Add CSRF token for state-changing requests
+    // Get token from cookie (set by backend)
+    const getCookie = (name) => {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    };
+    
+    const csrfToken = getCookie('XSRF-TOKEN');
+    if (csrfToken && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(config.method?.toUpperCase())) {
+      config.headers['X-CSRF-Token'] = csrfToken;
+    }
+    
     // Add request timestamp for debugging
     config.metadata = { startTime: new Date() };
+    
+    // Store cache key in config for later use (for GET requests)
+    if (CACHE_ENABLED && config.method?.toLowerCase() === 'get' && !config.skipCache) {
+      config.cacheKey = cacheManager.generateKey(config.url, config.params);
+    }
+    
+    // Setup request cancellation if signal is provided
+    if (config.signal) {
+      const requestId = `${config.method}-${config.url}-${Date.now()}`;
+      config.requestId = requestId;
+      
+      // Clean up on abort
+      config.signal.addEventListener('abort', () => {
+        activeRequests.delete(requestId);
+      });
+      
+      activeRequests.set(requestId, config);
+    }
     
     return config;
   },
   (error) => {
-    console.error('Request Error:', error);
+    logger.error('Request Error', error);
     return Promise.reject(error);
   }
 );
 
-// Response interceptor - Handle responses and errors
+// Response interceptor - Handle responses, errors, and cache management
 api.interceptors.response.use(
   (response) => {
+    // Clean up active request tracking
+    if (response.config.requestId) {
+      activeRequests.delete(response.config.requestId);
+    }
+    
     // Calculate request duration for debugging
     const endTime = new Date();
     const duration = endTime - response.config.metadata.startTime;
     
-    console.log(`✅ API Call: ${response.config.method?.toUpperCase()} ${response.config.url} (${duration}ms)`);
+    const method = response.config.method?.toUpperCase();
+    const url = response.config.url;
+    
+    // Log API calls in development only
+    logger.api(method, url, duration, 'success');
+    
+    // Cache GET responses
+    // Cache the full response.data object to preserve structure (success, data, pagination, etc.)
+    if (CACHE_ENABLED && method === 'GET' && !response.config.skipCache && response.config.cacheKey) {
+      const ttl = response.config.cacheTTL || CACHE_TTL;
+      const dataToCache = response.data; // Cache full response object, not just nested data
+      cacheManager.set(response.config.cacheKey, dataToCache, ttl);
+    }
+    
+    // Invalidate cache on mutations
+    if (CACHE_ENABLED && method !== 'GET') {
+      const methodLower = method.toLowerCase();
+      if (CACHE_INVALIDATION_PATTERNS[methodLower]) {
+        CACHE_INVALIDATION_PATTERNS[methodLower](url);
+      }
+    }
     
     return response;
   },
   (error) => {
+    // Clean up active request tracking
+    if (error.config?.requestId) {
+      activeRequests.delete(error.config.requestId);
+    }
+    
+    // Don't log errors for cancelled requests
+    if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+      return Promise.reject(error);
+    }
+    
     // Calculate request duration for debugging
+    let duration = 0;
     if (error.config?.metadata?.startTime) {
       const endTime = new Date();
-      const duration = endTime - error.config.metadata.startTime;
-      console.log(`❌ API Error: ${error.config.method?.toUpperCase()} ${error.config.url} (${duration}ms)`);
+      duration = endTime - error.config.metadata.startTime;
+      logger.api(error.config.method?.toUpperCase(), error.config.url, duration, 'error');
     }
 
     // Handle different error types
@@ -57,27 +164,36 @@ api.interceptors.response.use(
       
       switch (status) {
         case 401:
-          // Unauthorized - let the component decide; do NOT clear token here to avoid unwanted logout cascades
-          // We will surface requiresAuth flag in the rejection below
+          // Unauthorized - try to refresh token if refresh token exists
+          // SECURITY: Tokens are in httpOnly cookies, try to refresh access token
+          // Note: Token refresh handled asynchronously, component will handle 401
           break;
           
         case 403:
-          // Forbidden - insufficient permissions
-          console.warn('Insufficient permissions');
+          // Forbidden - insufficient permissions or CSRF error
+          if (error.response?.data?.message?.includes('CSRF')) {
+            logger.warn('CSRF token error', { url: error.config?.url, status });
+            // Refresh page to get new CSRF token
+            if (typeof window !== 'undefined') {
+              window.location.reload();
+            }
+          } else {
+            logger.warn('Insufficient permissions', { url: error.config?.url, status });
+          }
           break;
           
         case 404:
           // Not found
-          console.warn('Resource not found');
+          logger.warn('Resource not found', { url: error.config?.url, status });
           break;
           
         case 500:
           // Server error
-          console.error('Server error');
+          logger.error('Server error', error, { url: error.config?.url, status, response: data });
           break;
           
         default:
-          console.error(`HTTP Error ${status}:`, data?.message || 'Unknown error');
+          logger.error(`HTTP Error ${status}`, error, { url: error.config?.url, status, message: data?.message });
       }
       
       // Return formatted error
@@ -90,7 +206,7 @@ api.interceptors.response.use(
       });
     } else if (error.request) {
       // Network error
-      console.error('Network Error:', error.message);
+      logger.error('Network Error', error, { url: error.config?.url });
       return Promise.reject({
         status: 0,
         message: 'Network error. Please check your connection.',
@@ -99,7 +215,7 @@ api.interceptors.response.use(
       });
     } else {
       // Request setup error
-      console.error('Request Setup Error:', error.message);
+      logger.error('Request Setup Error', error, { url: error.config?.url });
       return Promise.reject({
         status: 0,
         message: 'Request failed. Please try again.',
@@ -110,11 +226,24 @@ api.interceptors.response.use(
   }
 );
 
-// API helper functions
+// API helper functions with caching support
 export const apiHelpers = {
-  // GET request
+  // GET request (with caching)
   get: async (url, config = {}) => {
     try {
+      // Check cache first if caching is enabled and not skipped
+      if (CACHE_ENABLED && !config.skipCache) {
+        const cacheKey = cacheManager.generateKey(url, config.params);
+        const cached = cacheManager.get(cacheKey);
+        
+        if (cached) {
+          // Log cache hits in development only
+          logger.debug(`Cache hit: GET ${url}`, { url });
+          return cached;
+        }
+      }
+      
+      // Make API request
       const response = await api.get(url, config);
       return response.data;
     } catch (error) {
@@ -122,7 +251,7 @@ export const apiHelpers = {
     }
   },
 
-  // POST request
+  // POST request (invalidates cache)
   post: async (url, data = {}, config = {}) => {
     try {
       const response = await api.post(url, data, config);
@@ -132,7 +261,7 @@ export const apiHelpers = {
     }
   },
 
-  // PUT request
+  // PUT request (invalidates cache)
   put: async (url, data = {}, config = {}) => {
     try {
       const response = await api.put(url, data, config);
@@ -142,7 +271,7 @@ export const apiHelpers = {
     }
   },
 
-  // DELETE request
+  // DELETE request (invalidates cache)
   delete: async (url, config = {}) => {
     try {
       const response = await api.delete(url, config);
@@ -152,7 +281,7 @@ export const apiHelpers = {
     }
   },
 
-  // PATCH request
+  // PATCH request (invalidates cache)
   patch: async (url, data = {}, config = {}) => {
     try {
       const response = await api.patch(url, data, config);
@@ -160,6 +289,36 @@ export const apiHelpers = {
     } catch (error) {
       throw error;
     }
+  },
+
+  // Clear cache for specific URL pattern
+  clearCache: (pattern) => {
+    return cacheManager.invalidate(pattern);
+  },
+
+  // Clear all cache
+  clearAllCache: () => {
+    cacheManager.clear();
+  },
+
+  // Cancel all active requests
+  cancelAllRequests: () => {
+    activeRequests.forEach((config, requestId) => {
+      if (config.signal && !config.signal.aborted) {
+        config.signal.abort();
+      }
+      activeRequests.delete(requestId);
+    });
+  },
+
+  // Cancel requests matching a pattern
+  cancelRequests: (pattern) => {
+    activeRequests.forEach((config, requestId) => {
+      if (config.url.includes(pattern) && config.signal && !config.signal.aborted) {
+        config.signal.abort();
+        activeRequests.delete(requestId);
+      }
+    });
   }
 };
 

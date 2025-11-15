@@ -33,15 +33,17 @@ import {
   CheckCircle,
   AlertTriangle,
   AlertCircle,
-  Info
+  Info,
+  FileText
 } from 'lucide-react';
 import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, TabbedDetailModal, ActiveTermBanner } from '../../components/portal_main_content';
-import { ToastContainer, showSKSuccessToast, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
+import { ToastContainer, showSKSuccessToast, showSuccessToast, showErrorToast, showInfoToast, showWarningToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import skService from '../../services/skService.js';
 import skTermsService from '../../services/skTermsService.js';
 import { useActiveTerm } from '../../hooks/useActiveTerm.js';
 import { useSKValidation } from '../../hooks/useSKValidation.js';
 import { skDetailConfig } from '../../components/portal_main_content/tabbedModalConfigs.jsx';
+import logger from '../../utils/logger.js';
 
 // Toast helper functions are now imported from universal components
 
@@ -237,154 +239,266 @@ const SKManagement = () => {
   
   // Action menu positioning is now handled by the ActionMenu component
   
-  // Bulk upload state
-  const [uploadFile, setUploadFile] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
+  // Bulk import state
+  const fileInputRef = useRef(null);
+  const [uploadedFile, setUploadedFile] = useState(null);
   const [validationResult, setValidationResult] = useState(null);
+  const [duplicateStrategy, setDuplicateStrategy] = useState('skip');
+  const [importSummary, setImportSummary] = useState(null);
   const [isValidating, setIsValidating] = useState(false);
-  const [showValidationModal, setShowValidationModal] = useState(false);
-  
-  const handleUploadFileChange = (e) => {
-    const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
-    setUploadFile(file);
-  };
-  const handleDrop = (e) => {
-    e.preventDefault();
-    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0] ? e.dataTransfer.files[0] : null;
-    if (file) setUploadFile(file);
-  };
-  const handleDragOver = (e) => {
-    e.preventDefault();
-  };
-  const removeSelectedFile = () => setUploadFile(null);
-  
-  // Validate bulk import file
-  const handleValidateFile = async () => {
-    if (!uploadFile) return;
+  const [isImporting, setIsImporting] = useState(false);
 
+  const handleFileChange = (event) => {
+    const file = event.target?.files?.[0] ?? null;
+    setUploadedFile(file);
+    setValidationResult(null);
+    setImportSummary(null);
+    setDuplicateStrategy('skip');
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    const file = event.dataTransfer?.files?.[0] ?? null;
+    if (file) {
+      setUploadedFile(file);
+      setValidationResult(null);
+      setImportSummary(null);
+      setDuplicateStrategy('skip');
+    }
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+  };
+
+  const clearFile = () => {
+    setUploadedFile(null);
+    setValidationResult(null);
+    setImportSummary(null);
+    setDuplicateStrategy('skip');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const validateFile = async () => {
+    if (!uploadedFile) return;
     setIsValidating(true);
-    
     try {
-      const response = await skService.validateBulkImport(uploadFile);
-      
+      const response = await skService.validateBulkImport(uploadedFile);
       if (response.success) {
-        setValidationResult(response.data);
-        setShowValidationModal(true);
-      } else {
-        showErrorToast('Validation failed', response.message);
+        const result = response.data;
+        setValidationResult(result);
+        setImportSummary(null);
+
+        const summary = result.summary || {};
+        const totalRecords = summary.totalRecords ?? 0;
+        const invalidRecords = summary.invalidRecords ?? 0;
+        const duplicateRecords = summary.duplicateRecords ?? 0;
+        const validRecords = summary.validRecords ?? Math.max(totalRecords - invalidRecords, 0);
+
+        if (invalidRecords > 0) {
+          showInfoToast(
+            'Validation Complete',
+            `${validRecords}/${totalRecords} valid, ${invalidRecords} invalid records found. Fix issues and re-validate.`
+          );
+        } else if (duplicateRecords > 0) {
+          showInfoToast(
+            'Validation Complete',
+            `${validRecords}/${totalRecords} records ready. ${duplicateRecords} duplicates detected – choose how to handle them before importing.`
+          );
+        } else {
+          showSuccessToast(
+            'Validation Complete',
+            `${validRecords}/${totalRecords} valid records. Ready to import.`
+          );
+        }
       }
     } catch (error) {
-      console.error('Validation error:', error);
-      showErrorToast('Validation error', 'An error occurred during validation. Please try again.');
+      showErrorToast('Validation Failed', error.message);
     } finally {
       setIsValidating(false);
     }
   };
 
-  // Handle actual import after validation
-  const handleImportAfterValidation = async () => {
-    if (!uploadFile) return;
+  const importFile = async () => {
+    const invalidCount = validationResult?.summary?.invalidRecords ?? 0;
+    if (!uploadedFile || invalidCount !== 0) return;
 
-    setIsUploading(true);
-    
+    setIsImporting(true);
     try {
-      const response = await skService.bulkImportSKOfficials(uploadFile, (progress) => {
-        console.log(`Upload progress: ${progress}%`);
-      });
-
+      const response = await skService.bulkImportSKOfficials(uploadedFile, duplicateStrategy);
       if (response.success) {
-        const { summary, imported, errors } = response.data;
+        const result = response.data || {};
+        const summaryPayload = response.summary || {};
+        const computedSummary = {
+          total: summaryPayload.total ?? result.total ?? 0,
+          created: summaryPayload.created ?? result.created ?? 0,
+          updated: summaryPayload.updated ?? result.updated ?? 0,
+          restored: summaryPayload.restored ?? result.restored ?? 0,
+          skipped: summaryPayload.skipped ?? result.skipped ?? 0,
+          failed: summaryPayload.failed ?? result.failed ?? 0,
+          duplicateStrategy: summaryPayload.duplicateStrategy ?? result.duplicateStrategy ?? duplicateStrategy
+        };
+
+        // Extract errors from rows or parse error strings
+        let parsedErrors = [];
+        if (result.rows && Array.isArray(result.rows)) {
+          // Extract errors from failed/invalid rows
+          const failedRows = result.rows.filter(
+            (row) => row.action === 'failed' || row.action === 'invalid' || row.validationStatus === 'error'
+          );
+          parsedErrors = failedRows.map((row) => ({
+            row: row.rowNumber || row.row || 0,
+            reason: row.message || row.validationIssues?.join('; ') || row.issues?.join('; ') || 'Unknown error'
+          }));
+        }
         
-        showSuccessToast(
-          'Bulk import completed!',
-          `Successfully imported ${summary.importedRecords} SK officials out of ${summary.totalRows} records.`,
-          [
-            {
-              label: "View Imported",
-              onClick: () => {
-                setActiveTab('active');
-                loadSKData();
+        // Also check result.errors array (fallback)
+        if (parsedErrors.length === 0 && result.errors && Array.isArray(result.errors)) {
+          // Parse error strings like "Row 1: error message"
+          parsedErrors = result.errors.map((errorStr) => {
+            if (typeof errorStr === 'string') {
+              const match = errorStr.match(/^Row (\d+):\s*(.+)$/);
+              if (match) {
+                return { row: parseInt(match[1]), reason: match[2] };
               }
+              return { row: 0, reason: errorStr };
             }
-          ]
-        );
-        
-        // Reload SK data if any were imported
-        if (summary.importedRecords > 0) {
-          console.log('🔄 Reloading SK data after successful import...');
-          await loadSKData();
-          await loadSKStats();
-          console.log('✅ SK data reloaded');
+            // If it's already an object
+            return { row: errorStr.row || 0, reason: errorStr.reason || errorStr.message || 'Unknown error' };
+          });
         }
 
-        // Close validation modal and reset
-        setShowValidationModal(false);
-        setValidationResult(null);
-        setUploadFile(null);
-      } else {
-        showErrorToast('Import failed', response.message);
+        // Log for debugging if we have failures but no errors extracted
+        if (computedSummary.failed > 0 && parsedErrors.length === 0) {
+          logger.warn('Import had failures but no errors extracted', { failed: computedSummary.failed, total: computedSummary.total });
+        }
+
+        setImportSummary({ ...result, summary: computedSummary, errors: parsedErrors });
+
+        const importedCount =
+          (computedSummary.created ?? 0) +
+          (computedSummary.updated ?? 0) +
+          (computedSummary.restored ?? 0);
+
+        const parts = [];
+        if (computedSummary.created) parts.push(`${computedSummary.created} created`);
+        if (computedSummary.updated) parts.push(`${computedSummary.updated} updated`);
+        if (computedSummary.restored) parts.push(`${computedSummary.restored} restored`);
+        if (computedSummary.skipped) parts.push(`${computedSummary.skipped} skipped`);
+        if (computedSummary.failed) parts.push(`${computedSummary.failed} failed`);
+        const summaryText = parts.length ? parts.join(', ') : 'No changes applied';
+
+        if (computedSummary.failed > 0) {
+          showWarningToast(
+            'Import Completed with Issues',
+            `${importedCount}/${computedSummary.total} processed. ${summaryText}.`
+          );
+        } else if (computedSummary.skipped > 0 || computedSummary.updated > 0 || computedSummary.restored > 0) {
+          showInfoToast(
+            'Import Completed',
+            `${importedCount}/${computedSummary.total} processed. ${summaryText}.`
+          );
+        } else {
+          showSuccessToast(
+            'Import Completed',
+            `${importedCount}/${computedSummary.total} SK officials processed successfully.`
+          );
+        }
+
+        await loadSKData();
+        await loadSKStats();
       }
     } catch (error) {
-      console.error('Bulk import error:', error);
-      showErrorToast('Import error', 'An error occurred during import. Please try again.');
+      showErrorToast('Import Failed', error.message);
     } finally {
-      setIsUploading(false);
+      setIsImporting(false);
     }
   };
 
-  // Legacy upload function (for backward compatibility)
-  const handleUpload = async (e) => {
-    e.preventDefault();
-    if (!uploadFile) return;
-
-    // Validate file
-    const validation = skService.validateBulkImportFile(uploadFile);
-    if (!validation.isValid) {
-      showErrorToast('Invalid file', validation.errors.join(', '));
+  const downloadReportCsv = (rows, filename) => {
+    if (!rows || rows.length === 0) {
+      showErrorToast('No data available for export');
       return;
     }
 
-    setIsUploading(true);
-    
-    try {
-      const response = await skService.bulkImportSKOfficials(uploadFile, (progress) => {
-        console.log(`Upload progress: ${progress}%`);
-      });
+    const headers = Object.keys(rows[0]);
+    const csvLines = [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => {
+            const value = row[header] ?? '';
+            const formatted = String(value).replace(/"/g, '""');
+            return `"${formatted}"`;
+          })
+          .join(',')
+      )
+    ];
 
-      if (response.success) {
-        const { summary, imported, errors } = response.data;
-        
-        showSuccessToast(
-          'Bulk import completed!',
-          `Successfully imported ${summary.importedRecords} SK officials out of ${summary.totalRows} records.`,
-          [
-            {
-              label: "View Imported",
-              onClick: () => {
-                setActiveTab('active');
-                loadSKData();
-              }
-            }
-          ]
-        );
-        
-        // Reload SK data if any were imported
-        if (summary.importedRecords > 0) {
-          console.log('🔄 Reloading SK data after successful import...');
-          await loadSKData();
-          await loadSKStats();
-          console.log('✅ SK data reloaded');
-        }
-      } else {
-        showErrorToast('Import failed', response.message);
-      }
-    } catch (error) {
-      console.error('Bulk import error:', error);
-      showErrorToast('Import error', 'An error occurred during import. Please try again.');
-    } finally {
-      setIsUploading(false);
-      setUploadFile(null);
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadValidationReport = () => {
+    if (!validationResult?.rows?.length) {
+      showErrorToast('No validation details available');
+      return;
     }
+
+    const csvRows = validationResult.rows.map((row) => ({
+      Row: row.rowNumber,
+      Status: row.status,
+      Issues: row.issues.join('; '),
+      First_Name: row.normalized?.first_name ?? '',
+      Last_Name: row.normalized?.last_name ?? '',
+      Middle_Name: row.normalized?.middle_name ?? '',
+      Suffix: row.normalized?.suffix ?? '',
+      Position: row.normalized?.position ?? '',
+      Barangay: row.resolvedBarangayName ?? '',
+      Personal_Email: row.normalized?.personal_email ?? '',
+      Duplicate_In_File: row.duplicate?.inFile
+        ? row.duplicate?.isPrimaryInFile
+          ? 'Yes (first occurrence)'
+          : 'Yes'
+        : 'No',
+      Duplicate_System_Active: row.duplicate?.inDbActive ? 'Yes' : 'No',
+      Duplicate_System_Inactive: row.duplicate?.inDbInactive ? 'Yes' : 'No'
+    }));
+
+    downloadReportCsv(csvRows, 'sk_validation_report.csv');
+  };
+
+  const handleDownloadImportReport = () => {
+    if (!importSummary?.rows?.length) {
+      showErrorToast('No import results available');
+      return;
+    }
+
+    const csvRows = importSummary.rows.map((row) => ({
+      Row: row.rowNumber,
+      Action: row.action ?? '',
+      Message: row.message ?? '',
+      First_Name: row.data?.first_name ?? '',
+      Last_Name: row.data?.last_name ?? '',
+      Middle_Name: row.data?.middle_name ?? '',
+      Suffix: row.data?.suffix ?? '',
+      Personal_Email: row.data?.personal_email ?? '',
+      Position: row.data?.position ?? '',
+      Barangay: row.data?.barangay_name ?? '',
+      Validation_Status: row.validationStatus ?? '',
+      Validation_Issues: (row.validationIssues || []).join('; ')
+    }));
+
+    downloadReportCsv(csvRows, 'sk_import_report.csv');
   };
   
   // Collapse state for Bulk Import
@@ -498,10 +612,10 @@ const SKManagement = () => {
         const apiModule = await import('../../services/api.js');
         const api = apiModule.default;
         api.get(`/sk-officials/export/csv?${queryParams.toString()}`).catch(err => {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log export activity', err, { format });
         });
       } catch (err) {
-        console.error('Failed to log export activity:', err);
+        logger.error('Failed to log export activity', err, { format });
       }
       
       return { success: true };
@@ -543,10 +657,10 @@ const SKManagement = () => {
         const apiModule = await import('../../services/api.js');
         const api = apiModule.default;
         api.get(`/sk-officials/export/csv?${queryParams.toString()}`).catch(err => {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log export activity', err, { format });
         });
       } catch (err) {
-        console.error('Failed to log export activity:', err);
+        logger.error('Failed to log export activity', err, { format });
       }
       
       return { success: true };
@@ -584,19 +698,18 @@ const SKManagement = () => {
 
       const response = await skService.getSKOfficials(params);
       if (response.success) {
-        console.log('🎯 SK Data loaded successfully:', {
+        logger.debug('SK Data loaded successfully', {
           itemsCount: response.data.data?.items?.length || 0,
-          totalSK: response.data.data?.pagination?.totalItems || 0,
-          firstItem: response.data.data?.items?.[0] || null
+          totalSK: response.data.data?.pagination?.totalItems || 0
         });
         setSkData(response.data.data?.items || []);
         setTotalSK(response.data.data?.pagination?.totalItems || 0);
       } else {
-        console.error('Failed to load SK officials:', response.message);
+        logger.error('Failed to load SK officials', null, { message: response.message, params });
         showErrorToast('Failed to load data', 'Failed to load SK officials data: ' + response.message);
       }
     } catch (error) {
-      console.error('Error loading SK officials:', error);
+      logger.error('Error loading SK officials', error, { params });
       showErrorToast('Error loading data', 'An error occurred while loading SK officials data');
     } finally {
       setIsLoading(false);
@@ -609,12 +722,12 @@ const SKManagement = () => {
       const response = await skService.getSKStatistics();
       if (response.success) {
         setSkStats(response.data);
-        console.log('SK stats loaded:', response.data);
+        logger.debug('SK stats loaded', { statsKeys: Object.keys(response.data || {}) });
       } else {
-        console.error('Failed to load SK stats:', response.message);
+        logger.error('Failed to load SK stats', null, { message: response.message });
       }
     } catch (error) {
-      console.error('Error loading SK stats:', error);
+      logger.error('Error loading SK stats', error);
     }
   };
 
@@ -627,12 +740,12 @@ const SKManagement = () => {
       const response = await skTermsService.getTermHistory();
       if (response.success) {
         setTermHistory(response.data);
-        console.log('Term history loaded:', response.data);
+        logger.debug('Term history loaded', { historyCount: response.data?.length || 0 });
       } else {
-        console.error('Failed to load term history:', response.message);
+        logger.error('Failed to load term history', null, { message: response.message });
       }
     } catch (error) {
-      console.error('Error loading term history:', error);
+      logger.error('Error loading term history', error);
     }
   };
 
@@ -644,7 +757,7 @@ const SKManagement = () => {
         await loadTermHistory();
         // Stats and SK data will be loaded when active term is available
       } catch (error) {
-        console.error('Error initializing SK Management data:', error);
+        logger.error('Error initializing SK Management data', error);
       }
     };
 
@@ -803,14 +916,14 @@ const SKManagement = () => {
   const handleFilterApply = (appliedValues) => {
     setFilterValues(appliedValues);
     setCurrentPage(1); // Reset to first page when filtering
-    console.log('Applied filters:', appliedValues);
+    logger.debug('Applied filters', { appliedValues });
     // TODO: Apply filters to data loading
   };
 
   const handleFilterClear = (clearedValues) => {
     setFilterValues(clearedValues);
     setCurrentPage(1);
-    console.log('Cleared filters');
+    logger.debug('Cleared filters');
     // TODO: Clear filters from data loading
   };
 
@@ -825,13 +938,11 @@ const SKManagement = () => {
     const statusAction = item.isActive && !item.deactivated ? 'deactivate' : 'activate';
     const statusLabel = item.isActive && !item.deactivated ? 'Deactivate' : 'Activate';
     
-    console.log('🔧 Action Menu Items Debug:', {
+    logger.debug('Action Menu Items', {
       lydoId: item.lydoId,
       name: `${item.firstName} ${item.lastName}`,
       isActive: item.isActive,
-      deactivated: item.deactivated,
-      statusAction,
-      statusLabel
+      statusAction
     });
     
     return [
@@ -857,7 +968,7 @@ const SKManagement = () => {
   };
 
   const handleActionClick = async (action, item) => {
-    console.log('🔍 Action Menu Debug:', { 
+    logger.debug('Action Menu', { 
       action, 
       itemStatus: { 
         isActive: item.isActive, 
@@ -936,7 +1047,7 @@ const SKManagement = () => {
         showErrorToast('Failed to update status', response.message);
       }
     } catch (error) {
-      console.error('Error updating status:', error);
+      logger.error('Error updating status', error, { id });
       showErrorToast('Error updating status', 'An error occurred while updating SK official status');
     }
   };
@@ -954,7 +1065,7 @@ const SKManagement = () => {
         showErrorToast('Failed to delete SK official', response.message);
       }
     } catch (error) {
-      console.error('Error deleting SK official:', error);
+      logger.error('Error deleting SK official', error, { id });
       showErrorToast('Error deleting SK official', 'An error occurred while deleting the SK official');
     }
   };
@@ -988,14 +1099,14 @@ const SKManagement = () => {
         loadSKData(); // Reload data
         loadSKStats(); // Reload stats
       } else {
-        console.error('Update failed:', response);
+        logger.error('Update failed', null, { response, skId: updatedSKOfficial.skId });
         const errorMessage = response.details 
           ? `${response.message}\n\nDetails:\n• ${response.details.join('\n• ')}`
           : response.message;
         showErrorToast('Failed to update SK official', errorMessage);
       }
     } catch (error) {
-      console.error('Error updating SK official:', error);
+      logger.error('Error updating SK official', error, { skId: updatedSKOfficial.skId });
       showErrorToast('Error updating SK official', error.message || 'Unknown error occurred');
     } finally {
       setIsEditingSaving(false);
@@ -1066,7 +1177,7 @@ const SKManagement = () => {
         showErrorToast('Bulk Operation Failed', response.message);
       }
     } catch (error) {
-      console.error('Error in bulk operation:', error);
+      logger.error('Error in bulk operation', error, { bulkAction, itemIds: selectedItems });
       confirmation.hideConfirmation();
       setBulkAction(''); // Reset bulk action on error
       showErrorToast('Bulk Operation Error', 'Error performing bulk operation');
@@ -1152,7 +1263,7 @@ const SKManagement = () => {
         showErrorToast('Failed to create SK official', response.message);
       }
     } catch (error) {
-      console.error('Error creating SK official:', error);
+      logger.error('Error creating SK official', error);
       showErrorToast('Error creating SK official', 'An error occurred while creating the SK official');
     }
   };
@@ -1164,6 +1275,25 @@ const SKManagement = () => {
 
 
   // Sort modal content is now handled by the reusable SortModal component
+
+  const validationSummary = validationResult?.summary || null;
+  const hasFileSelected = !!uploadedFile;
+  const hasValidation = !!validationResult;
+  const invalidCount = validationSummary?.invalidRecords ?? 0;
+  const duplicateCount = validationSummary?.duplicateRecords ?? 0;
+  const isValidationPass = hasValidation && invalidCount === 0;
+  const validationState = !hasValidation
+    ? null
+    : invalidCount > 0
+      ? 'error'
+      : duplicateCount > 0
+        ? 'warning'
+        : 'success';
+  const canImport = isValidationPass && hasActiveTerm;
+  const importStep = !hasFileSelected ? 1 : !hasValidation ? 2 : canImport ? 3 : 2;
+  const problemRows = hasValidation
+    ? (validationResult.rows || []).filter((row) => row.status !== 'valid').slice(0, 5)
+    : [];
 
   // Helper functions for banner display
   const getCompletionPercentage = () => {
@@ -1487,12 +1617,11 @@ const SKManagement = () => {
             />
           ) : (
             <div>
-              {console.log('🔍 Rendering DataTable with:', { 
+              {logger.debug('Rendering DataTable', { 
                 skDataLength: skData?.length || 0, 
                 tabLoading, 
-                isLoading,
-                skDataSample: skData?.[0] || null 
-              })}
+                isLoading
+              }) || null}
               <DataTable
                 data={skData}
                 selectedItems={selectedItems}
@@ -1572,116 +1701,345 @@ const SKManagement = () => {
                 </div>
                 <div className="text-left">
                   <h2 className="text-lg font-bold text-gray-900">Bulk Import</h2>
-                  <p className="text-sm text-gray-600">Upload a CSV or Excel file to import SK officials</p>
+                  <p className="text-sm text-gray-600">
+                    {hasActiveTerm ? 'Upload a CSV or Excel file to import SK officials' : 'Activate an SK term to enable bulk import'}
+                  </p>
                 </div>
               </div>
               <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${uploadCollapsed ? 'rotate-180' : 'rotate-0'}`} />
             </button>
-            <div className={`p-0 ${uploadCollapsed ? 'hidden' : ''}`}>
-              {/* Modern dropzone header */}
-              <div
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                className="mx-5 mt-5 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 hover:border-indigo-300 transition-colors"
-              >
-                <div className="px-6 py-8 text-center">
-                  <div className="mx-auto w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center mb-3">
-                    <Upload className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <p className="text-sm text-gray-700">
-                    Drag and drop your CSV or Excel file here, or
-                    <label className="ml-1 font-medium text-indigo-700 hover:underline cursor-pointer">
-                      browse
-                      <input
-                        type="file"
-                        accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                        onChange={handleUploadFileChange}
-                        className="sr-only"
-                      />
-                    </label>
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500">Supported: CSV, XLSX. Max 10MB.</p>
+            <div className={`p-5 space-y-4 ${uploadCollapsed ? 'hidden' : ''}`}>
+              {/* Stepper */}
+              <div className="flex items-center justify-between text-xs font-medium">
+                <div className={`flex items-center flex-1 min-w-0 ${importStep >= 1 ? 'text-indigo-700' : 'text-gray-400'}`}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 ${importStep >= 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>1</div>
+                  <span className="truncate">Select File</span>
+                </div>
+                <div className={`h-px flex-1 mx-2 ${importStep > 1 ? 'bg-indigo-300' : 'bg-gray-200'}`} />
+                <div className={`flex items-center flex-1 min-w-0 ${importStep >= 2 ? 'text-indigo-700' : 'text-gray-400'}`}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 ${importStep >= 2 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>2</div>
+                  <span className="truncate">Validate</span>
+                </div>
+                <div className={`h-px flex-1 mx-2 ${importStep > 2 ? 'bg-indigo-300' : 'bg-gray-200'}`} />
+                <div className={`flex items-center flex-1 min-w-0 ${importStep >= 3 ? 'text-indigo-700' : 'text-gray-400'}`}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 ${importStep >= 3 ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>3</div>
+                  <span className="truncate">Import</span>
                 </div>
               </div>
 
-              {/* Selected file pill */}
-              {uploadFile && (
-                <div className="mx-5 mt-4 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2">
-                  <div className="flex items-center text-sm text-gray-700">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 mr-2">Selected</span>
-                    <span className="font-medium text-gray-900">{uploadFile.name}</span>
-                  </div>
+              {/* Template links */}
+              <div className="flex items-center justify-between text-xs text-gray-600">
+                <span>Need a sample? Includes required columns.</span>
+                <div className="flex items-center space-x-3">
                   <button
                     type="button"
-                    onClick={removeSelectedFile}
-                    className="text-sm text-gray-500 hover:text-gray-700"
+                    onClick={async () => {
+                      try {
+                        await skService.downloadTemplate('csv');
+                        showInfoToast('Template downloaded', 'CSV template has been downloaded to your computer.');
+                      } catch (error) {
+                        logger.error('CSV template download failed', error, { format: 'csv' });
+                        showErrorToast('Download failed', 'Failed to download CSV template. Please try again.');
+                      }
+                    }}
+                    disabled={!hasActiveTerm || isValidating || isImporting}
+                    className="inline-flex items-center text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
                   >
-                    Remove
+                    <FileText className="w-3.5 h-3.5 mr-1" /> CSV Template
+                  </button>
+                  <span className="text-gray-300">|</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await skService.downloadTemplate('xlsx');
+                        showInfoToast('Template downloaded', 'Excel template has been downloaded to your computer.');
+                      } catch (error) {
+                        logger.error('Excel template download failed', error, { format: 'xlsx' });
+                        showErrorToast('Download failed', 'Failed to download Excel template. Please try again.');
+                      }
+                    }}
+                    disabled={!hasActiveTerm || isValidating || isImporting}
+                    className="inline-flex items-center text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                  >
+                    <FileText className="w-3.5 h-3.5 mr-1" /> Excel Template
                   </button>
                 </div>
-              )}
+              </div>
 
-              {/* Actions */}
-              <div className="mx-5 my-5 grid grid-cols-2 gap-3">
+              {/* Choose File */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Choose file</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  disabled={!hasActiveTerm}
+                />
                 <button
                   type="button"
-                  onClick={async () => {
-                    try {
-                      await skService.downloadTemplate('csv');
-                      showInfoToast('Template downloaded', 'CSV template has been downloaded to your computer.');
-                    } catch (error) {
-                      console.error('CSV template download failed:', error);
-                      showErrorToast('Download failed', 'Failed to download CSV template. Please try again.');
-                    }
-                  }}
-                  disabled={isUploading}
-                  className="w-full px-4 py-2 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  onClick={() => hasActiveTerm && fileInputRef.current && fileInputRef.current.click()}
+                  onDrop={hasActiveTerm ? handleDrop : undefined}
+                  onDragOver={hasActiveTerm ? handleDragOver : undefined}
+                  disabled={!hasActiveTerm || isValidating || isImporting}
+                  className={`w-full border-2 border-dashed rounded-lg p-4 text-left transition-colors duration-200 ${
+                    uploadedFile ? 'border-emerald-300 bg-emerald-50/30 hover:bg-emerald-50' : 'border-gray-300 hover:bg-gray-50'
+                  } ${!hasActiveTerm ? 'cursor-not-allowed' : ''}`}
                 >
-                  📄 CSV Template
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center mr-3 ${uploadedFile ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                        <Upload className={`w-5 h-5 ${uploadedFile ? 'text-emerald-600' : 'text-gray-500'}`} />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">
+                          {uploadedFile ? uploadedFile.name : 'Click to select a CSV or Excel file'}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Supported: .csv, .xlsx • Max 10MB
+                        </div>
+                      </div>
+                    </div>
+                    {uploadedFile ? (
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!hasActiveTerm) return;
+                            fileInputRef.current && fileInputRef.current.click();
+                          }}
+                          disabled={!hasActiveTerm || isValidating || isImporting}
+                          className="px-2.5 py-1 text-xs font-medium rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          Change
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearFile();
+                          }}
+                          disabled={!hasActiveTerm || isValidating || isImporting}
+                          className="px-2.5 py-1 text-xs font-medium rounded border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-xs font-medium text-indigo-700">Browse</div>
+                    )}
+                  </div>
                 </button>
+                {uploadedFile && (
+                  <div className="mt-2 text-xs text-gray-600">
+                    {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB • {uploadedFile.type || 'File'}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-3 pt-2">
                 <button
                   type="button"
-                  onClick={async () => {
-                    try {
-                      await skService.downloadTemplate('xlsx');
-                      showInfoToast('Template downloaded', 'Excel template has been downloaded to your computer.');
-                    } catch (error) {
-                      console.error('Excel template download failed:', error);
-                      showErrorToast('Download failed', 'Failed to download Excel template. Please try again.');
-                    }
-                  }}
-                  disabled={isUploading}
-                  className="w-full px-4 py-2 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                >
-                  📊 Excel Template
-                </button>
-                <button
-                  type="button"
-                  onClick={removeSelectedFile}
-                  disabled={!uploadFile || isUploading || isValidating}
-                  className="w-full px-4 py-2 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  onClick={clearFile}
+                  disabled={!uploadedFile || isValidating || isImporting || !hasActiveTerm}
+                  className="px-4 py-2 border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
                 >
                   Clear
                 </button>
                 <button
                   type="button"
-                  onClick={handleValidateFile}
-                  disabled={!uploadFile || isUploading || isValidating}
-                  className="w-full inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  onClick={validateFile}
+                  disabled={!uploadedFile || isValidating || isImporting || !hasActiveTerm}
+                  className={`inline-flex items-center px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 ${
+                    uploadedFile ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-300'
+                  }`}
                 >
-                  {isValidating ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Validating...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Validate
-                    </>
-                  )}
+                  {isValidating ? 'Validating...' : 'Validate'}
                 </button>
               </div>
+
+              <p className="text-xs text-gray-500">
+                Supported formats: CSV, XLSX. Max 10MB.
+              </p>
+
+              {hasValidation && (
+                <div
+                  className={`rounded-lg border p-3 ${
+                    validationState === 'success'
+                      ? 'border-green-200 bg-green-50'
+                      : validationState === 'warning'
+                        ? 'border-amber-200 bg-amber-50'
+                        : 'border-red-200 bg-red-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">
+                      {validationState === 'success'
+                        ? 'Validation passed'
+                        : validationState === 'warning'
+                          ? 'Validation passed with duplicates'
+                          : 'Validation completed with issues'}
+                    </div>
+                    {validationState === 'success' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-gray-700">
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Total:</span> {validationSummary?.totalRecords ?? 0}
+                    </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Valid:</span> {validationSummary?.validRecords ?? 0}
+                    </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Invalid:</span> {validationSummary?.invalidRecords ?? 0}
+                    </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Duplicates:</span> {duplicateCount}
+                    </div>
+                  </div>
+                  {duplicateCount > 0 && (
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-600">
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Within file:</span> {validationSummary?.duplicateInFile ?? 0}
+                      </div>
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Existing active:</span> {validationSummary?.duplicateInDbActive ?? 0}
+                      </div>
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Existing inactive:</span> {validationSummary?.duplicateInDbInactive ?? 0}
+                      </div>
+                    </div>
+                  )}
+                  {validationState === 'error' && (
+                    <div className="mt-2 text-xs text-red-600">
+                      Fix the highlighted issues in your file and re-validate.
+                    </div>
+                  )}
+                  {validationState === 'warning' && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      Duplicates detected. Choose how to handle them before importing.
+                    </div>
+                  )}
+                  {problemRows.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-700">First few issues</p>
+                      <ul className="mt-1 space-y-1 text-xs text-gray-600">
+                        {problemRows.map((row) => (
+                          <li key={row.rowNumber}>
+                            <span className="font-medium">Row {row.rowNumber}:</span>{' '}
+                            {row.issues.length > 0 ? row.issues.join('; ') : 'Potential duplicate'}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadValidationReport}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50"
+                    >
+                      <FileText className="w-4 h-4 mr-1.5" />
+                      Download validation report
+                    </button>
+                  </div>
+                  {validationState !== 'error' && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">Duplicate handling</p>
+                      <div className="flex flex-col gap-1 text-xs text-gray-600">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="skDuplicateStrategy"
+                            value="skip"
+                            checked={duplicateStrategy === 'skip'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Skip duplicates (no changes to existing officials)</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="skDuplicateStrategy"
+                            value="update"
+                            checked={duplicateStrategy === 'update'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Update existing officials when a duplicate is active</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="skDuplicateStrategy"
+                            value="restore"
+                            checked={duplicateStrategy === 'restore'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Restore inactive duplicates (and update details)</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {importSummary && (
+                <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">Last Import Summary</div>
+                    <button
+                      type="button"
+                      onClick={handleDownloadImportReport}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100"
+                    >
+                      <FileText className="w-4 h-4 mr-1.5" />
+                      Download import report
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div><span className="font-medium text-gray-900">Created:</span> {importSummary.summary?.created ?? importSummary.created ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Updated:</span> {importSummary.summary?.updated ?? importSummary.updated ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Restored:</span> {importSummary.summary?.restored ?? importSummary.restored ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Skipped:</span> {importSummary.summary?.skipped ?? importSummary.skipped ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Failed:</span> {importSummary.summary?.failed ?? importSummary.failed ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Total:</span> {importSummary.summary?.total ?? importSummary.total ?? 0}</div>
+                  </div>
+                  {importSummary.errors?.length > 0 && (
+                    <div className="mt-2">
+                      <p className="font-semibold text-xs text-gray-800">First few issues</p>
+                      <ul className="mt-1 space-y-1 text-xs text-gray-600">
+                        {importSummary.errors.slice(0, 5).map((item, idx) => (
+                          <li key={`error-${idx}-${item.row || idx}`}>
+                            <span className="font-medium">
+                              {item.row ? `Row ${item.row}:` : 'Error:'}
+                            </span>{' '}
+                            {item.reason || item.message || 'Unknown error'}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canImport && (
+                <button
+                  type="button"
+                  onClick={importFile}
+                  disabled={isImporting}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {isImporting ? 'Importing...' : 'Import SK Officials'}
+                </button>
+              )}
+
+              {!hasActiveTerm && (
+                <p className="text-xs text-red-500">
+                  Activate an SK term before importing officials.
+                </p>
+              )}
             </div>
           </div>
 
@@ -2004,216 +2362,6 @@ const SKManagement = () => {
       {/* Universal Toast Container */}
       <ToastContainer position="top-right" maxToasts={5} />
       
-      {/* Bulk Import Validation Modal */}
-      {showValidationModal && validationResult && createPortal(
-        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 backdrop-blur-[1px]" onClick={() => setShowValidationModal(false)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <CheckCircle className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">Bulk Import Validation</h3>
-                    <p className="text-sm text-gray-600">Review validation results before importing</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowValidationModal(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-              {/* Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <div className="flex items-center">
-                    <CheckCircle className="w-8 h-8 text-green-600 mr-3" />
-                    <div>
-                      <div className="text-2xl font-bold text-green-800">{validationResult.summary.valid}</div>
-                      <div className="text-sm text-green-600">Valid Records</div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="flex items-center">
-                    <AlertCircle className="w-8 h-8 text-red-600 mr-3" />
-                    <div>
-                      <div className="text-2xl font-bold text-red-800">{validationResult.summary.invalid}</div>
-                      <div className="text-sm text-red-600">Invalid Records</div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center">
-                    <Info className="w-8 h-8 text-blue-600 mr-3" />
-                    <div>
-                      <div className="text-2xl font-bold text-blue-800">{validationResult.summary.total}</div>
-                      <div className="text-sm text-blue-600">Total Records</div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <div className="flex items-center">
-                    <AlertTriangle className="w-8 h-8 text-yellow-600 mr-3" />
-                    <div>
-                      <div className="text-2xl font-bold text-yellow-800">{Object.keys(validationResult.preview?.conflictsByType || {}).length}</div>
-                      <div className="text-sm text-yellow-600">Conflict Types</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Recommended Action */}
-              {validationResult.preview?.recommendedAction && (
-                <div className={`mb-6 p-4 rounded-lg border ${
-                  validationResult.preview.recommendedAction.severity === 'error' ? 'bg-red-50 border-red-200' :
-                  validationResult.preview.recommendedAction.severity === 'warning' ? 'bg-yellow-50 border-yellow-200' :
-                  validationResult.preview.recommendedAction.severity === 'success' ? 'bg-green-50 border-green-200' :
-                  'bg-blue-50 border-blue-200'
-                }`}>
-                  <div className="flex items-start">
-                    {validationResult.preview.recommendedAction.severity === 'error' ? (
-                      <AlertCircle className="w-5 h-5 text-red-600 mr-3 mt-0.5" />
-                    ) : validationResult.preview.recommendedAction.severity === 'warning' ? (
-                      <AlertTriangle className="w-5 h-5 text-yellow-600 mr-3 mt-0.5" />
-                    ) : validationResult.preview.recommendedAction.severity === 'success' ? (
-                      <CheckCircle className="w-5 h-5 text-green-600 mr-3 mt-0.5" />
-                    ) : (
-                      <Info className="w-5 h-5 text-blue-600 mr-3 mt-0.5" />
-                    )}
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Recommended Action</h4>
-                      <p className="text-sm text-gray-700">{validationResult.preview.recommendedAction.message}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Conflicts Summary */}
-              {Object.keys(validationResult.preview?.conflictsByType || {}).length > 0 && (
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Conflicts Found</h4>
-                  <div className="space-y-3">
-                    {Object.entries(validationResult.preview.conflictsByType).map(([type, conflicts]) => (
-                      <div key={type} className="bg-red-50 border border-red-200 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="font-medium text-red-800 capitalize">{type.replace(/_/g, ' ')}</h5>
-                          <span className="text-sm text-red-600 bg-red-100 px-2 py-1 rounded-full">{conflicts.length} conflicts</span>
-                        </div>
-                        <div className="space-y-2">
-                          {conflicts.slice(0, 3).map((conflict, index) => (
-                            <div key={index} className="text-sm text-red-700 bg-red-100 p-2 rounded">
-                              Row {conflict.record.rowIndex}: {conflict.record.errors[0]}
-                            </div>
-                          ))}
-                          {conflicts.length > 3 && (
-                            <div className="text-sm text-red-600 italic">
-                              ... and {conflicts.length - 3} more conflicts
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Valid Records Preview */}
-              {validationResult.preview?.validRecords && validationResult.preview.validRecords.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Valid Records ({validationResult.preview.validRecords.length})</h4>
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="space-y-2">
-                      {validationResult.preview.validRecords.slice(0, 5).map((record, index) => (
-                        <div key={index} className="text-sm text-green-700 bg-green-100 p-2 rounded">
-                          Row {record.rowIndex}: {record.record.firstName} {record.record.lastName} - {record.record.position}
-                        </div>
-                      ))}
-                      {validationResult.preview.validRecords.length > 5 && (
-                        <div className="text-sm text-green-600 italic">
-                          ... and {validationResult.preview.validRecords.length - 5} more valid records
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Invalid Records Preview */}
-              {validationResult.preview?.invalidRecords && validationResult.preview.invalidRecords.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Invalid Records ({validationResult.preview.invalidRecords.length})</h4>
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div className="space-y-2">
-                      {validationResult.preview.invalidRecords.slice(0, 5).map((record, index) => (
-                        <div key={index} className="text-sm text-red-700 bg-red-100 p-2 rounded">
-                          Row {record.rowIndex}: {record.errors.join(', ')}
-                        </div>
-                      ))}
-                      {validationResult.preview.invalidRecords.length > 5 && (
-                        <div className="text-sm text-red-600 italic">
-                          ... and {validationResult.preview.invalidRecords.length - 5} more invalid records
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
-              <div className="text-sm text-gray-600">
-                {validationResult.preview?.canProceed ? (
-                  <span className="text-green-600">✅ Ready to import {validationResult.summary.valid} valid records</span>
-                ) : (
-                  <span className="text-red-600">❌ No valid records to import</span>
-                )}
-              </div>
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => setShowValidationModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                {validationResult.preview?.canProceed && (
-                  <button
-                    onClick={handleImportAfterValidation}
-                    disabled={isUploading}
-                    className="inline-flex items-center px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-                  >
-                    {isUploading ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Importing...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-4 h-4 mr-2" />
-                        Import Valid Records
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
       {/* Universal Confirmation Modal - Beautiful replacement for browser confirm() */}
       <ConfirmationModal {...confirmation.modalProps} />
     </div>

@@ -1,15 +1,13 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route } from 'react-router-dom';
 
 // Staff Layout
 import StaffLayout from '../components/layouts/StaffLayout';
 import ProtectedRoute from '../components/ProtectedRoute';
+import LoadingScreen from '../components/LoadingScreen';
 
-// Staff Pages
-import StaffDashboard from '../pages/staff/StaffDashboard';
-
-// Removed user management imports for staff stack
-
+// Lazy load Staff Pages
+const StaffDashboard = lazy(() => import('../pages/staff/StaffDashboard'));
 
 
 
@@ -17,54 +15,110 @@ import StaffDashboard from '../pages/staff/StaffDashboard';
 
 
 
-import StaffProfile from '../pages/staff/StaffProfile';
-import ChangePassword from '../pages/staff/ChangePassword';
-import Notifications from '../pages/staff/Notifications';
-import Announcements from '../pages/staff/Announcements';
-import AnnouncementCreate from '../pages/staff/AnnouncementCreate';
-import AnnouncementEdit from '../pages/staff/AnnouncementEdit';
-import AnnouncementDetail from '../pages/staff/AnnouncementDetail';
-import AnnouncementsFeatured from '../pages/staff/AnnouncementsFeatured';
 
-import SurveyBatches from '../pages/staff/SurveyBatch';
-import SurveyBatchReport from '../pages/staff/SurveyBatchReport';
-
-// Staff SK Governance
-import SKTerms from '../pages/staff/SKTerms';
-import SKTermReport from '../pages/staff/SKTermReport';
-
-import PortalNotFound from '../components/porrtal/PortalNotFound';
+const StaffProfile = lazy(() => import('../pages/staff/StaffProfile'));
+const ChangePassword = lazy(() => import('../pages/staff/ChangePassword'));
+const Notifications = lazy(() => import('../pages/staff/Notifications'));
+const Announcements = lazy(() => import('../pages/staff/Announcements'));
+const AnnouncementCreate = lazy(() => import('../pages/staff/AnnouncementCreate'));
+const AnnouncementEdit = lazy(() => import('../pages/staff/AnnouncementEdit'));
+const AnnouncementDetail = lazy(() => import('../pages/staff/AnnouncementDetail'));
+const AnnouncementsFeatured = lazy(() => import('../pages/staff/AnnouncementsFeatured'));
+const SurveyBatches = lazy(() => import('../pages/staff/SurveyBatch'));
+const SurveyBatchReport = lazy(() => import('../pages/staff/SurveyBatchReport'));
+const SKTerms = lazy(() => import('../pages/staff/SKTerms'));
+const SKTermReport = lazy(() => import('../pages/staff/SKTermReport'));
+const PortalNotFound = lazy(() => import('../components/porrtal/PortalNotFound'));
 
 const StaffStack = () => {
   return (
     <ProtectedRoute requiredRole="lydo_staff">
     <StaffLayout>
       <Routes>
-        <Route path="/" element={<StaffDashboard />} />
-        <Route path="/dashboard" element={<StaffDashboard />} />
+        <Route path="/" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <StaffDashboard />
+          </Suspense>
+        } />
+        <Route path="/dashboard" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <StaffDashboard />
+          </Suspense>
+        } />
         {/* User management and admin-only routes removed for staff */}
 
         {/* Staff Announcements */}
-        <Route path="/announcements" element={<Announcements />} />
-        <Route path="/announcements/create" element={<AnnouncementCreate />} />
-        <Route path="/announcements/:id/edit" element={<AnnouncementEdit />} />
-        <Route path="/announcements/:id" element={<AnnouncementDetail />} />
-        <Route path="/announcements/featured" element={<AnnouncementsFeatured />} />
-        <Route path="/profile" element={<StaffProfile />} />
-        <Route path="/change-password" element={<ChangePassword />} />
-        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/announcements" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <Announcements />
+          </Suspense>
+        } />
+        <Route path="/announcements/create" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <AnnouncementCreate />
+          </Suspense>
+        } />
+        <Route path="/announcements/:id/edit" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <AnnouncementEdit />
+          </Suspense>
+        } />
+        <Route path="/announcements/:id" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <AnnouncementDetail />
+          </Suspense>
+        } />
+        <Route path="/announcements/featured" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <AnnouncementsFeatured />
+          </Suspense>
+        } />
+        <Route path="/profile" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <StaffProfile />
+          </Suspense>
+        } />
+        <Route path="/change-password" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <ChangePassword />
+          </Suspense>
+        } />
+        <Route path="/notifications" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <Notifications />
+          </Suspense>
+        } />
         
         {/* Survey Batch Routes */}
-        <Route path="/survey/batches" element={<SurveyBatches />} />
-        <Route path="/survey/batches/batch-report" element={<SurveyBatchReport />} />
+        <Route path="/survey/batches" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <SurveyBatches />
+          </Suspense>
+        } />
+        <Route path="/survey/batches/batch-report" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <SurveyBatchReport />
+          </Suspense>
+        } />
         
         {/* SK Governance (view-only for staff) */}
-        <Route path="/sk-governance/terms" element={<SKTerms />} />
-        <Route path="/sk-governance/term-report" element={<SKTermReport />} />
+        <Route path="/sk-governance/terms" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <SKTerms />
+          </Suspense>
+        } />
+        <Route path="/sk-governance/term-report" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <SKTermReport />
+          </Suspense>
+        } />
         
-        {/* Fallback for unknown routes under /staff */
-        }
-        <Route path="*" element={<PortalNotFound homePath="/staff/dashboard" />} />
+        {/* Fallback for unknown routes under /staff */}
+        <Route path="*" element={
+          <Suspense fallback={<LoadingScreen />}>
+            <PortalNotFound homePath="/staff/dashboard" />
+          </Suspense>
+        } />
       </Routes>
     </StaffLayout>
     </ProtectedRoute>

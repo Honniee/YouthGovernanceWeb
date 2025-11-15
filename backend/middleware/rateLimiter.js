@@ -177,4 +177,40 @@ export const resetFailedAttempts = (ip) => {
  */
 export const getFailedAttempts = (ip) => {
   return failedAttempts.get(ip) || 0;
-}; 
+};
+
+// Resend email rate limiter (based on youth_id + email combination)
+// This prevents users from repeatedly requesting new email links
+export const resendEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour window
+  max: 3, // Maximum 3 resend requests per hour per youth_id + email combination
+  message: {
+    error: 'Too many email resend requests. Please wait before requesting another email.',
+    retryAfter: '1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Custom key generator: use youth_id + email instead of IP
+  keyGenerator: (req) => {
+    const { youth_id, email } = req.body || {};
+    if (youth_id && email) {
+      // Use normalized email (lowercase) + youth_id as key
+      return `resend:${youth_id}:${email.toLowerCase().trim()}`;
+    }
+    // Fallback to IP if youth_id/email not provided (shouldn't happen after validation)
+    return req.ip || req.connection.remoteAddress;
+  },
+  skip: (req) => {
+    // Skip rate limiting if youth_id or email is missing (will fail validation anyway)
+    const { youth_id, email } = req.body || {};
+    return !youth_id || !email;
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      message: 'Too many email resend requests. Please wait 1 hour before requesting another email.',
+      retryAfter: Math.ceil(req.rateLimit.resetTime / 1000),
+      error: 'rate_limit_exceeded'
+    });
+  }
+}); 

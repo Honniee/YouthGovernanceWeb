@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import statisticsService from '../services/statisticsService.js';
+import logger from '../utils/logger.js';
 
 /**
  * Hook to get home page statistics
@@ -16,19 +17,19 @@ export const useStatistics = () => {
       setIsLoading(true);
       setError(null);
 
-      console.log('📊 Hook - Loading statistics...');
+      logger.debug('Loading statistics');
       const result = await statisticsService.getHomePageStatistics();
       
       if (result.success) {
         setStatistics(result.data);
         setLastUpdated(new Date());
-        console.log('📊 Hook - Statistics loaded successfully:', result.data);
+        logger.debug('Statistics loaded successfully', { hasData: !!result.data });
       } else {
         setError(result.message || 'Failed to load statistics');
-        console.error('📊 Hook - Failed to load statistics:', result.message);
+        logger.error('Failed to load statistics', null, { message: result.message });
       }
     } catch (err) {
-      console.error('📊 Hook - Error loading statistics:', err);
+      logger.error('Error loading statistics', err);
       setError('Failed to load statistics');
     } finally {
       setIsLoading(false);
@@ -69,19 +70,19 @@ export const useAdminStatistics = () => {
       setIsLoading(true);
       setError(null);
 
-      console.log('📊 Hook - Loading admin statistics...');
+      logger.debug('Loading admin statistics');
       const result = await statisticsService.getAdminDashboardStatistics();
       
       if (result.success) {
         setStatistics(result.data);
         setLastUpdated(new Date());
-        console.log('📊 Hook - Admin statistics loaded successfully:', result.data);
+        logger.debug('Admin statistics loaded successfully', { hasData: !!result.data });
       } else {
         setError(result.message || 'Failed to load admin statistics');
-        console.error('📊 Hook - Failed to load admin statistics:', result.message);
+        logger.error('Failed to load admin statistics', null, { message: result.message });
       }
     } catch (err) {
-      console.error('📊 Hook - Error loading admin statistics:', err);
+      logger.error('Error loading admin statistics', err);
       setError('Failed to load admin statistics');
     } finally {
       setIsLoading(false);

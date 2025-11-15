@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { HeaderMainContent, TabContainer, Tab, useTabState, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, Status, ExportButton, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable } from '../../components/portal_main_content';
+import { HeaderMainContent, TabContainer, Tab, useTabState, SearchBar, SortModal, FilterModal, BulkModal, Pagination, useSortModal, useBulkModal, Status, ExportButton, LoadingSpinner, BulkActionsBar, CollapsibleForm, DataTable, TabbedDetailModal } from '../../components/portal_main_content';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, showWarningToast, ConfirmationModal, useConfirmation } from '../../components/universal';
-import { Search, Calendar, Users, FileText, ChevronDown, ArrowUpDown, Upload, CheckCircle, AlertCircle, X, User, Filter, Grid, List, UserPlus, Mail, Save, Edit, CheckCircle2, XCircle, Activity, BarChart3, UserCheck } from 'lucide-react';
+import { Search, Calendar, Users, FileText, ChevronDown, ArrowUpDown, Upload, CheckCircle, AlertCircle, X, User, Filter, Grid, List, UserPlus, Save, Edit, CheckCircle2, XCircle, Activity, BarChart3, Eye, Trash2 } from 'lucide-react';
 import voterService from '../../services/voterService.js';
+import { useAuth } from '../../context/AuthContext';
+import logger from '../../utils/logger.js';
 
 const VoterListUpload = () => {
   const confirmation = useConfirmation();
   const fileInputRef = useRef(null);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   // Tabs
   const { activeTab, setActiveTab } = useTabState('active', async () => {
@@ -60,6 +64,8 @@ const VoterListUpload = () => {
   // Bulk import state
   const [uploadedFile, setUploadedFile] = useState(null);
   const [validationResult, setValidationResult] = useState(null);
+const [duplicateStrategy, setDuplicateStrategy] = useState('skip');
+const [importSummary, setImportSummary] = useState(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [uploadCollapsed, setUploadCollapsed] = useState(true);
@@ -83,6 +89,9 @@ const VoterListUpload = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [editData, setEditData] = useState({ firstName: '', lastName: '', middleName: '', suffix: '', birthDate: '', gender: '' });
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedVoter, setSelectedVoter] = useState(null);
+  const [isViewLoading, setIsViewLoading] = useState(false);
 
   // Bulk action state
   const [bulkAction, setBulkAction] = useState('');
@@ -94,7 +103,7 @@ const VoterListUpload = () => {
   
   // Handle sort changes from modal
   const handleSortChange = (newSortBy, newSortOrder) => {
-    console.log('🔍 Sort change:', { newSortBy, newSortOrder });
+    logger.debug('VoterListUpload sort change', { newSortBy, newSortOrder });
     setSortBy(newSortBy);
     setSortOrder(newSortOrder);
   };
@@ -133,6 +142,113 @@ const VoterListUpload = () => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1); // Reset to first page when changing items per page
   };
+
+  const voterDetailConfig = useMemo(() => ({
+    header: {
+      coverClass: 'from-slate-200 via-slate-300 to-slate-400',
+      title: (data) => {
+        const fullName = [data.firstName, data.middleName, data.lastName].filter(Boolean).join(' ').trim();
+        return fullName || data.voterId || 'Voter';
+      },
+      subtitle: (data) => data.email || null,
+      avatar: (data) => ({
+        user: {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          personalEmail: data.email
+        }
+      }),
+      meta: (data) => [
+        data.birthDate
+          ? {
+              icon: Calendar,
+              value: new Date(data.birthDate).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })
+            }
+          : null,
+        Number.isFinite(data.age)
+          ? {
+              icon: Activity,
+              value: `${data.age} years old`
+            }
+          : null
+      ].filter(Boolean),
+      pills: (data) => [data.isActive ? 'Active' : 'Inactive'].filter(Boolean)
+    },
+    tabs: [
+      {
+        id: 'profile',
+        label: 'Profile',
+        icon: User,
+        sections: [
+          {
+            title: 'Voter Information',
+            variant: 'main',
+            layout: 'grid',
+            fields: [
+              { key: 'firstName', label: 'First Name', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+              { key: 'lastName', label: 'Last Name', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+              { key: 'middleName', label: 'Middle Name', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+              { key: 'suffix', label: 'Suffix', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+              { key: 'gender', label: 'Gender', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+              { key: 'birthDate', label: 'Birth Date', type: 'date', width: 'half', variant: 'pill', readOnlyStyle: 'input' },
+              {
+                key: 'age',
+                label: 'Age',
+                width: 'half',
+                variant: 'pill',
+                readOnlyStyle: 'input',
+                value: (data) => (Number.isFinite(data.age) ? `${data.age}` : '—')
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: 'participation',
+        label: 'Participation',
+        icon: Activity,
+        sections: [
+          {
+            title: 'Survey Participation',
+            variant: 'main',
+            layout: 'grid',
+            fields: [
+              {
+                key: 'participationStatus',
+                label: 'Status',
+                width: 'half',
+                variant: 'pill',
+                readOnlyStyle: 'input',
+                value: (data) => (data.hasParticipated ? 'Has Participated' : 'Not Participated')
+              },
+              {
+                key: 'surveyCount',
+                label: 'Survey Count',
+                width: 'half',
+                variant: 'pill',
+                readOnlyStyle: 'input',
+                value: (data) => data.surveyCount ?? 0
+              },
+              {
+                key: 'firstSurveyDate',
+                label: 'First Survey Date',
+                type: 'datetime',
+                width: 'half',
+                variant: 'pill',
+                readOnlyStyle: 'input'
+              }
+            ]
+          }
+        ]
+      },
+      {
+      }
+    ]
+  }), []);
 
   // Filter configuration for FilterModal
   const filterConfig = [
@@ -201,7 +317,7 @@ const VoterListUpload = () => {
         const transformedVoters = response.data.map(voter => voterService.transformVoterData(voter));
         setVoters(transformedVoters);
         setStats(response.stats);
-        console.log('🔍 VoterListUpload - API response:', {
+        logger.debug('VoterListUpload API response', {
           success: response.success,
           dataLength: response.data?.length || 0,
           stats: response.stats,
@@ -209,7 +325,7 @@ const VoterListUpload = () => {
         });
       }
     } catch (error) {
-      console.error('Error loading voters:', error);
+      logger.error('Error loading voters', error);
       showErrorToast(error.message);
     } finally {
       setIsLoading(false);
@@ -223,7 +339,7 @@ const VoterListUpload = () => {
 
   // Debug pagination state changes
   useEffect(() => {
-    console.log('🔍 VoterListUpload - pagination state changed:', {
+    logger.debug('VoterListUpload pagination state changed', {
       currentPage,
       itemsPerPage,
       tab: activeTab,
@@ -237,7 +353,7 @@ const VoterListUpload = () => {
   // Sync pagination hook when stats.total changes
   useEffect(() => {
     if (paginationState.totalItems !== totalItemsForTab) {
-      console.log('🔄 VoterListUpload - Syncing pagination with stats.total:', { 
+      logger.debug('VoterListUpload syncing pagination with stats.total', { 
         totalItemsForTab, 
         paginationTotal: paginationState.totalItems 
       });
@@ -257,7 +373,7 @@ const VoterListUpload = () => {
       // In a real implementation, you might want to create a separate API endpoint
       voterService.generatePDF(selectedVoters, 'selected');
     } catch (error) {
-      console.error('Export error:', error);
+      logger.error('Export error', error);
       throw error;
     }
   };
@@ -286,7 +402,7 @@ const VoterListUpload = () => {
               if (response.success) {
                 showSuccessToast('Bulk archive completed', `${response.processed} voters archived successfully`);
                 if (response.errors && response.errors.length > 0) {
-                  console.warn('Some items failed:', response.errors);
+                  logger.warn('Bulk archive partial failures', { errors: response.errors });
                 }
               } else {
                 throw new Error(response.message || 'Bulk archive failed');
@@ -294,7 +410,7 @@ const VoterListUpload = () => {
               await loadVotersData(); // Reload data
               setSelectedItems([]); // Clear selection
             } catch (error) {
-              console.error('Bulk archive error:', error);
+              logger.error('Bulk archive error', error);
               showErrorToast('Bulk archive failed', error.message || 'An error occurred during bulk archive operation');
             } finally {
               confirmation.hideConfirmation();
@@ -312,7 +428,7 @@ const VoterListUpload = () => {
               if (response.success) {
                 showSuccessToast('Bulk restore completed', `${response.processed} voters restored successfully`);
                 if (response.errors && response.errors.length > 0) {
-                  console.warn('Some items failed:', response.errors);
+                  logger.warn('Bulk restore partial failures', { errors: response.errors });
                 }
               } else {
                 throw new Error(response.message || 'Bulk restore failed');
@@ -320,7 +436,7 @@ const VoterListUpload = () => {
               await loadVotersData(); // Reload data
               setSelectedItems([]); // Clear selection
             } catch (error) {
-              console.error('Bulk restore error:', error);
+              logger.error('Bulk restore error', error);
               showErrorToast('Bulk restore failed', error.message || 'An error occurred during bulk restore operation');
             } finally {
               confirmation.hideConfirmation();
@@ -329,11 +445,54 @@ const VoterListUpload = () => {
         );
       }
     } catch (error) {
-      console.error('Bulk operation error:', error);
+      logger.error('Bulk operation error', error);
       showErrorToast('Bulk operation failed', 'An error occurred during bulk operation');
     } finally {
       setIsBulkProcessing(false);
       setBulkAction('');
+    }
+  };
+  
+  const openVoterDetails = async (item) => {
+    setSelectedVoter(item);
+    setShowViewModal(true);
+
+    try {
+      setIsViewLoading(true);
+      const response = await voterService.getVoterById(item.voterId);
+      if (response?.success && response?.data) {
+        const transformed = voterService.transformVoterData(response.data);
+        const fieldsToSync = [
+          'firstName',
+          'lastName',
+          'middleName',
+          'suffix',
+          'birthDate',
+          'gender',
+          'createdAt',
+          'updatedAt',
+          'createdBy',
+          'createdByName',
+          'voterId'
+        ];
+
+        const updatedFields = fieldsToSync.reduce((acc, key) => {
+          if (Object.prototype.hasOwnProperty.call(transformed, key) && transformed[key] !== undefined) {
+            acc[key] = transformed[key];
+          }
+          return acc;
+        }, {});
+
+        setSelectedVoter(prev => ({
+          ...prev,
+          ...updatedFields
+        }));
+      }
+    } catch (error) {
+      logger.error('Failed to load voter details', error, { voterId: item?.voterId });
+      showErrorToast('Failed to load voter details', error.message || 'Please try again later.');
+    } finally {
+      setIsViewLoading(false);
     }
   };
   
@@ -357,13 +516,13 @@ const VoterListUpload = () => {
   const handleFilterApply = (appliedValues) => {
     setFilterValues(appliedValues);
     setCurrentPage(1); // Reset to first page when filtering
-    console.log('Applied filters:', appliedValues);
+    logger.debug('VoterListUpload filters applied', { appliedValues });
   };
 
   const handleFilterClear = (clearedValues) => {
     setFilterValues(clearedValues);
     setCurrentPage(1);
-    console.log('Cleared filters');
+    logger.debug('VoterListUpload filters cleared', { clearedValues });
   };
 
   // Form handlers - Updated to match StaffManagement style
@@ -411,76 +570,35 @@ const VoterListUpload = () => {
 
   const getDisplayFields = () => ({
     avatar: { firstName: 'firstName', lastName: 'lastName', email: null, picture: null },
-    title: (v) => `${v.lastName}, ${v.firstName}`,
-    subtitle: (v) => (
-      <div className="w-full">
-        {/* Right-aligned Two-Column Layout for Birth Date and Gender/Age */}
-        <div className="flex justify-end">
-          <div className="grid grid-cols-2 gap-3 text-right">
-            <div className="flex flex-col items-end">
-              <div className="flex items-center text-sm text-gray-600">
-                <Calendar className="w-3 h-3 mr-1.5 text-gray-400 flex-shrink-0" />
-                <span>{new Date(v.birthDate).toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric' 
-                })}</span>
-              </div>
-            </div>
-            <div className="flex flex-col items-end">
-              <div className="flex items-center text-sm text-gray-600">
-                <User className="w-3 h-3 mr-1.5 text-gray-400 flex-shrink-0" />
-                <span>{v.gender} • Age {v.age}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Participation Status Section */}
-        {v.hasParticipated ? (
-          <div className="pt-2 mt-2 border-t border-gray-100">
-            <div className="flex flex-wrap items-center gap-2 justify-center">
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <CheckCircle2 className="w-3 h-3 mr-1 flex-shrink-0" />
-                <span>Has Participated</span>
-              </span>
-              {v.surveyCount > 0 && (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                  <FileText className="w-3 h-3 mr-1 flex-shrink-0" />
-                  <span>{v.surveyCount} survey{v.surveyCount !== 1 ? 's' : ''}</span>
-                </span>
-              )}
-              {v.firstSurveyDate && (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200">
-                  <Activity className="w-3 h-3 mr-1 flex-shrink-0" />
-                  <span>Since {new Date(v.firstSurveyDate).toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'short' 
-                  })}</span>
-                </span>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="pt-2 mt-2 border-t border-gray-100">
-            <div className="flex justify-center">
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-50 text-gray-600 border border-gray-200">
-                <XCircle className="w-3 h-3 mr-1 flex-shrink-0" />
-                <span>Not Participated</span>
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-    ),
-    status: (v) => v.isActive ? 'active' : 'archived',
-    date: 'createdAt'
+    status: (v) => (v.isActive ? 'active' : 'archived'),
+    title: (v) => `${v.firstName} ${v.lastName}`,
+    email: (v) => v.email || null,
+    extraBadges: (v) => {
+      const badges = [];
+      const surveyCount = v.surveyCount ?? 0;
+      badges.push({
+        text: `${surveyCount} ${surveyCount === 1 ? 'survey' : 'surveys'}`,
+        className: 'bg-blue-50 text-blue-700 border border-blue-200'
+      });
+      badges.push({
+        text: v.hasParticipated ? 'Has Participated' : 'Not Participated',
+        className: v.hasParticipated
+          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          : 'bg-gray-50 text-gray-600 border border-gray-200'
+      });
+      return badges;
+    },
+    date: 'createdAt',
+    dateLabel: 'Joined'
   });
 
   // Action handlers
   const handleActionClick = async (action, item) => {
     try {
       switch (action) {
+        case 'view':
+          openVoterDetails(item);
+          break;
         case 'edit':
           setEditTarget(item);
           setEditData({
@@ -529,6 +647,40 @@ const VoterListUpload = () => {
             }
           );
           break;
+        case 'delete':
+          {
+            const confirmed = await confirmation.showConfirmation({
+              title: 'Delete Voter - Permanent Removal',
+              message: `Are you sure you want to permanently delete ${item.firstName} ${item.lastName}?`,
+              content: (
+                <div className="mt-3 text-sm text-red-600">
+                  <p className="font-semibold">Warning: This action cannot be undone.</p>
+                  <p className="mt-1">The voter will be permanently removed from the system and all associated data will be lost.</p>
+                </div>
+              ),
+              confirmText: 'Delete Permanently',
+              cancelText: 'Cancel',
+              variant: 'danger'
+            });
+            if (confirmed) {
+              confirmation.setLoading(true);
+              try {
+                const response = await voterService.hardDeleteVoter(item.voterId);
+                if (response.success) {
+                  showSuccessToast('Voter deleted successfully', 'The voter has been permanently removed from the system.');
+                  loadVotersData();
+                } else {
+                  showErrorToast('Delete Failed', response.message || 'Failed to delete voter');
+                }
+              } catch (error) {
+                showErrorToast('Delete Failed', error.message || 'An error occurred while deleting the voter');
+              } finally {
+                confirmation.setLoading(false);
+                confirmation.hideConfirmation();
+              }
+            }
+          }
+          break;
         default:
           break;
       }
@@ -540,6 +692,7 @@ const VoterListUpload = () => {
   // Get action menu items based on voter status
   const getActionMenuItems = (voter) => {
     const items = [
+      { id: 'view', label: 'View Details', icon: <Eye className="w-4 h-4" />, action: 'view' },
       { id: 'edit', label: 'Edit', icon: <User className="w-4 h-4" />, action: 'edit' }
     ];
 
@@ -547,6 +700,11 @@ const VoterListUpload = () => {
       items.push({ id: 'archive', label: 'Archive', icon: <Users className="w-4 h-4" />, action: 'archive' });
     } else {
       items.push({ id: 'restore', label: 'Restore', icon: <Users className="w-4 h-4" />, action: 'restore' });
+    }
+
+    // Add delete option for admin users only
+    if (isAdmin) {
+      items.push({ id: 'delete', label: 'Delete', icon: <Trash2 className="w-4 h-4" />, action: 'delete' });
     }
 
     return items;
@@ -564,6 +722,8 @@ const VoterListUpload = () => {
   const clearFile = () => {
     setUploadedFile(null);
     setValidationResult(null);
+    setImportSummary(null);
+    setDuplicateStrategy('skip');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -576,12 +736,25 @@ const VoterListUpload = () => {
     try {
       const response = await voterService.validateBulkImport(uploadedFile);
       if (response.success) {
-        setValidationResult(response.data);
-        const { totalRecords, validRecords, invalidRecords, errors = [] } = response.data;
+        const result = response.data;
+        setValidationResult(result);
+        setImportSummary(null);
+
+        const summary = result.summary || {};
+        const totalRecords = summary.totalRecords ?? 0;
+        const invalidRecords = summary.invalidRecords ?? 0;
+        const duplicateRecords = summary.duplicateRecords ?? 0;
+        const validRecords = summary.validRecords ?? Math.max(totalRecords - invalidRecords, 0);
+
         if (invalidRecords > 0) {
           showInfoToast(
             'Validation Complete', 
-            `${validRecords}/${totalRecords} valid, ${invalidRecords} invalid records found. Check details below.`
+            `${validRecords}/${totalRecords} valid, ${invalidRecords} invalid records found. Fix issues and re-validate.`
+          );
+        } else if (duplicateRecords > 0) {
+          showInfoToast(
+            'Validation Complete',
+            `${validRecords}/${totalRecords} records ready. ${duplicateRecords} duplicates detected – choose how to handle them before importing.`
           );
         } else {
           showSuccessToast(
@@ -599,26 +772,52 @@ const VoterListUpload = () => {
 
   const importFile = async () => {
     // Allow import if there is a file and either overall validation is true or invalid count is zero
-    const invalidCount = validationResult?.suggestions?.invalidRecords ?? validationResult?.invalidRecords ?? 0;
-    if (!uploadedFile || (!validationResult?.isValid && invalidCount !== 0)) return;
+    const invalidCount = validationResult?.summary?.invalidRecords ?? 0;
+    if (!uploadedFile || invalidCount !== 0) return;
 
     setIsImporting(true);
     try {
-      const response = await voterService.bulkImportVoters(uploadedFile);
+      const response = await voterService.bulkImportVoters(uploadedFile, duplicateStrategy);
       if (response.success) {
-        const { total, successful, failed, errors = [] } = response.data;
-        if (failed > 0) {
+        const result = response.data || {};
+        const summaryPayload = response.summary || {};
+        const computedSummary = {
+          total: summaryPayload.total ?? result.total ?? 0,
+          created: summaryPayload.created ?? result.created ?? 0,
+          updated: summaryPayload.updated ?? result.updated ?? 0,
+          restored: summaryPayload.restored ?? result.restored ?? 0,
+          skipped: summaryPayload.skipped ?? result.skipped ?? 0,
+          failed: summaryPayload.failed ?? result.failed ?? 0
+        };
+
+        setImportSummary({ ...result, summary: computedSummary });
+
+        const importedCount = (computedSummary.created ?? 0) + (computedSummary.updated ?? 0) + (computedSummary.restored ?? 0);
+        const parts = [];
+        if (computedSummary.created) parts.push(`${computedSummary.created} created`);
+        if (computedSummary.updated) parts.push(`${computedSummary.updated} updated`);
+        if (computedSummary.restored) parts.push(`${computedSummary.restored} restored`);
+        if (computedSummary.skipped) parts.push(`${computedSummary.skipped} skipped`);
+        if (computedSummary.failed) parts.push(`${computedSummary.failed} failed`);
+        const summaryText = parts.length ? parts.join(', ') : 'No changes applied';
+
+        if (computedSummary.failed > 0) {
           showWarningToast(
             'Import Completed with Issues', 
-            `${successful}/${total} imported, ${failed} failed. Check details below.`
+            `${importedCount}/${computedSummary.total} processed. ${summaryText}.`
+          );
+        } else if (computedSummary.skipped > 0 || computedSummary.updated > 0 || computedSummary.restored > 0) {
+          showInfoToast(
+            'Import Completed',
+            `${importedCount}/${computedSummary.total} processed. ${summaryText}.`
           );
         } else {
           showSuccessToast(
             'Import Completed', 
-            `${successful}/${total} records imported successfully.`
+            `${importedCount}/${computedSummary.total} records imported successfully.`
           );
         }
-        clearFile();
+
         loadVotersData(); // Reload data
       }
     } catch (error) {
@@ -628,14 +827,97 @@ const VoterListUpload = () => {
     }
   };
 
+  const downloadCsv = (rows, filename) => {
+    if (!rows || rows.length === 0) {
+      showErrorToast('No data available for export');
+      return;
+    }
+
+    const headers = Object.keys(rows[0]);
+    const csvLines = [
+      headers.join(','),
+      ...rows.map(row =>
+        headers
+          .map(header => {
+            const value = row[header] ?? '';
+            const formatted = String(value).replace(/"/g, '""');
+            return `"${formatted}"`;
+          })
+          .join(',')
+      )
+    ];
+
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadValidationReport = () => {
+    if (!validationResult?.rows?.length) {
+      showErrorToast('No validation details available');
+      return;
+    }
+
+    const csvRows = validationResult.rows.map((row) => ({
+      Row: row.rowNumber,
+      Status: row.status,
+      Issues: row.issues.join('; '),
+      First_Name: row.normalized?.first_name ?? '',
+      Last_Name: row.normalized?.last_name ?? '',
+      Birth_Date: row.normalized?.birth_date ?? '',
+      Gender: row.normalized?.gender ?? '',
+      Duplicate_In_File: row.duplicate?.inFile ? (row.duplicate?.isPrimaryInFile ? 'Yes (first occurrence)' : 'Yes') : 'No',
+      Duplicate_System_Active: row.duplicate?.inDbActive ? 'Yes' : 'No',
+      Duplicate_System_Archived: row.duplicate?.inDbArchived ? 'Yes' : 'No'
+    }));
+
+    downloadCsv(csvRows, 'voter_validation_report.csv');
+  };
+
+  const handleDownloadImportReport = () => {
+    if (!importSummary?.rows?.length) {
+      showErrorToast('No import results available');
+      return;
+    }
+
+    const csvRows = importSummary.rows.map((row) => ({
+      Row: row.rowNumber,
+      Action: row.action ?? '',
+      Message: row.message ?? '',
+      First_Name: row.data?.first_name ?? '',
+      Last_Name: row.data?.last_name ?? '',
+      Birth_Date: row.data?.birth_date ?? '',
+      Gender: row.data?.gender ?? '',
+      Validation_Status: row.validationStatus ?? '',
+      Validation_Issues: (row.validationIssues || []).join('; ')
+    }));
+
+    downloadCsv(csvRows, 'voter_import_report.csv');
+  };
+
   // Derived UI state for bulk import stepper
   const hasFileSelected = !!uploadedFile;
   const hasValidation = !!validationResult;
-  const isValidFile = !!validationResult?.isValid;
-  const validationCounts = hasValidation ? (validationResult.suggestions || validationResult) : null;
-  const invalidCount = hasValidation ? (validationCounts?.invalidRecords ?? 0) : 0;
-  const canImport = hasValidation && (isValidFile || invalidCount === 0);
+  const validationSummary = validationResult?.summary || null;
+  const invalidCount = validationSummary?.invalidRecords ?? 0;
+  const duplicateCount = validationSummary?.duplicateRecords ?? 0;
+  const isValidationPass = hasValidation && invalidCount === 0;
+  const validationState = !hasValidation
+    ? null
+    : invalidCount > 0
+      ? 'error'
+      : duplicateCount > 0
+        ? 'warning'
+        : 'success';
+  const canImport = isValidationPass;
   const currentStep = !hasFileSelected ? 1 : !hasValidation ? 2 : canImport ? 3 : 2;
+const problemRows = hasValidation ? (validationResult.rows || []).filter(row => row.status !== 'valid').slice(0, 5) : [];
 
   return (
     <div className="space-y-5">
@@ -809,12 +1091,12 @@ const VoterListUpload = () => {
               itemName="voter" 
               itemNamePlural="voters" 
               onBulkAction={() => {
-                console.log('🔍 Bulk action clicked, selectedItems:', selectedItems);
+                logger.debug('Bulk action clicked', { selectedItems });
                 if (selectedItems.length === 0) {
                   showErrorToast('No voters selected', 'Please select voters to perform bulk operations');
                   return;
                 }
-                console.log('🔍 Showing bulk modal');
+                logger.debug('Opening bulk modal');
                 setShowBulkModal(true);
               }} 
               exportConfig={{ 
@@ -831,7 +1113,7 @@ const VoterListUpload = () => {
                     await voterService.exportVoters(format, 'all', selectedIds);
                     showSuccessToast('Export completed', `${selectedItems.length} voters exported as ${format.toUpperCase()}`);
                   } catch (error) {
-                    console.error('Export error:', error);
+                    logger.error('Bulk export error', error, { selectedCount: selectedItems.length, format });
                     showErrorToast('Export failed', error.message || 'Failed to export selected voters');
                   }
                 }, 
@@ -877,6 +1159,7 @@ const VoterListUpload = () => {
                 onSelectAll={handleSelectAll}
                 getActionMenuItems={getActionMenuItems}
                 onActionClick={handleActionClick}
+                onCardClick={openVoterDetails}
                 viewMode={viewMode}
                 keyField="voterId"
                 displayFields={getDisplayFields()}
@@ -1123,27 +1406,156 @@ const VoterListUpload = () => {
 
               {/* Validation summary */}
               {hasValidation && (
-                <div className={`rounded-lg border p-3 ${isValidFile ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div
+                  className={`rounded-lg border p-3 ${
+                    validationState === 'success'
+                      ? 'border-green-200 bg-green-50'
+                      : validationState === 'warning'
+                        ? 'border-amber-200 bg-amber-50'
+                        : 'border-red-200 bg-red-50'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-semibold text-gray-900">
-                      {isValidFile ? 'Validation passed' : 'Validation completed with issues'}
+                      {validationState === 'success'
+                        ? 'Validation passed'
+                        : validationState === 'warning'
+                          ? 'Validation passed with duplicates'
+                          : 'Validation completed with issues'}
             </div>
-                    {isValidFile && <CheckCircle className="w-4 h-4 text-green-600" />}
+                    {validationState === 'success' && <CheckCircle className="w-4 h-4 text-green-600" />}
               </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-700">
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-gray-700">
                     <div className="bg-white border border-gray-100 rounded px-2 py-1">
-                      <span className="font-medium">Total:</span> {validationCounts?.totalRecords ?? 0}
-              </div>
-                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
-                      <span className="font-medium">Valid:</span> {validationCounts?.validRecords ?? 0}
+                      <span className="font-medium">Total:</span> {validationSummary?.totalRecords ?? 0}
               </div>
                     <div className="bg-white border border-gray-100 rounded px-2 py-1">
-                      <span className="font-medium">Invalid:</span> {validationCounts?.invalidRecords ?? 0}
+                      <span className="font-medium">Valid:</span> {validationSummary?.validRecords ?? 0}
+              </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Invalid:</span> {validationSummary?.invalidRecords ?? 0}
           </div>
+                    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                      <span className="font-medium">Duplicates:</span> {duplicateCount}
         </div>
-                  {!isValidFile && (
-                    <div className="mt-2 text-xs text-gray-600">
+                  </div>
+                  {duplicateCount > 0 && (
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-600">
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Within file:</span> {validationSummary?.duplicateInFile ?? 0}
+                      </div>
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Existing active:</span> {validationSummary?.duplicateInDbActive ?? 0}
+                      </div>
+                      <div className="bg-white border border-gray-100 rounded px-2 py-1">
+                        <span className="font-medium">Existing archived:</span> {validationSummary?.duplicateInDbArchived ?? 0}
+                      </div>
+                    </div>
+                  )}
+                  {validationState === 'error' && (
+                    <div className="mt-2 text-xs text-red-600">
                       Fix the highlighted issues in your file and re-validate.
+                    </div>
+                  )}
+                  {validationState === 'warning' && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      Duplicates detected. Choose how to handle them before importing.
+                    </div>
+                  )}
+                  {problemRows.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-700">First few issues</p>
+                      <ul className="mt-1 space-y-1 text-xs text-gray-600">
+                        {problemRows.map((row) => (
+                          <li key={row.rowNumber}>
+                            <span className="font-medium">Row {row.rowNumber}:</span>{' '}
+                            {row.issues.length > 0 ? row.issues.join('; ') : 'Potential duplicate'}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadValidationReport}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50"
+                    >
+                      <FileText className="w-4 h-4 mr-1.5" />
+                      Download validation report
+                    </button>
+                  </div>
+                  {validationState !== 'error' && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">Duplicate handling</p>
+                      <div className="flex flex-col gap-1 text-xs text-gray-600">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="duplicateStrategy"
+                            value="skip"
+                            checked={duplicateStrategy === 'skip'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Skip duplicates (no changes to existing voters)</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="duplicateStrategy"
+                            value="update"
+                            checked={duplicateStrategy === 'update'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Update existing voters when a duplicate is active</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="duplicateStrategy"
+                            value="restore"
+                            checked={duplicateStrategy === 'restore'}
+                            onChange={(e) => setDuplicateStrategy(e.target.value)}
+                          />
+                          <span>Restore archived duplicates (and update details)</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {importSummary && (
+                <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">Last Import Summary</div>
+                    <button
+                      type="button"
+                      onClick={handleDownloadImportReport}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100"
+                    >
+                      <FileText className="w-4 h-4 mr-1.5" />
+                      Download import report
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div><span className="font-medium text-gray-900">Created:</span> {importSummary.summary?.created ?? importSummary.created ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Updated:</span> {importSummary.summary?.updated ?? importSummary.updated ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Restored:</span> {importSummary.summary?.restored ?? importSummary.restored ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Skipped:</span> {importSummary.summary?.skipped ?? importSummary.skipped ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Failed:</span> {importSummary.summary?.failed ?? importSummary.failed ?? 0}</div>
+                    <div><span className="font-medium text-gray-900">Total:</span> {importSummary.summary?.total ?? importSummary.total ?? 0}</div>
+                  </div>
+                  {importSummary.errors?.length > 0 && (
+                    <div className="mt-2">
+                      <p className="font-semibold text-xs text-gray-800">First few issues</p>
+                      <ul className="mt-1 space-y-1 text-xs text-gray-600">
+                        {importSummary.errors.slice(0, 5).map((item, idx) => (
+                          <li key={`${item.row}-${idx}`}>
+                            <span className="font-medium">Row {item.row}:</span> {item.reason}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>
@@ -1302,6 +1714,17 @@ const VoterListUpload = () => {
 
       {/* Toast and Modals */}
       <ToastContainer position="top-right" maxToasts={5} />
+
+      <TabbedDetailModal
+        isOpen={showViewModal}
+        onClose={() => {
+          setShowViewModal(false);
+          setSelectedVoter(null);
+        }}
+        data={selectedVoter || {}}
+        mode="view"
+        config={voterDetailConfig}
+      />
       
       {/* Edit Voter Modal */}
       {(isEditOpen && editTarget) ? createPortal(
@@ -1534,7 +1957,7 @@ const VoterListUpload = () => {
                       showErrorToast('Update failed', response.message || 'Failed to update voter');
                     }
                   } catch (error) {
-                    console.error('Update error:', error);
+                    logger.error('Voter update error', error, { voterId: editTarget?.voterId });
                     showErrorToast('Update failed', 'An error occurred while updating the voter');
                   } finally {
                     setIsEditSaving(false);

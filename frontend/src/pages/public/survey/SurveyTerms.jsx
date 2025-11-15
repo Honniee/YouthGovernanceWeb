@@ -18,7 +18,8 @@ import {
   AlertCircle,
   Phone,
   MapPin,
-  ArrowLeft
+  ArrowLeft,
+  FlaskConical
 } from 'lucide-react';
 import PublicLayout from '../../../components/layouts/PublicLayout';
 import SurveyLayout from '../../../components/layouts/SurveyLayout';
@@ -28,6 +29,7 @@ import PageHero from '../../../components/website/PageHero';
 import { useReCaptcha } from '../../../hooks/useReCaptcha';
 import { useSurveySession } from '../../../hooks/useSurveySession';
 import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
+import logger from '../../../utils/logger.js';
 
 // Theme configuration
 const theme = {
@@ -119,7 +121,7 @@ const SurveyTerms = () => {
     const recaptchaVerified = sessionStorage.getItem('recaptcha_verified');
     
     if (!recaptchaVerified) {
-      console.log('🚫 No reCAPTCHA verification found, redirecting to survey landing');
+      logger.debug('No reCAPTCHA verification found, redirecting to survey landing');
       navigate('/kk-survey', { replace: true });
       return;
     }
@@ -130,19 +132,20 @@ const SurveyTerms = () => {
     const thirtyMinutes = 30 * 60 * 1000; // 30 minutes in milliseconds
     
     if (currentTime - verificationTime > thirtyMinutes) {
-      console.log('⏰ reCAPTCHA verification expired, redirecting to survey landing');
+      logger.debug('reCAPTCHA verification expired, redirecting to survey landing');
       sessionStorage.removeItem('recaptcha_verified');
       navigate('/kk-survey', { replace: true });
       return;
     }
     
-    console.log('✅ reCAPTCHA verification valid, allowing access to terms page');
+    logger.debug('reCAPTCHA verification valid, allowing access to terms page');
   }, [navigate]);
 
   // Local UI state
   const [expandedSections, setExpandedSections] = useState({});
   const [sessionInitialized, setSessionInitialized] = useState(false);
   const [showProfileForm, setShowProfileForm] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
   
   // Scroll position preservation
   const scrollPositionRef = useRef(null);
@@ -151,7 +154,7 @@ const SurveyTerms = () => {
   const getTermsData = () => {
     // First, try to get from survey session (if youth profile exists)
     if (formData?.acceptedSections && formData?.viewedSections) {
-      console.log('📋 Found terms data in survey session');
+      logger.debug('Found terms data in survey session');
       return {
         acceptedSections: formData.acceptedSections,
         viewedSections: formData.viewedSections
@@ -162,14 +165,14 @@ const SurveyTerms = () => {
     try {
       const savedTerms = localStorage.getItem('kk_survey_terms_temp');
       if (savedTerms) {
-        console.log('📋 Found terms data in localStorage');
+        logger.debug('Found terms data in localStorage');
         return JSON.parse(savedTerms);
       }
     } catch (error) {
-      console.error('Error parsing saved terms:', error);
+      logger.error('Error parsing saved terms', error);
     }
     
-    console.log('📋 No terms data found, using defaults');
+    logger.debug('No terms data found, using defaults');
     return null;
   };
 
@@ -204,7 +207,7 @@ const SurveyTerms = () => {
   // ✅ FIXED: Sync state with formData when it changes (from session restore)
   useEffect(() => {
     if (formData?.acceptedSections && formData?.viewedSections) {
-      console.log('📋 Syncing state with formData from session');
+      logger.debug('Syncing state with formData from session');
       setAcceptedSections(formData.acceptedSections);
       setViewedSections(formData.viewedSections);
     }
@@ -228,10 +231,8 @@ const SurveyTerms = () => {
 
   // Debug logging
   useEffect(() => {
-    console.log('Terms data loaded:', { acceptedSections, viewedSections, termsData });
-    console.log('All sections accepted:', allSectionsAccepted);
-    console.log('All sections viewed:', allSectionsViewed);
-    console.log('All accepted (can continue):', allAccepted);
+    logger.debug('Terms data loaded', { acceptedSections, viewedSections, hasTermsData: !!termsData });
+    logger.debug('Terms acceptance status', { allSectionsAccepted, allSectionsViewed, allAccepted });
   }, [acceptedSections, viewedSections, allSectionsAccepted, allSectionsViewed, allAccepted, termsData]);
 
   // Auto-save is now handled by the survey session
@@ -245,19 +246,19 @@ const SurveyTerms = () => {
       try {
         // For terms page, we don't need to create a youth profile yet
         // We just need to check if there's an active survey
-        console.log('✅ Survey terms page initialized with active survey');
+        logger.debug('Survey terms page initialized with active survey');
         setSessionInitialized(true);
         
         // Check if user has previously accepted terms
         const termsData = getTermsData();
         if (termsData) {
-          console.log('📋 Found previously saved terms:', termsData);
+          logger.debug('Found previously saved terms', { hasData: !!termsData });
         } else {
-          console.log('📋 No previously saved terms found');
+          logger.debug('No previously saved terms found');
         }
         
       } catch (error) {
-        console.error('Failed to initialize survey session:', error);
+        logger.error('Failed to initialize survey session', error);
         setSessionInitialized(true); // Still allow user to proceed
       }
     };
@@ -538,7 +539,7 @@ const SurveyTerms = () => {
         viewedSections: newViewedSections
       };
       localStorage.setItem('kk_survey_terms_temp', JSON.stringify(termsData));
-      console.log('✅ Section marked as viewed:', sectionId);
+      logger.debug('Section marked as viewed', { sectionId });
     }
     
   };
@@ -551,8 +552,7 @@ const SurveyTerms = () => {
       ...acceptedSections,
       [sectionId]: !acceptedSections[sectionId]
     };
-    console.log('🔄 Toggling acceptance for section:', sectionId);
-    console.log('🔄 New accepted sections:', newAcceptedSections);
+    logger.debug('Toggling acceptance for section', { sectionId, newAcceptedSections });
     
     // ✅ FIXED: Update state to trigger re-render
     setAcceptedSections(newAcceptedSections);
@@ -563,7 +563,7 @@ const SurveyTerms = () => {
       viewedSections: viewedSections
     };
     localStorage.setItem('kk_survey_terms_temp', JSON.stringify(termsData));
-    console.log('✅ Terms data saved locally and state updated');
+    logger.debug('Terms data saved locally and state updated');
   };
 
   const demoAcceptAll = async () => {
@@ -580,18 +580,42 @@ const SurveyTerms = () => {
       viewedSections: allViewed
     };
     localStorage.setItem('kk_survey_terms_temp', JSON.stringify(termsData));
-    console.log('✅ All terms accepted - state and localStorage updated');
+    logger.debug('All terms accepted - state and localStorage updated');
+  };
+
+  const toggleDemoMode = () => {
+    if (!isDemoMode) {
+      // Load demo data - accept all terms
+      demoAcceptAll();
+      // Expand all sections
+      const allExpanded = {};
+      legalSections.forEach(section => {
+        allExpanded[section.id] = true;
+      });
+      setExpandedSections(allExpanded);
+      setIsDemoMode(true);
+      logger.debug('Demo data loaded - all terms accepted');
+    } else {
+      // Clear demo data - reset all
+      const resetViewed = { terms: false, privacy: false, voluntary: false, dataUse: false, rights: false };
+      const resetAccepted = { terms: false, privacy: false, voluntary: false, dataUse: false, rights: false };
+      setViewedSections(resetViewed);
+      setAcceptedSections(resetAccepted);
+      setExpandedSections({});
+      setIsDemoMode(false);
+      localStorage.removeItem('kk_survey_terms_temp');
+      logger.debug('Demo data cleared');
+    }
   };
 
   const onContinue = () => {
-    console.log('🚀 Continue button clicked!');
-    console.log('Current state:', { allAccepted, acceptedSections, viewedSections });
+    logger.debug('Continue button clicked', { allAccepted, acceptedSections, viewedSections });
     
     if (!allAccepted) {
       const unviewedSections = Object.keys(viewedSections).filter(key => !viewedSections[key]);
       const unacceptedSections = Object.keys(acceptedSections).filter(key => !acceptedSections[key]);
       
-      console.log('❌ Cannot continue:', { unviewedSections, unacceptedSections });
+      logger.debug('Cannot continue', { unviewedSections, unacceptedSections });
       
       let message = "";
       if (unviewedSections.length > 0) {
@@ -615,19 +639,19 @@ const SurveyTerms = () => {
       viewedSections
     };
     localStorage.setItem('kk_survey_terms_temp', JSON.stringify(finalTermsData));
-    console.log('✅ Final terms data saved before proceeding to step 1');
+    logger.debug('Final terms data saved before proceeding to step 1');
 
-    console.log('Legal consent data:', {
+    logger.debug('Legal consent data', {
       acceptedAt: new Date().toISOString(),
       acceptedSections,
       ipAddress: 'N/A',
       userAgent: navigator.userAgent
     });
     
-    console.log('🎯 Attempting navigation to /kk-survey/step-2');
+    logger.debug('Attempting navigation to /kk-survey/step-2');
     // Navigate to SurveyStep1 where youth profile will be created
     navigate('/kk-survey/step-2');
-    console.log('✅ Navigation command executed');
+    logger.debug('Navigation command executed');
   };
 
 
@@ -659,7 +683,23 @@ const SurveyTerms = () => {
         <div className="max-w-4xl mx-auto px-6 py-8">
 
           {/* Header */}
-          <div className="bg-gray-50 text-center py-8 mb-8 rounded-xl">
+          <div className="bg-gray-50 text-center py-8 mb-8 rounded-xl relative">
+            {/* Demo Button */}
+            <div className="absolute top-4 right-4">
+              <button
+                onClick={toggleDemoMode}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isDemoMode
+                    ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'
+                }`}
+                title={isDemoMode ? 'Clear demo data' : 'Load demo data'}
+              >
+                <FlaskConical size={16} />
+                {isDemoMode ? 'Clear Demo' : 'Load Demo'}
+              </button>
+            </div>
+
             <div className="inline-flex items-center bg-white px-4 py-2 rounded-full border border-gray-200 mb-4">
               <Shield size={20} className="text-blue-600 mr-2" />
               <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">

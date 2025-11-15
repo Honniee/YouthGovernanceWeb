@@ -30,6 +30,8 @@ import {
 import { HeaderMainContent, ActionMenu, LoadingSpinner } from '../../components/portal_main_content';
 import { getAnnouncementById, updateAnnouncementStatus, deleteAnnouncement } from '../../services/announcementsService';
 import { useRealtime } from '../../realtime/useRealtime';
+import DOMPurify from 'dompurify';
+import logger from '../../utils/logger.js';
 
 // Mock data - in real app this would come from API
 const mockAnnouncement = {
@@ -232,27 +234,27 @@ const AnnouncementDetail = () => {
         break;
       case 'share':
         // Handle share functionality
-        console.log('Share announcement');
+        logger.debug('Share announcement', { announcementId: id });
         break;
       case 'download':
         // Handle download PDF
-        console.log('Download PDF');
+        logger.debug('Download PDF', { announcementId: id });
         break;
       case 'print':
         window.print();
         break;
       case 'archive':
         try {
-          console.log('Archiving announcement:', id);
+          logger.debug('Archiving announcement', { announcementId: id });
           const response = await updateAnnouncementStatus(id, 'archived');
           if (response?.success) {
-            console.log('Announcement archived successfully');
+            logger.info('Announcement archived successfully', { announcementId: id });
             navigate('/staff/announcements');
           } else {
-            console.error('Failed to archive announcement');
+            logger.error('Failed to archive announcement', null, { announcementId: id, response });
           }
         } catch (error) {
-          console.error('Error archiving announcement:', error);
+          logger.error('Error archiving announcement', error, { announcementId: id });
         }
         break;
       case 'delete':
@@ -542,9 +544,9 @@ const AnnouncementDetail = () => {
                 )}
               </div>
 
-              {/* Content */}
+              {/* Content - SECURITY: Sanitized with DOMPurify to prevent XSS */}
               <div className="prose prose-sm sm:prose-base lg:prose-lg max-w-none">
-                <div dangerouslySetInnerHTML={{ __html: announcement.content }} />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(announcement.content || '') }} />
               </div>
 
               {/* Footer */}

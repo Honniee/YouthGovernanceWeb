@@ -61,6 +61,7 @@ async function createSampleValidationQueue() {
     console.log(`✅ Using barangay: ${barangay_id}`);
     
     // Sample youth data with different validation scenarios
+    // Includes all match types: exact, strong, partial, weak, none, existing_youth
     const sampleYouth = [
       {
         first_name: 'Juan',
@@ -72,8 +73,8 @@ async function createSampleValidationQueue() {
         age: 23,
         contact_number: '09123456789',
         email: 'juan.delos.santos@email.com',
-        voter_match_type: 'partial',
-        validation_score: 75,
+        voter_match_type: 'exact',
+        validation_score: 100,
         purok_zone: 'Zone 1'
       },
       {
@@ -86,8 +87,8 @@ async function createSampleValidationQueue() {
         age: 25,
         contact_number: '09234567890',
         email: 'maria.garcia.lopez@email.com',
-        voter_match_type: 'weak',
-        validation_score: 50,
+        voter_match_type: 'strong',
+        validation_score: 90,
         purok_zone: 'Zone 2'
       },
       {
@@ -100,8 +101,8 @@ async function createSampleValidationQueue() {
         age: 21,
         contact_number: '09345678901',
         email: 'pedro.reyes@email.com',
-        voter_match_type: 'none',
-        validation_score: 0,
+        voter_match_type: 'partial',
+        validation_score: 75,
         purok_zone: 'Zone 3'
       },
       {
@@ -114,8 +115,8 @@ async function createSampleValidationQueue() {
         age: 24,
         contact_number: '09456789012',
         email: 'ana.torres@email.com',
-        voter_match_type: 'partial',
-        validation_score: 60,
+        voter_match_type: 'weak',
+        validation_score: 50,
         purok_zone: 'Zone 4'
       },
       {
@@ -128,8 +129,8 @@ async function createSampleValidationQueue() {
         age: 22,
         contact_number: '09567890123',
         email: 'carlos.villanueva@email.com',
-        voter_match_type: 'weak',
-        validation_score: 40,
+        voter_match_type: 'none',
+        validation_score: 0,
         purok_zone: 'Zone 5'
       },
       {
@@ -142,8 +143,8 @@ async function createSampleValidationQueue() {
         age: 23,
         contact_number: '09678901234',
         email: 'sofia.mendoza@email.com',
-        voter_match_type: 'none',
-        validation_score: 0,
+        voter_match_type: 'existing_youth',
+        validation_score: 95,
         purok_zone: 'Zone 6'
       },
       {
@@ -170,9 +171,65 @@ async function createSampleValidationQueue() {
         age: 20,
         contact_number: '09890123456',
         email: 'carmen.aquino@email.com',
+        voter_match_type: 'strong',
+        validation_score: 85,
+        purok_zone: 'Zone 8'
+      },
+      {
+        first_name: 'Miguel',
+        last_name: 'Bautista',
+        middle_name: 'Cruz',
+        suffix: null,
+        birth_date: '1999-02-14',
+        gender: 'Male',
+        age: 24,
+        contact_number: '09901234567',
+        email: 'miguel.bautista@email.com',
         voter_match_type: 'weak',
         validation_score: 45,
-        purok_zone: 'Zone 8'
+        purok_zone: 'Zone 9'
+      },
+      {
+        first_name: 'Isabel',
+        last_name: 'Rivera',
+        middle_name: 'Flores',
+        suffix: null,
+        birth_date: '2001-09-08',
+        gender: 'Female',
+        age: 22,
+        contact_number: '09012345678',
+        email: 'isabel.rivera@email.com',
+        voter_match_type: 'none',
+        validation_score: 0,
+        purok_zone: 'Zone 10'
+      },
+      {
+        first_name: 'Rafael',
+        last_name: 'Gomez',
+        middle_name: null,
+        suffix: 'II',
+        birth_date: '1998-06-22',
+        gender: 'Male',
+        age: 25,
+        contact_number: '09123456780',
+        email: 'rafael.gomez@email.com',
+        voter_match_type: 'partial',
+        validation_score: 70,
+        purok_zone: 'Zone 11'
+      },
+      {
+        first_name: 'Lucia',
+        last_name: 'Castro',
+        middle_name: 'Santiago',
+        suffix: null,
+        birth_date: '2002-11-30',
+        gender: 'Female',
+        age: 21,
+        contact_number: '09234567801',
+        email: 'lucia.castro@email.com',
+        voter_match_type: 'exact',
+        validation_score: 100,
+        purok_zone: 'Zone 12'
       }
     ];
     

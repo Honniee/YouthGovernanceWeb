@@ -5,6 +5,7 @@
 
 import { getClient } from '../config/database.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 /**
  * Get validated youth (youth who have validated survey responses)
@@ -15,7 +16,7 @@ export const getValidatedYouth = async (req, res) => {
   const client = await getClient();
   
   try {
-    console.log('🔍 Fetching validated youth from database...');
+    logger.debug('Fetching validated youth from database', { userId: req.user?.id });
     
     // Extract pagination and filter parameters
     const {
@@ -176,7 +177,7 @@ export const getValidatedYouth = async (req, res) => {
     ]);
     
     const total = parseInt(countResult.rows[0]?.total || 0);
-    console.log(`✅ Found ${result.rows.length} validated youth (total: ${total})`);
+    logger.debug('Found validated youth', { count: result.rows.length, total, page, limit });
     
     // Transform the data for frontend (age calculation moved to SQL for better performance)
     const validatedYouth = result.rows.map(row => {
@@ -251,7 +252,7 @@ export const getValidatedYouth = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error fetching validated youth:', error);
+    logger.error('Error fetching validated youth', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch validated youth',
@@ -271,7 +272,7 @@ export const getYouthStats = async (req, res) => {
   const client = await getClient();
   
   try {
-    console.log('📊 Fetching youth statistics...');
+    logger.debug('Fetching youth statistics', { userId: req.user?.id });
     
     // Get age distribution and status counts
     const statsQuery = `
@@ -309,7 +310,7 @@ export const getYouthStats = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error fetching youth statistics:', error);
+    logger.error('Error fetching youth statistics', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch youth statistics',
@@ -365,7 +366,7 @@ export const archiveYouth = async (req, res) => {
 
     return res.json({ success: true, data: result.rows[0] });
   } catch (error) {
-    console.error('❌ Error archiving youth:', error);
+    logger.error('Error archiving youth', { error: error.message, stack: error.stack, youthId: req.params.id });
     return res.status(500).json({ success: false, message: 'Failed to archive youth', error: error.message });
   } finally {
     client.release();
@@ -436,7 +437,7 @@ export const unarchiveYouth = async (req, res) => {
 
     return res.json({ success: true, data: result.rows[0] });
   } catch (error) {
-    console.error('❌ Error unarchiving youth:', error);
+    logger.error('Error unarchiving youth', { error: error.message, stack: error.stack, youthId: req.params.id });
     return res.status(500).json({ success: false, message: 'Failed to unarchive youth', error: error.message });
   } finally {
     client.release();
@@ -455,7 +456,7 @@ export const exportYouth = async (req, res) => {
     // logFormat is the actual format exported (for logging), format is the response format
     const actualFormat = logFormat || format;
     
-    console.log('🔍 Youth export request received:', { format, actualFormat, selectedIds, providedCount, tab, queryParams: req.query });
+    logger.debug('Youth export request received', { format, actualFormat, hasSelectedIds: !!selectedIds, providedCount, tab, userId: req.user?.id });
     
     if (!['csv', 'json', 'pdf'].includes(format)) {
       return res.status(400).json({ 
@@ -508,7 +509,7 @@ export const exportYouth = async (req, res) => {
     // Create meaningful resource name for export
     const resourceName = `Youth Export - ${actualFormat.toUpperCase()} (${count} ${count === 1 ? 'member' : 'members'})`;
     
-    console.log('🔍 Youth Export - Will create audit log with:', { userId, userType, format: actualFormat, count, resourceName, action, exportType });
+    logger.debug('Youth Export - Creating audit log', { userId, userType, format: actualFormat, count, action, exportType });
 
     if (format === 'json') {
       // Create audit log for JSON export (await before responding)
@@ -531,9 +532,9 @@ export const exportYouth = async (req, res) => {
           userAgent: req.get('User-Agent'),
           status: 'success'
         });
-        console.log(`✅ Youth export audit log created: JSON export of ${count} youth`);
+        logger.debug('Youth export audit log created', { format: 'json', count });
       } catch (err) {
-        console.error('❌ Youth export audit log failed:', err);
+        logger.error('Youth export audit log failed', { error: err.message, stack: err.stack, format: 'json' });
       }
 
       return res.json({
@@ -553,7 +554,7 @@ export const exportYouth = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error in youth export:', error);
+    logger.error('Error in youth export', { error: error.message, stack: error.stack, format, exportType });
     
     // Create audit log for failed export
     const userId = req.user?.id || req.user?.user_id || 'SYSTEM';
@@ -579,7 +580,7 @@ export const exportYouth = async (req, res) => {
         errorMessage: error.message
       });
     } catch (err) {
-      console.error('❌ Failed export audit log error:', err);
+      logger.error('Failed export audit log error', { error: err.message, stack: err.stack });
     }
 
     return res.status(500).json({ 
@@ -640,7 +641,7 @@ export const bulkUpdateStatus = async (req, res) => {
           });
         }
       } catch (err) {
-        console.error(`❌ Failed to ${action} youth ${id}:`, err);
+        logger.error('Failed to perform bulk operation on youth', { error: err.message, stack: err.stack, action, youthId: id });
         errors.push({ id, error: err.message });
       }
     }
@@ -680,7 +681,7 @@ export const bulkUpdateStatus = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error(`❌ Error in bulk ${req.body?.action || 'operation'}:`, error);
+    logger.error('Error in bulk operation', { error: error.message, stack: error.stack, action: req.body?.action || 'operation' });
     
     // Create audit log for failed bulk operation
     try {
@@ -702,7 +703,7 @@ export const bulkUpdateStatus = async (req, res) => {
         errorMessage: error.message
       });
     } catch (logErr) {
-      console.error('❌ Failed to log bulk operation error:', logErr);
+      logger.error('Failed to log bulk operation error', { error: logErr.message, stack: logErr.stack, action: req.body?.action });
     }
     
     return res.status(500).json({ 

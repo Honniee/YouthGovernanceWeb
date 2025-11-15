@@ -1,5 +1,6 @@
 import express from 'express';
 import { query } from '../config/database.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -116,7 +117,7 @@ router.get('/', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('GET /api/validation-logs error:', err);
+    logger.error('GET /api/validation-logs error', { error: err.message, stack: err.stack });
     res.status(500).json({ success: false, message: 'Failed to fetch validation logs' });
   }
 });

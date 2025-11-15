@@ -1,6 +1,7 @@
 import csv from 'csv-parser';
 import XLSX from 'xlsx';
 import { Readable } from 'stream';
+import logger from './logger.js';
 
 /**
  * Parse CSV file buffer and return array of records
@@ -25,11 +26,11 @@ export const parseCSVFile = async (buffer) => {
         records.push(cleanRecord);
       })
       .on('end', () => {
-        console.log(`📊 Parsed ${records.length} records from CSV`);
+        logger.debug(`Parsed ${records.length} records from CSV`, { recordCount: records.length });
         resolve(records);
       })
       .on('error', (error) => {
-        console.error('❌ Error parsing CSV:', error);
+        logger.error('Error parsing CSV', { error: error.message, stack: error.stack });
         reject(error);
       });
   });
@@ -69,11 +70,11 @@ export const parseExcelFile = async (buffer) => {
       return record;
     }).filter(record => Object.keys(record).length > 0); // Remove empty rows
     
-    console.log(`📊 Parsed ${parsedRecords.length} records from Excel`);
+    logger.debug(`Parsed ${parsedRecords.length} records from Excel`, { recordCount: parsedRecords.length });
     return parsedRecords;
     
   } catch (error) {
-    console.error('❌ Error parsing Excel file:', error);
+    logger.error('Error parsing Excel file', { error: error.message, stack: error.stack });
     throw new Error(`Failed to parse Excel file: ${error.message}`);
   }
 };
@@ -172,7 +173,7 @@ export const generateExcelTemplate = (headers, sampleData = []) => {
     return buffer;
     
   } catch (error) {
-    console.error('❌ Error generating Excel template:', error);
+    logger.error('Error generating Excel template', { error: error.message, stack: error.stack });
     throw new Error(`Failed to generate Excel template: ${error.message}`);
   }
 };

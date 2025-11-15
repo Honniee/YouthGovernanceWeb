@@ -1,4 +1,5 @@
 import activityLogService from '../services/activityLogService.js';
+import logger from '../utils/logger.js';
 
 /**
  * Activity Logging Middleware
@@ -44,7 +45,7 @@ export const logRequest = (req, res, next) => {
     // Log the request asynchronously (fire-and-forget)
     setImmediate(() => {
       logAPIRequest(req, res).catch(error => {
-        console.error('❌ Failed to log API request:', error);
+        logger.error('Failed to log API request', { error: error.message, stack: error.stack });
       });
     });
 
@@ -73,7 +74,7 @@ export const withActivityLog = (category, action, options = {}) => {
           // Log asynchronously
           setImmediate(() => {
             activityLogService.createLog(logData).catch(error => {
-              console.error('❌ Failed to log activity:', error);
+              logger.error('Failed to log activity', { error: error.message, stack: error.stack, category, action });
             });
           });
         }
@@ -91,7 +92,7 @@ export const withActivityLog = (category, action, options = {}) => {
           // Log asynchronously
           setImmediate(() => {
             activityLogService.createLog(logData).catch(logError => {
-              console.error('❌ Failed to log error activity:', logError);
+              logger.error('Failed to log error activity', { error: logError.message, stack: logError.stack, category, action });
             });
           });
         }
@@ -128,7 +129,7 @@ export const logUserActivity = async (req, action, details = {}) => {
       }
     );
   } catch (error) {
-    console.error('❌ Failed to log user activity:', error);
+    logger.error('Failed to log user activity', { error: error.message, stack: error.stack, action, userId: req.user?.id });
   }
 };
 
@@ -154,7 +155,7 @@ export const logSKActivity = async (req, action, details = {}) => {
       }
     );
   } catch (error) {
-    console.error('❌ Failed to log SK activity:', error);
+    logger.error('Failed to log SK activity', { error: error.message, stack: error.stack, action, userId: req.user?.id });
   }
 };
 
@@ -180,7 +181,7 @@ export const logTermActivity = async (req, action, details = {}) => {
       }
     );
   } catch (error) {
-    console.error('❌ Failed to log term activity:', error);
+    logger.error('Failed to log term activity', { error: error.message, stack: error.stack, action, userId: req.user?.id });
   }
 };
 
@@ -207,7 +208,7 @@ export const logAuthActivity = async (req, action, details = {}) => {
       }
     );
   } catch (error) {
-    console.error('❌ Failed to log auth activity:', error);
+    logger.error('Failed to log auth activity', { error: error.message, stack: error.stack, action, userId: req.user?.id || 'anonymous' });
   }
 };
 
@@ -233,7 +234,7 @@ export const logExportActivity = async (req, action, details = {}) => {
       }
     );
   } catch (error) {
-    console.error('❌ Failed to log export activity:', error);
+    logger.error('Failed to log export activity', { error: error.message, stack: error.stack, action, userId: req.user?.id });
   }
 };
 
@@ -259,7 +260,7 @@ export const logBulkOperation = async (req, action, details = {}) => {
       }
     );
   } catch (error) {
-    console.error('❌ Failed to log bulk operation:', error);
+    logger.error('Failed to log bulk operation', { error: error.message, stack: error.stack, action, userId: req.user?.id });
   }
 };
 
@@ -299,7 +300,7 @@ async function logAPIRequest(req, res) {
 
     await activityLogService.createLog(logData);
   } catch (error) {
-    console.error('❌ Failed to log API request:', error);
+    logger.error('Failed to log API request', { error: error.message, stack: error.stack, path: req.path, method: req.method });
   }
 }
 

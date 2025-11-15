@@ -1,30 +1,46 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { body, validationResult } from 'express-validator';
 import { query } from '../config/database.js';
 import { verifyRecaptcha, bypassRecaptchaInDev } from '../middleware/recaptcha.js';
 import { loginRateLimiter, recordFailedAttempt, resetFailedAttempts } from '../middleware/rateLimiter.js';
 import { authenticateToken as auth } from '../middleware/auth.js';
+import { validateCSRF } from '../middleware/csrf.js';
 import multer from 'multer';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import activityLogService from '../services/activityLogService.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
-// Generate JWT token
-const generateToken = (user) => {
+// Generate JWT token with configurable expiration
+// SECURITY: Default to 15 minutes for access tokens
+export const generateToken = (user, expiresIn = '15m') => {
   const jwtSecret = process.env.JWT_SECRET;
   
-  // Only enforce strong secret in production
-  if (process.env.NODE_ENV === 'production' && (!jwtSecret || jwtSecret === 'your-super-secret-jwt-key-change-this-in-production' || jwtSecret === 'fallback-secret')) {
-    throw new Error('JWT_SECRET must be set to a strong secret in production');
+  // Strict validation: Fail fast if JWT_SECRET is not set
+  if (!jwtSecret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET must be set in production environment');
+    }
+    // Log warning in development
+    logger.warn('JWT_SECRET is not set. Using development fallback (INSECURE - not for production)');
   }
   
-  // Use fallback for development if needed
-  const secret = jwtSecret || 'development-fallback-secret';
+  // Check for default/placeholder secrets in production
+  if (process.env.NODE_ENV === 'production' && 
+      (jwtSecret === 'your-super-secret-jwt-key-change-this-in-production' || 
+       jwtSecret === 'fallback-secret' || 
+       jwtSecret === 'development-fallback-secret')) {
+    throw new Error('JWT_SECRET must be set to a strong, unique secret in production');
+  }
+  
+  // Use fallback ONLY in development/test environments
+  const secret = jwtSecret || (process.env.NODE_ENV === 'test' ? 'test-jwt-secret' : 'development-fallback-secret');
   
   return jwt.sign(
     { 
@@ -33,7 +49,7 @@ const generateToken = (user) => {
       email: user.email 
     }, 
     secret,
-    { expiresIn: '24h' }
+    { expiresIn }
   );
 };
 
@@ -47,11 +63,11 @@ router.post('/login', [
   process.env.NODE_ENV === 'production' ? verifyRecaptcha : bypassRecaptchaInDev
 ], async (req, res) => {
   try {
-    console.log('🚀 Login route started');
+    logger.debug('Login route started');
     
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('❌ Validation errors:', errors.array());
+      logger.warn('Login validation errors', { errors: errors.array() });
       return res.status(400).json({ 
         success: false,
         message: 'Please check your input and try again.',
@@ -60,9 +76,8 @@ router.post('/login', [
     }
 
     const { email, password } = req.body;
-    console.log('📧 Login attempt for email:', email);
+    logger.debug('Login attempt', { email });
 
-    console.log('🔍 Starting database query for LYDO table...');
     // Check LYDO table first
     let userQuery = `
       SELECT l.lydo_id as id, l.email, l.password_hash, l.first_name, l.last_name, 
@@ -78,14 +93,13 @@ router.post('/login', [
       WHERE l.email = $1 AND l.is_active = true
     `;
     
-    console.log('📊 Executing LYDO query...');
     let result = await query(userQuery, [email]);
-    console.log('✅ LYDO query completed, rows found:', result.rows.length);
+    logger.debug('LYDO query completed', { rowsFound: result.rows.length });
     let user = result.rows[0];
 
     // If not found in LYDO, check SK Officials
     if (!user) {
-      console.log('🔍 User not found in LYDO, checking SK Officials...');
+      logger.debug('User not found in LYDO, checking SK Officials');
       userQuery = `
         SELECT s.sk_id as id, s.email, s.password_hash, s.first_name, s.last_name, 
                s.is_active, r.role_name, r.permissions, 'sk_official' as user_type,
@@ -97,14 +111,13 @@ router.post('/login', [
         WHERE s.email = $1 AND s.is_active = true AND s.account_access = true
       `;
       
-      console.log('📊 Executing SK Officials query...');
       result = await query(userQuery, [email]);
-      console.log('✅ SK Officials query completed, rows found:', result.rows.length);
+      logger.debug('SK Officials query completed', { rowsFound: result.rows.length });
       user = result.rows[0];
     }
 
     if (!user) {
-      console.log('❌ User not found in any table');
+      logger.warn('User not found in any table', { email });
       
       // Check if user exists but account access is disabled (for SK Officials)
       const disabledUserQuery = `
@@ -135,13 +148,12 @@ router.post('/login', [
       });
     }
 
-    console.log('✅ User found, checking password...');
+    logger.debug('User found, checking password', { userId: user.id, email });
     // Check password
     const isMatch = await bcrypt.compare(password, user.password_hash);
-    console.log('🔐 Password check result:', isMatch);
     
     if (!isMatch) {
-      console.log('❌ Password mismatch');
+      logger.warn('Password mismatch', { email, userId: user.id });
       // Record failed attempt
       recordFailedAttempt(req.ip || req.connection.remoteAddress);
       recordFailedAttempt(req.body.email);
@@ -152,9 +164,7 @@ router.post('/login', [
       });
     }
 
-    console.log('✅ Password verified, generating token...');
-    // Debug logging
-    console.log('🔍 Backend login debug:', {
+    logger.debug('Password verified, generating token', {
       email: user.email,
       role_name: user.role_name,
       user_type: user.user_type,
@@ -165,15 +175,30 @@ router.post('/login', [
     resetFailedAttempts(req.ip || req.connection.remoteAddress);
     resetFailedAttempts(req.body.email);
 
-    // Generate token
-    const token = generateToken({
+    // SECURITY: Generate access token (short-lived) and refresh token
+    const accessToken = generateToken({
       user_id: user.id,
       user_type: user.user_type,
       email: user.email
-    });
-    console.log('🎫 Token generated successfully');
+    }, '15m'); // 15 minutes for access token
 
-    console.log('📝 Logging activity to database...');
+    // Generate refresh token (longer-lived, stored in database)
+    const refreshToken = crypto.randomBytes(64).toString('hex');
+    const refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Store refresh token in database
+    await query(`
+      INSERT INTO "Refresh_Tokens" (token_hash, user_id, user_type, expires_at, created_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (user_id, user_type) 
+      DO UPDATE SET token_hash = $1, expires_at = $4, created_at = NOW()
+    `, [
+      crypto.createHash('sha256').update(refreshToken).digest('hex'),
+      user.id,
+      user.user_type,
+      refreshTokenExpiry
+    ]);
+
     // Log activity
     await query(`
       INSERT INTO "Activity_Logs" (log_id, user_id, user_type, action, resource_type, category, details)
@@ -184,7 +209,7 @@ router.post('/login', [
       user.user_type,
       JSON.stringify({ email: user.email, login_time: new Date() })
     ]);
-    console.log('✅ Activity logged successfully');
+    logger.debug('Activity logged successfully', { userId: user.id });
 
     const responseUser = {
         id: user.id,
@@ -209,18 +234,41 @@ router.post('/login', [
         termName: user.term_name || null
     };
 
-    console.log('📤 Backend response user:', responseUser);
-    console.log('🚀 Sending successful login response...');
+    // SECURITY: Set tokens in httpOnly cookies instead of response body
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    // Use 'lax' in development (allows cross-port cookies) and 'strict' in production (better CSRF protection)
+    const sameSiteValue = isProduction ? 'strict' : 'lax';
+    
+    // Access token cookie (15 minutes)
+    res.cookie('accessToken', accessToken, {
+      httpOnly: true,           // Not accessible to JavaScript (XSS protection)
+      secure: isProduction,      // HTTPS only in production
+      sameSite: sameSiteValue,   // 'lax' for dev (cross-port), 'strict' for production
+      maxAge: 15 * 60 * 1000,   // 15 minutes
+      path: '/'
+    });
 
+    // Refresh token cookie (7 days)
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,           // Not accessible to JavaScript
+      secure: isProduction,      // HTTPS only in production
+      sameSite: sameSiteValue,   // 'lax' for dev (cross-port), 'strict' for production
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/'
+    });
+
+    logger.info('Login successful', { userId: user.id, email: user.email, userType: user.user_type });
+
+    // SECURITY: Don't send tokens in response body (they're in cookies)
+    // Only send user data
     res.json({
-      token,
+      success: true,
       user: responseUser
     });
-    
-    console.log('✅ Login response sent successfully');
 
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error('Login error', { error: error.message, stack: error.stack, email: req.body?.email });
     res.status(500).json({ 
       success: false,
       message: 'Something went wrong. Please try again later.' 
@@ -301,7 +349,7 @@ router.post('/register-youth', [
     });
 
   } catch (error) {
-    console.error('Youth registration error:', error);
+    logger.error('Youth registration error', { error: error.message, stack: error.stack });
     res.status(500).json({ 
       success: false,
       message: 'Something went wrong during registration. Please try again later.' 
@@ -312,23 +360,14 @@ router.post('/register-youth', [
 // @route   GET /api/auth/me
 // @desc    Get current user info
 // @access  Private
-router.get('/me', async (req, res) => {
+// SECURITY: Use auth middleware to read token from httpOnly cookie
+router.get('/me', auth, async (req, res) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ 
-        success: false,
-        message: 'Authentication required. Please log in again.' 
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
-    
-    // Get user details based on user type
+    // req.user is already set by auth middleware (from cookie or header)
+    // Now fetch detailed user info based on user type
     let userQuery, user;
     
-    if (decoded.userType === 'lydo_staff' || decoded.userType === 'admin') {
+    if (req.user.userType === 'lydo_staff' || req.user.userType === 'admin') {
       userQuery = `
         SELECT l.lydo_id as id, l.email, l.first_name, l.last_name, 
                l.middle_name, l.suffix, l.personal_email, l.profile_picture,
@@ -342,7 +381,7 @@ router.get('/me', async (req, res) => {
         JOIN "Roles" r ON l.role_id = r.role_id 
         WHERE l.lydo_id = $1 AND l.is_active = true
       `;
-    } else if (decoded.userType === 'sk_official') {
+    } else if (req.user.userType === 'sk_official') {
       userQuery = `
         SELECT s.sk_id as id, s.email, s.first_name, s.last_name, s.middle_name, s.suffix,
                s.personal_email, s.profile_picture, s.is_active, s.email_verified,
@@ -358,7 +397,7 @@ router.get('/me', async (req, res) => {
         LEFT JOIN "SK_Officials_Profiling" p ON s.sk_id = p.sk_id
         WHERE s.sk_id = $1 AND s.is_active = true AND s.account_access = true
       `;
-    } else if (decoded.userType === 'youth') {
+    } else if (req.user.userType === 'youth') {
       userQuery = `
         SELECT y.youth_id as id, y.email, y.first_name, y.last_name, 
                'youth' as user_type, b.barangay_name
@@ -368,7 +407,7 @@ router.get('/me', async (req, res) => {
       `;
     }
 
-    const result = await query(userQuery, [decoded.userId]);
+    const result = await query(userQuery, [req.user.id]);
     user = result.rows[0];
 
     if (!user) {
@@ -411,7 +450,7 @@ router.get('/me', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get user error:', error);
+    logger.error('Get user error', { error: error.message, stack: error.stack, userId: req.user?.id });
     res.status(500).json({ 
       success: false,
       message: 'Something went wrong. Please try again later.' 
@@ -436,8 +475,8 @@ const upload = multer({
   }
 });
 
-// Upload profile picture
-router.post('/me/profile-picture', auth, upload.single('file'), async (req, res) => {
+// Upload profile picture - SECURITY: CSRF protection applied
+router.post('/me/profile-picture', auth, validateCSRF, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
@@ -472,7 +511,7 @@ router.post('/me/profile-picture', auth, upload.single('file'), async (req, res)
     } catch {}
     res.json({ success: true, url: relUrl, updatedAt: new Date().toISOString() });
   } catch (e) {
-    console.error('Upload error:', e);
+    logger.error('Upload error', { error: e.message, stack: e.stack, userId: req.user?.id });
     try {
       await activityLogService.logUserActivity(req.user?.id, req.user?.userType, activityLogService.logActions.PROFILE_PHOTO_UPLOAD, {
         targetUserId: req.user?.id,
@@ -486,7 +525,8 @@ router.post('/me/profile-picture', auth, upload.single('file'), async (req, res)
 });
 
 // Remove profile picture
-router.delete('/me/profile-picture', auth, async (req, res) => {
+// Delete profile picture - SECURITY: CSRF protection applied
+router.delete('/me/profile-picture', auth, validateCSRF, async (req, res) => {
   try {
     const target = path.join(profileDir, `${req.user.id}.jpg`);
     try { fs.unlinkSync(target); } catch {}
@@ -509,7 +549,7 @@ router.delete('/me/profile-picture', auth, async (req, res) => {
     } catch {}
     res.json({ success: true });
   } catch (e) {
-    console.error('Remove photo error:', e);
+    logger.error('Remove photo error', { error: e.message, stack: e.stack, userId: req.user?.id });
     try {
       await activityLogService.logUserActivity(req.user?.id, req.user?.userType, activityLogService.logActions.PROFILE_PHOTO_REMOVE, {
         targetUserId: req.user?.id,
@@ -524,14 +564,21 @@ router.delete('/me/profile-picture', auth, async (req, res) => {
 // @route   PUT /api/auth/me
 // @desc    Update current LYDO user's profile (first/last/middle/suffix/personal_email/profile_picture)
 // @access  Private
-router.put('/me', async (req, res) => {
+// SECURITY: CSRF protection applied
+router.put('/me', auth, validateCSRF, async (req, res) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) {
       return res.status(401).json({ success: false, message: 'Authentication required. Please log in again.' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
+    // Strict validation: Fail fast if JWT_SECRET is not set in production
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret && process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET must be set in production environment');
+    }
+    const secret = jwtSecret || (process.env.NODE_ENV === 'test' ? 'test-jwt-secret' : 'development-fallback-secret');
+    const decoded = jwt.verify(token, secret);
 
     // Support LYDO/admin and SK officials for profile updates
     if (!(decoded.userType === 'lydo_staff' || decoded.userType === 'admin' || decoded.userType === 'sk_official')) {
@@ -680,7 +727,7 @@ router.put('/me', async (req, res) => {
 
     return res.json(response);
   } catch (error) {
-    console.error('Update user error:', error);
+    logger.error('Update user error', { error: error.message, stack: error.stack, userId: req.user?.id });
     try {
       const token = req.header('Authorization')?.replace('Bearer ', '');
       const decoded = token ? jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') : null;
@@ -697,12 +744,13 @@ router.put('/me', async (req, res) => {
 // @route   POST /api/auth/logout
 // @desc    Logout user and log activity
 // @access  Private
-router.post('/logout', auth, async (req, res) => {
+// SECURITY: CSRF protection applied (logout is state-changing)
+router.post('/logout', auth, validateCSRF, async (req, res) => {
   try {
-    console.log('🚪 Logout route started');
+    logger.debug('Logout route started');
     
     const { id: user_id, userType: user_type, email } = req.user;
-    console.log('👤 Logging out user:', { user_id, user_type, email });
+    logger.debug('Logging out user', { user_id, user_type, email });
 
     // Log logout activity
     await query(`
@@ -719,15 +767,94 @@ router.post('/logout', auth, async (req, res) => {
         userAgent: req.headers['user-agent'] || 'unknown'
       })
     ]);
-    console.log('✅ Logout activity logged successfully');
+    logger.debug('Logout activity logged successfully', { userId: user_id });
 
+    // SECURITY: Revoke refresh token from database
+    const refreshToken = req.cookies?.refreshToken;
+    logger.debug('Logout - refresh token check', { 
+      hasRefreshToken: !!refreshToken,
+      userId: user_id,
+      userType: user_type,
+      cookies: Object.keys(req.cookies || {})
+    });
+    
+    if (refreshToken) {
+      try {
+        const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+        logger.debug('Attempting to delete refresh token', { 
+          tokenHash: tokenHash.substring(0, 16) + '...', // Log first 16 chars only
+          userId: user_id,
+          userType: user_type
+        });
+        
+        const deleteResult = await query(`
+          DELETE FROM "Refresh_Tokens" 
+          WHERE token_hash = $1 AND user_id = $2 AND user_type = $3
+        `, [tokenHash, user_id, user_type]);
+        
+        logger.info('Refresh token deletion result', { 
+          userId: user_id,
+          rowsDeleted: deleteResult.rowCount,
+          tokenHash: tokenHash.substring(0, 16) + '...'
+        });
+        
+        if (deleteResult.rowCount === 0) {
+          // Token not found - try deleting by user_id and user_type only (in case hash doesn't match)
+          logger.warn('Token not found by hash, trying to delete by user_id and user_type', { 
+            userId: user_id,
+            userType: user_type
+          });
+          const fallbackResult = await query(`
+            DELETE FROM "Refresh_Tokens" 
+            WHERE user_id = $1 AND user_type = $2
+          `, [user_id, user_type]);
+          logger.info('Fallback deletion result', { 
+            userId: user_id,
+            rowsDeleted: fallbackResult.rowCount
+          });
+        }
+      } catch (error) {
+        logger.error('Error deleting refresh token', { 
+          error: error.message,
+          userId: user_id,
+          stack: error.stack
+        });
+        // Don't fail logout if token deletion fails
+      }
+    } else {
+      logger.warn('No refresh token cookie found during logout', { 
+        userId: user_id,
+        availableCookies: Object.keys(req.cookies || {})
+      });
+      // Still try to delete by user_id and user_type as fallback
+      try {
+        const fallbackResult = await query(`
+          DELETE FROM "Refresh_Tokens" 
+          WHERE user_id = $1 AND user_type = $2
+        `, [user_id, user_type]);
+        logger.info('Fallback deletion (no cookie)', { 
+          userId: user_id,
+          rowsDeleted: fallbackResult.rowCount
+        });
+      } catch (error) {
+        logger.error('Error in fallback token deletion', { 
+          error: error.message,
+          userId: user_id
+        });
+      }
+    }
+    
+    // SECURITY: Clear httpOnly cookies
+    res.clearCookie('accessToken', { path: '/' });
+    res.clearCookie('refreshToken', { path: '/' });
+    
     res.json({
       success: true,
       message: 'Logged out successfully'
     });
 
   } catch (error) {
-    console.error('Logout error:', error);
+    logger.error('Logout error', { error: error.message, stack: error.stack, userId: req.user?.id });
     res.status(500).json({ 
       success: false,
       message: 'Something went wrong during logout.' 
@@ -738,7 +865,8 @@ router.post('/logout', auth, async (req, res) => {
 // @route   PUT /api/auth/change-password
 // @desc    Change user password
 // @access  Private
-router.put('/change-password', auth, [
+// SECURITY: CSRF protection applied
+router.put('/change-password', auth, validateCSRF, [
   body('currentPassword').isLength({ min: 6 }).withMessage('Current password is required'),
   body('newPassword').isLength({ min: 8 }).withMessage('New password must be at least 8 characters long'),
   body('confirmPassword').custom((value, { req }) => {
@@ -826,7 +954,7 @@ router.put('/change-password', auth, [
         metadata: { passwordChanged: true }
       });
     } catch (logError) {
-      console.error('Failed to log password change activity:', logError);
+      logger.error('Failed to log password change activity', { error: logError.message, stack: logError.stack });
     }
 
     res.json({ 
@@ -835,7 +963,7 @@ router.put('/change-password', auth, [
     });
 
   } catch (error) {
-    console.error('Change password error:', error);
+    logger.error('Change password error', { error: error.message, stack: error.stack, userId: req.user?.id });
     res.status(500).json({ 
       success: false, 
       message: 'Failed to change password' 

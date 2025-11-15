@@ -367,13 +367,19 @@ export const getModalConfig = (entityType, modalType) => {
 
   const entityConfig = configs[entityType];
   if (!entityConfig) {
-    console.warn(`No modal configuration found for entity type: ${entityType}`);
+    // Import logger dynamically to avoid circular dependencies
+    import('../../utils/logger.js').then(({ default: logger }) => {
+      logger.warn('No modal configuration found for entity type', { entityType });
+    }).catch(() => {});
     return {};
   }
 
   const config = entityConfig[modalType];
   if (!config) {
-    console.warn(`No ${modalType} modal configuration found for entity type: ${entityType}`);
+    // Import logger dynamically to avoid circular dependencies
+    import('../../utils/logger.js').then(({ default: logger }) => {
+      logger.warn('No modal configuration found', { modalType, entityType });
+    }).catch(() => {});
     return {};
   }
 

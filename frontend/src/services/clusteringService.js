@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger.js';
 
 /**
  * Clustering Service
@@ -19,7 +20,7 @@ const clusteringService = {
       const response = await api.post('/clustering/run', options);
       return response.data;
     } catch (error) {
-      console.error('Error running clustering:', error);
+      logger.error('Error running clustering', error, { options });
       throw error.response?.data || error;
     }
   },
@@ -42,7 +43,7 @@ const clusteringService = {
       const response = await api.get(`/clustering/segments?${params.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching segments:', error);
+      logger.error('Error fetching segments', error, { filters });
       throw error.response?.data || error;
     }
   },
@@ -57,7 +58,7 @@ const clusteringService = {
       const response = await api.get(`/clustering/segments/${segmentId}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching segment:', error);
+      logger.error('Error fetching segment', error, { segmentId });
       throw error.response?.data || error;
     }
   },
@@ -80,7 +81,7 @@ const clusteringService = {
       const response = await api.get(`/clustering/runs?${params.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching clustering runs:', error);
+      logger.error('Error fetching clustering runs', error, { filters });
       throw error.response?.data || error;
     }
   },
@@ -103,7 +104,7 @@ const clusteringService = {
       const response = await api.get(`/clustering/stats?${params.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching clustering stats:', error);
+      logger.error('Error fetching clustering stats', error, { filters });
       throw error.response?.data || error;
     }
   },
@@ -124,7 +125,7 @@ const clusteringService = {
       const response = await api.get(`/clustering/recommendations?${params.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching recommendations:', error);
+      logger.error('Error fetching recommendations', error, { filters });
       throw error.response?.data || error;
     }
   },
@@ -139,7 +140,7 @@ const clusteringService = {
       const response = await api.get(`/clustering/segments/${segmentId}/youth`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching segment youth:', error);
+      logger.error('Error fetching segment youth', error, { segmentId });
       throw error.response?.data || error;
     }
   }

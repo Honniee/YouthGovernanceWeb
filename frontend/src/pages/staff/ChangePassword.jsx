@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/auth.js';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import { HeaderMainContent } from '../../components/portal_main_content';
+import logger from '../../utils/logger.js';
 
 const Field = ({ label, children, description }) => (
   <div className="flex flex-col gap-1.5">
@@ -334,7 +335,7 @@ const ChangePassword = () => {
       }
       
     } catch (e) {
-      console.error('Password change error:', e);
+      logger.error('Password change error', e);
       showErrorToast && showErrorToast('Change Failed', e.message || 'Unable to change password');
     } finally {
       setIsChangingPassword(false);

@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 const barangaysService = {
   /**
@@ -20,7 +21,7 @@ const barangaysService = {
       const response = await api.get(`/barangays?${queryParams.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching barangays:', error);
+      logger.error('Error fetching barangays', error, { params });
       throw error;
     }
   },
@@ -39,7 +40,7 @@ const barangaysService = {
       const response = await api.get(`/barangays/${id}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching barangay details:', error);
+      logger.error('Error fetching barangay details', error, { id });
       throw error;
     }
   },
@@ -53,7 +54,7 @@ const barangaysService = {
       const response = await api.get('/barangays/statistics');
       return response.data;
     } catch (error) {
-      console.error('Error fetching barangay statistics:', error);
+      logger.error('Error fetching barangay statistics', error);
       throw error;
     }
   },
@@ -86,7 +87,7 @@ const barangaysService = {
       const response = await api.get(`/barangays/${id}/youth?${queryParams.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching barangay youth:', error);
+      logger.error('Error fetching barangay youth', error, { id, params });
       throw error;
     }
   }

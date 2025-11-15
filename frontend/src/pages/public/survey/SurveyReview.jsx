@@ -35,6 +35,7 @@ import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
 import { useBarangays } from '../../../hooks/useBarangays';
 import { createProfileAndSubmitSurvey } from '../../../services/directSurveySubmission';
 import ErrorModal from '../../../components/ui/ErrorModal';
+import logger from '../../../utils/logger.js';
 
 const SurveyReview = () => {
   const navigate = useNavigate();
@@ -58,13 +59,12 @@ const SurveyReview = () => {
   const { barangays, isLoading: barangaysLoading, error: barangaysError } = useBarangays();
   
   // Debug barangays loading (remove in production)
-  // console.log('🔍 Barangays loading state:', { barangaysLoading, barangaysError, barangaysCount: barangays?.length });
   
   // reCAPTCHA hook
   const recaptcha = useReCaptcha({ 
     required: true,
     onError: () => {
-      console.error('reCAPTCHA verification failed');
+      logger.error('reCAPTCHA verification failed', null);
     }
   });
   
@@ -82,22 +82,18 @@ const SurveyReview = () => {
     
     // If there's an error loading barangays, show the ID
     if (barangaysError) {
-      console.warn('⚠️ Error loading barangays:', barangaysError);
+      logger.warn('Error loading barangays', null, { error: barangaysError });
       return barangayId;
     }
     
     // Debug logging (remove in production)
-    // console.log('🔍 Getting barangay name for ID:', barangayId);
-    // console.log('🔍 Available barangays:', barangays);
     
     const barangay = (barangays || []).find(b => {
       const match = (b.barangay_id || b.id) === barangayId;
-      // console.log('🔍 Checking barangay:', b, 'Match:', match);
       return match;
     });
     
     const result = barangay ? (barangay.barangay_name || barangay.name) : barangayId;
-    // console.log('🔍 Barangay name result:', result);
     
     return result;
   };
@@ -108,7 +104,7 @@ const SurveyReview = () => {
     const recaptchaVerified = sessionStorage.getItem('recaptcha_verified');
     
     if (!recaptchaVerified) {
-      console.log('🚫 No reCAPTCHA verification found, redirecting to survey landing');
+      logger.debug('No reCAPTCHA verification found, redirecting to survey landing');
       navigate('/kk-survey', { replace: true });
       return;
     }
@@ -119,13 +115,13 @@ const SurveyReview = () => {
     const thirtyMinutes = 30 * 60 * 1000;
     
     if (currentTime - verificationTime > thirtyMinutes) {
-      console.log('⏰ reCAPTCHA verification expired, redirecting to survey landing');
+      logger.debug('reCAPTCHA verification expired, redirecting to survey landing');
       sessionStorage.removeItem('recaptcha_verified');
       navigate('/kk-survey', { replace: true });
       return;
     }
 
-    console.log('✅ reCAPTCHA verification valid, allowing access to review page');
+    logger.debug('reCAPTCHA verification valid, allowing access to review page');
   }, [navigate]);
 
   // Load saved data from localStorage
@@ -151,17 +147,13 @@ const SurveyReview = () => {
         civic: civicFormData
       });
 
-      console.log('📊 Loaded survey data:', {
+      logger.debug('Loaded survey data', {
         personal: Object.keys(personal).length,
         demographics: Object.keys(demographicsFormData).length,
         civic: Object.keys(civicFormData).length
         });
-        
-      // Debug barangay data (remove in production)
-      // console.log('🔍 Personal data barangay:', personal.barangay);
-      // console.log('🔍 Personal data full:', personal);
       } catch (e) {
-        console.error('Error loading saved data:', e);
+        logger.error('Error loading saved data', e);
     }
   }, []);
 
@@ -185,6 +177,10 @@ const SurveyReview = () => {
 
     setIsSubmitting(true);
     try {
+      // Get consent/terms data from localStorage
+      const savedTerms = localStorage.getItem('kk_survey_terms_temp');
+      const termsData = savedTerms ? JSON.parse(savedTerms) : null;
+      
       // Prepare complete survey data for submission
       const completeSurveyData = {
         personal: formData.personal,
@@ -194,17 +190,18 @@ const SurveyReview = () => {
         survey_version: '2025'
       };
 
-      console.log('📤 Submitting complete survey data:', completeSurveyData);
+      logger.debug('Submitting complete survey data', { hasData: !!completeSurveyData, hasConsent: !!termsData?.acceptedSections });
 
-      // Submit directly to database
+      // Submit directly to database with consent data
       const result = await createProfileAndSubmitSurvey(
         formData.personal,
         completeSurveyData,
-        recaptcha.token
+        recaptcha.token,
+        termsData?.acceptedSections // Pass consent data
       );
 
       if (result.success) {
-        console.log('✅ Survey submitted successfully to database!', result.data);
+        logger.info('Survey submitted successfully to database', { responseId: result.data?.response_id, youthId: result.data?.youth_id });
         
         // Save submission record to localStorage as backup
         localStorage.setItem('kk_survey_submitted', JSON.stringify({
@@ -212,6 +209,7 @@ const SurveyReview = () => {
           submission_id: result.data.response_id,
           youth_id: result.data.youth_id,
           status: 'submitted',
+          accessToken: result.data.accessToken, // Save token for potential redirect
           submitted_at: result.data.submitted_at
         }));
         
@@ -242,6 +240,7 @@ const SurveyReview = () => {
               isNewYouth: result.data?.isNewYouth,
               validationStatus: result.data?.validation_status,
               validationTier: result.data?.validation_tier,
+              accessToken: result.data?.accessToken, // Include token for status page access
               // Include the survey data for display
               personal: formData.personal,
               demographics: formData.demographics,
@@ -253,7 +252,7 @@ const SurveyReview = () => {
         throw new Error(result.message || 'Failed to submit survey');
       }
     } catch (error) {
-      console.error('❌ Submission error:', error);
+      logger.error('Submission error', error);
       
       // Show error modal with specific message
       setErrorModal({
@@ -672,6 +671,8 @@ const SurveyReview = () => {
       message={errorModal.message}
       type={errorModal.type}
       onRetry={errorModal.type === 'error' ? handleRetry : null}
+      disableClose={errorModal.type === 'success'} // Disable closing for success modals
+      showCloseButton={errorModal.type !== 'success'} // Hide close button for success modals
     />
   </>
   );

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import StaffSidebar from '../porrtal/StaffSidebar';
 import StaffHeader from '../porrtal/StaffHeader';
+import logger from '../../utils/logger.js';
 
 const StaffLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -48,7 +49,7 @@ const StaffLayout = ({ children }) => {
       await logout(source);
       navigate('/');
     } catch (error) {
-      console.error('Logout error:', error);
+      logger.error('Logout error', error, { source });
       // Still navigate to home even if logout fails
     navigate('/');
     }

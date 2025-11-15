@@ -1,3 +1,5 @@
+import logger from '../utils/logger.js';
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
 // ============================================================================
@@ -219,7 +221,7 @@ export async function logExport(format, type, count, exportType = 'all') {
     body: JSON.stringify({ format, type, count, exportType })
   });
   if (!res.ok) {
-    console.error('Failed to log export');
+    logger.error('Failed to log export', null, { format, type, count, exportType });
   }
   return res.json().catch(() => ({ success: false }));
 }

@@ -1,5 +1,8 @@
 import skTermsAutoUpdateService from '../services/skTermsAutoUpdateService.js';
 import clusteringCronService from '../services/clusteringCronService.js';
+import backupService from '../scripts/database-backup.js';
+import dataRetentionService from '../services/dataRetentionService.js';
+import logger from '../utils/logger.js';
 
 /**
  * Cron Job Controller
@@ -13,7 +16,7 @@ import clusteringCronService from '../services/clusteringCronService.js';
  */
 const updateTermStatuses = async (req, res) => {
   try {
-    console.log('🕐 Cron job triggered: Update SK Term Statuses');
+    logger.info('Cron job triggered: Update SK Term Statuses');
     
     // Verify this is a legitimate cron job request
     const cronSecret = req.headers['x-cron-secret'];
@@ -41,7 +44,7 @@ const updateTermStatuses = async (req, res) => {
     }
     
   } catch (error) {
-    console.error('❌ Cron job error:', error);
+    logger.error('Cron job error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error during cron job execution',
@@ -56,7 +59,7 @@ const updateTermStatuses = async (req, res) => {
  */
 const manualUpdateTermStatuses = async (req, res) => {
   try {
-    console.log('🔧 Manual cron job triggered: Update SK Term Statuses');
+    logger.info('Manual cron job triggered: Update SK Term Statuses');
     
     const result = await skTermsAutoUpdateService.triggerManualUpdate();
     
@@ -75,7 +78,7 @@ const manualUpdateTermStatuses = async (req, res) => {
     }
     
   } catch (error) {
-    console.error('❌ Manual cron job error:', error);
+    logger.error('Manual cron job error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error during manual cron job execution',
@@ -102,7 +105,7 @@ const getPendingStatusUpdates = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error getting pending status updates:', error);
+    logger.error('Error getting pending status updates', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to get pending status updates',
@@ -117,7 +120,7 @@ const getPendingStatusUpdates = async (req, res) => {
  */
 const manualTriggerClustering = async (req, res) => {
   try {
-    console.log('🔧 Manual clustering cron job triggered');
+    logger.info('Manual clustering cron job triggered');
     
     const result = await clusteringCronService.triggerManualScheduledClustering('MANUAL_TRIGGER');
     
@@ -131,7 +134,7 @@ const manualTriggerClustering = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Manual clustering cron job error:', error);
+    logger.error('Manual clustering cron job error', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to run manual clustering',
@@ -154,10 +157,189 @@ const getClusteringCronStatus = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error getting clustering cron status:', error);
+    logger.error('Error getting clustering cron status', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to get clustering cron status',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get SK Terms cron job status
+ * GET /api/cron/sk-terms-status
+ */
+const getSKTermsCronStatus = async (req, res) => {
+  try {
+    const status = skTermsAutoUpdateService.getStatus();
+    
+    res.json({
+      success: true,
+      data: status
+    });
+    
+  } catch (error) {
+    logger.error('Error getting SK Terms cron status', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get SK Terms cron status',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Daily automatic database backup
+ * This endpoint should be called by a cron job daily
+ * GET /api/cron/backup
+ */
+const runBackup = async (req, res) => {
+  try {
+    logger.info('Cron job triggered: Database Backup');
+    
+    // Verify this is a legitimate cron job request
+    const cronSecret = req.headers['x-cron-secret'];
+    if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized cron job request'
+      });
+    }
+    
+    const result = await backupService.createBackup();
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Database backup completed successfully',
+        data: result
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Database backup failed',
+        error: result.error
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Backup cron job error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during backup cron job execution',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Manual trigger for database backup (for testing)
+ * GET /api/cron/manual-backup
+ */
+const manualBackup = async (req, res) => {
+  try {
+    logger.info('Manual backup cron job triggered');
+    
+    const result = await backupService.createBackup();
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Manual backup completed successfully',
+        data: result
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Manual backup failed',
+        error: result.error
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Manual backup cron job error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to run manual backup',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Monthly data retention check
+ * This endpoint should be called by a cron job monthly
+ * GET /api/cron/data-retention
+ */
+const runDataRetention = async (req, res) => {
+  try {
+    logger.info('Cron job triggered: Data Retention Check');
+    
+    // Verify this is a legitimate cron job request
+    const cronSecret = req.headers['x-cron-secret'];
+    if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized cron job request'
+      });
+    }
+    
+    const result = await dataRetentionService.processRetentionChecks();
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Data retention processing completed successfully',
+        data: result
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Data retention processing failed',
+        error: result.message
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Data retention cron job error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during data retention cron job execution',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Manual trigger for data retention (for testing)
+ * GET /api/cron/manual-data-retention
+ */
+const manualDataRetention = async (req, res) => {
+  try {
+    logger.info('Manual data retention cron job triggered');
+    
+    const result = await dataRetentionService.processRetentionChecks();
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Manual data retention processing completed successfully',
+        data: result
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Manual data retention processing failed',
+        error: result.message
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Manual data retention cron job error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to run manual data retention',
       error: error.message
     });
   }
@@ -168,5 +350,10 @@ export {
   manualUpdateTermStatuses,
   getPendingStatusUpdates,
   manualTriggerClustering,
-  getClusteringCronStatus
+  getClusteringCronStatus,
+  getSKTermsCronStatus,
+  runBackup,
+  manualBackup,
+  runDataRetention,
+  manualDataRetention
 };

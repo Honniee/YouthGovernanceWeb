@@ -16,6 +16,7 @@ import {
 import clusteringService from '../../services/clusteringService';
 import skService from '../../services/skService';
 import { showSuccessToast, showErrorToast } from '../../components/universal';
+import logger from '../../utils/logger.js';
 
 /**
  * Survey Batch Segmentation Component
@@ -46,7 +47,7 @@ const SurveyBatchSegmentation = ({ batchId, batchName }) => {
         const barangayList = skService.getAllBarangays();
         setBarangays(barangayList);
       } catch (err) {
-        console.error('Error loading barangays:', err);
+        logger.error('Failed to load barangays', err);
       }
     };
     loadBarangays();
@@ -88,11 +89,11 @@ const SurveyBatchSegmentation = ({ batchId, batchName }) => {
       const statsData = statsResponse.data || statsResponse || null;
       const runsData = runsResponse.data || runsResponse || [];
 
-      console.log('📊 Fetched data:', {
+      logger.debug('Fetched segmentation data', {
         segments: segmentsData.length,
         stats: statsData,
         runs: runsData.length,
-        scope: scope,
+        scope,
         barangayId: filters.barangayId
       });
 
@@ -100,7 +101,7 @@ const SurveyBatchSegmentation = ({ batchId, batchName }) => {
       setStats(statsData);
       setRuns(Array.isArray(runsData) ? runsData : []);
     } catch (err) {
-      console.error('Error fetching segmentation data:', err);
+      logger.error('Error fetching segmentation data', err, { filters: { scope, selectedBarangay, batchId } });
       setError(err.message || 'Failed to load segmentation data');
     } finally {
       setLoading(false);
@@ -111,7 +112,7 @@ const SurveyBatchSegmentation = ({ batchId, batchName }) => {
     setLoadingRecommendations(true);
     try {
       const response = await clusteringService.getRecommendations({ segmentId });
-      console.log('💡 Full API response:', response);
+      logger.debug('Segmentation recommendations response', response);
       
       // Handle nested response structure
       let recommendationsData = response.data || response || [];
@@ -121,10 +122,10 @@ const SurveyBatchSegmentation = ({ batchId, batchName }) => {
         recommendationsData = recommendationsData.all || [];
       }
       
-      console.log('💡 Extracted recommendations:', recommendationsData);
+      logger.debug('Segmentation recommendations extracted', { count: Array.isArray(recommendationsData) ? recommendationsData.length : 0 });
       setRecommendations(Array.isArray(recommendationsData) ? recommendationsData : []);
     } catch (err) {
-      console.error('Error fetching recommendations:', err);
+      logger.error('Error fetching recommendations', err, { segmentId });
       setRecommendations([]);
     } finally {
       setLoadingRecommendations(false);
@@ -168,7 +169,11 @@ const SurveyBatchSegmentation = ({ batchId, batchName }) => {
       // Refresh data
       await fetchSegmentationData();
     } catch (err) {
-      console.error('Error running clustering:', err);
+      logger.error('Error running clustering', err, {
+        scope,
+        selectedBarangay,
+        batchId
+      });
       const errorMessage = err.message || 'Failed to run clustering';
       setError(errorMessage);
       showErrorToast('Clustering Failed', errorMessage);

@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { validateJWTSecret } from './security.js';
+import logger from './logger.js';
 
 /**
  * Simplified Token Management System
@@ -23,13 +24,21 @@ class SimpleTokenManager {
   getJWTSecret() {
     const secret = process.env.JWT_SECRET;
     
-    // Validate secret strength
-    const validation = validateJWTSecret(secret);
-    if (!validation.isValid && process.env.NODE_ENV === 'production') {
-      console.warn(`JWT Secret warning: ${validation.issues.join(', ')}`);
+    // Strict validation: Fail fast if JWT_SECRET is not set in production
+    if (!secret && process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET must be set in production environment');
     }
     
-    return secret || 'development-fallback-secret';
+    // Validate secret strength
+    if (secret) {
+      const validation = validateJWTSecret(secret);
+      if (!validation.isValid && process.env.NODE_ENV === 'production') {
+        throw new Error(`JWT Secret validation failed: ${validation.issues.join(', ')}`);
+      }
+    }
+    
+    // Use fallback ONLY in development/test environments
+    return secret || (process.env.NODE_ENV === 'test' ? 'test-jwt-secret' : 'development-fallback-secret');
   }
 
   /**
@@ -190,7 +199,7 @@ class SimpleTokenManager {
     }
     
     if (cleanedCount > 0) {
-      console.log(`Cleaned up ${cleanedCount} expired refresh tokens`);
+      logger.info(`Cleaned up ${cleanedCount} expired refresh tokens`, { cleanedCount });
     }
   }
 

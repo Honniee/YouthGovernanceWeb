@@ -1,6 +1,7 @@
 import { getClient } from '../config/database.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import { emitToAdmins, emitBroadcast } from '../services/realtime.js';
+import logger from '../utils/logger.js';
 
 // Return current system notice or sensible defaults
 export const getSystemNotice = async (req, res) => {
@@ -45,7 +46,7 @@ export const getSystemNotice = async (req, res) => {
 
     return res.json({ success: true, data: rowRes.rows[0] });
   } catch (error) {
-    console.error('❌ getSystemNotice error:', error);
+    logger.error('getSystemNotice error', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to load system notice' });
   } finally {
     client.release();
@@ -114,7 +115,7 @@ export const updateSystemNotice = async (req, res) => {
         status: 'success'
       });
     } catch (e) {
-      console.warn('⚠️ Failed to log system notice update:', e?.message);
+      logger.warn('Failed to log system notice update', { error: e?.message, stack: e?.stack });
     }
 
     // Realtime notify public/admin clients about notice change
@@ -127,7 +128,7 @@ export const updateSystemNotice = async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ updateSystemNotice error:', error);
+    logger.error('updateSystemNotice error', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to update system notice' });
   } finally {
     client.release();

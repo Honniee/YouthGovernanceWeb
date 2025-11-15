@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, ConfirmationModal, useConfirmation } from '../../components/universal';
 import { HeaderMainContent } from '../../components/portal_main_content';
+import logger from '../../utils/logger.js';
 
 const AnnouncementCreate = () => {
   const navigate = useNavigate();
@@ -98,9 +99,9 @@ const AnnouncementCreate = () => {
         showInfoToast && showInfoToast('Draft restored', 'We loaded your saved draft.');
         draftToastShownRef.current = true;
       }
-      console.log('🧩 Loaded announcement draft from storage:', saved);
+      logger.debug('Loaded announcement draft from storage', { hasData: !!saved });
     } catch (e) {
-      console.warn('Failed to load announcement draft from storage:', e);
+      logger.warn('Failed to load announcement draft from storage', null, { error: e });
     } finally {
       setDraftLoaded(true);
     }
@@ -221,7 +222,7 @@ const AnnouncementCreate = () => {
       const imageUrl = URL.createObjectURL(file);
       setImagePreview(imageUrl);
     } catch (error) {
-      console.error('Error processing image:', error);
+      logger.error('Error processing image', error);
       setError('Failed to process image. Please try again.');
     } finally {
       setImageUploading(false);
@@ -330,11 +331,11 @@ const AnnouncementCreate = () => {
         imageFile: imageFile // Include the image file for upload
       };
 
-      console.log('🔍 Creating announcement with data:', formData);
+      logger.debug('Creating announcement', { hasData: !!formData });
       
       // Create announcement
       const response = await createAnnouncement(formData);
-      console.log('✅ Announcement created successfully:', response);
+      logger.info('Announcement created successfully', { announcementId: response.data?.id, success: response.success });
       
       
       // Navigate back to announcements and show toast there via flash state
@@ -350,7 +351,7 @@ const AnnouncementCreate = () => {
       });
       
     } catch (error) {
-      console.error('❌ Error creating announcement:', error);
+      logger.error('Error creating announcement', error);
       const message = error?.response?.data?.message || error.message || 'Failed to create announcement. Please try again.';
       setError(message);
       showErrorToast && showErrorToast('Create failed', message);

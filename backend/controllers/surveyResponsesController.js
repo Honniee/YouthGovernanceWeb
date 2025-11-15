@@ -1,6 +1,7 @@
 import db from '../config/database.js';
 import { generateId } from '../utils/idGenerator.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 /**
  * Create or update a survey response (auto-save functionality)
@@ -83,7 +84,7 @@ const saveSurveyResponse = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error saving survey response:', error);
+    logger.error('Error saving survey response', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error while saving survey response'
@@ -152,7 +153,7 @@ const getSurveyResponse = async (req, res) => {
         status: 'success'
       });
     } catch (auditError) {
-      console.error('❌ Failed to create survey response access audit log:', auditError);
+      logger.error('Failed to create survey response access audit log', { error: auditError.message, stack: auditError.stack });
       // Don't fail the request if audit logging fails
     }
 
@@ -179,7 +180,7 @@ const getSurveyResponse = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error retrieving survey response:', error);
+    logger.error('Error retrieving survey response', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error while retrieving survey response'
@@ -233,7 +234,7 @@ const submitSurveyResponse = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error submitting survey response:', error);
+    logger.error('Error submitting survey response', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error while submitting survey response'
@@ -290,7 +291,7 @@ const checkSubmissionStatus = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error checking submission status:', error);
+    logger.error('Error checking submission status', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error while checking submission status'
@@ -347,7 +348,7 @@ const getBatchResponseStats = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error getting batch response stats:', error);
+    logger.error('Error getting batch response stats', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error while getting batch response statistics'

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import surveyBatchesService from '../services/surveyBatchesService';
+import logger from '../utils/logger.js';
 
 /**
  * Hook to get active survey batch information
@@ -30,7 +31,7 @@ export const useActiveSurvey = () => {
         setActiveSurvey(null);
       }
     } catch (err) {
-      console.error('Error loading active survey:', err);
+      logger.error('Error loading active survey', err);
       setError('Failed to load active survey');
       setActiveSurvey(null);
     } finally {

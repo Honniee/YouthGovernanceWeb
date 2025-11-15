@@ -11,6 +11,8 @@
  * - <0.5 : Poor (should not proceed)
  */
 
+import logger from '../utils/logger.js';
+
 class DataQualityService {
   
   /**
@@ -19,7 +21,7 @@ class DataQualityService {
    * @returns {Object} Quality report with score and issues
    */
   async assessDataQuality(responses) {
-    console.log('🔍 Assessing data quality...');
+    logger.info('Assessing data quality', { responseCount: responses.length });
     
     if (!responses || responses.length === 0) {
       return {
@@ -126,16 +128,13 @@ class DataQualityService {
     };
 
     // Log results
-    console.log(`📊 Data Quality Results:`);
-    console.log(`   Total Records: ${report.totalRecords}`);
-    console.log(`   Valid Records: ${report.validRecords}`);
-    console.log(`   Quality Score: ${(report.qualityScore * 100).toFixed(1)}%`);
-    console.log(`   Can Proceed: ${report.summary.canProceed ? '✅ Yes' : '❌ No'}`);
-    
-    if (report.issues.length > 0) {
-      console.log(`   Issues Found: ${report.issues.length}`);
-      report.issues.forEach(issue => console.log(`   - ${issue}`));
-    }
+    logger.info('Data Quality Results', {
+      totalRecords: report.totalRecords,
+      validRecords: report.validRecords,
+      qualityScore: (report.qualityScore * 100).toFixed(1) + '%',
+      canProceed: report.summary.canProceed,
+      issues: report.issues.length > 0 ? report.issues : []
+    });
 
     return report;
   }

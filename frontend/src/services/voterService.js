@@ -76,6 +76,20 @@ class VoterService {
   }
 
   /**
+   * Hard delete voter (permanent removal) - admin only
+   * @param {string} id - Voter ID
+   * @returns {Promise<Object>} Deletion result
+   */
+  async hardDeleteVoter(id) {
+    try {
+      const response = await api.delete(`/voters/${id}/hard-delete`);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  /**
    * Restore archived voter
    * @param {string} id - Voter ID
    * @returns {Promise<Object>} Restored voter data
@@ -111,10 +125,11 @@ class VoterService {
    * @param {File} file - CSV/Excel file
    * @returns {Promise<Object>} Import results
    */
-  async bulkImportVoters(file) {
+  async bulkImportVoters(file, duplicateStrategy = 'skip') {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('duplicateStrategy', duplicateStrategy);
 
       const response = await api.post('/voters/bulk/import', formData, {
         headers: {
@@ -205,7 +220,7 @@ class VoterService {
    */
   async exportVoters(format = 'csv', status = 'active', selectedIds = null) {
     try {
-      console.log('🔍 Exporting voters:', { format, status, selectedIds });
+      logger.debug('Exporting voters', { format, status, selectedIdsCount: selectedIds?.length });
       
       const params = new URLSearchParams({ format, status });
       if (selectedIds) {
@@ -216,7 +231,7 @@ class VoterService {
         responseType: format === 'csv' ? 'blob' : 'json',
       });
       
-      console.log('🔍 Export response:', response);
+      logger.debug('Export response received', { format, statusCode: response.status });
       
       if (format === 'csv') {
         // Handle file download
@@ -232,7 +247,7 @@ class VoterService {
       } else if (format === 'pdf') {
         // Handle PDF export with SKTermReport-style layout
         const voters = response.data?.data || response.data || [];
-        console.log('🔍 Voters for PDF:', voters);
+        logger.debug('Voters for PDF', { voterCount: voters.length });
         
         if (!voters || voters.length === 0) {
           throw new Error('No voter data available for export');
@@ -244,7 +259,7 @@ class VoterService {
       
       return response.data;
     } catch (error) {
-      console.error('🔍 Export error:', error);
+      logger.error('Export error', error, { format, status });
       throw this.handleError(error);
     }
   }
@@ -257,7 +272,7 @@ class VoterService {
    */
   async exportSelectedVoters(format = 'csv', selectedVoters = []) {
     try {
-      console.log('🔍 Exporting selected voters:', { format, count: selectedVoters.length });
+      logger.debug('Exporting selected voters', { format, count: selectedVoters.length });
       
       if (!selectedVoters || selectedVoters.length === 0) {
         throw new Error('No voters selected for export');
@@ -297,7 +312,7 @@ class VoterService {
       
       throw new Error('Unsupported export format');
     } catch (error) {
-      console.error('🔍 Export selected voters error:', error);
+      logger.error('Export selected voters error', error, { format, count: selectedVoters.length });
       throw this.handleError(error);
     }
   }
@@ -308,7 +323,7 @@ class VoterService {
    * @param {string} status - Current filter status
    */
   generatePDF(voters, status) {
-    console.log('🔍 Generating PDF with:', { votersCount: voters.length, status });
+    logger.debug('Generating PDF', { votersCount: voters.length, status });
     
     if (!voters || voters.length === 0) {
       alert('No voter data available for PDF export');
@@ -594,7 +609,7 @@ class VoterService {
    * @returns {Error} Formatted error with user-friendly message
    */
   handleError(error) {
-    console.error('Voter Service Error:', error);
+    logger.error('Voter Service Error', error);
 
     // Support errors formatted by api.js interceptor (already normalized)
     if (!error.response && typeof error.status === 'number') {
@@ -713,7 +728,8 @@ class VoterService {
       isActive: voter.is_active,
       createdAt: voter.created_at,
       updatedAt: voter.updated_at,
-      createdBy: voter.created_by,
+      createdBy: voter.created_by_name || voter.created_by,
+      createdByName: voter.created_by_name || voter.created_by,
       // Add participation status
       hasParticipated: voter.has_participated || false,
       surveyCount: voter.survey_count || 0,

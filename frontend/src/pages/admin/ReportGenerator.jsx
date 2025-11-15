@@ -28,6 +28,7 @@ import skService from '../../services/skService.js';
 import staffService from '../../services/staffService.js';
 import youthService from '../../services/youthService.js';
 import api from '../../services/api.js';
+import logger from '../../utils/logger.js';
 
 // Configuration Wizard Component
 const ConfigurationWizard = ({
@@ -265,21 +266,20 @@ const ReportGenerator = () => {
         setBarangays(response.data.data || []);
       }
     } catch (error) {
-      console.error('Failed to load barangays:', error);
+      logger.error('Failed to load barangays', error);
     }
   };
 
   const loadBatches = async () => {
     try {
-      console.log('🔍 ReportGenerator - Loading batches...');
+      logger.debug('ReportGenerator - Loading batches');
       const response = await surveyBatchesService.getSurveyBatches({ limit: 1000 });
-      console.log('🔍 ReportGenerator - Batch response:', response);
+      logger.debug('ReportGenerator - Batch response', { response });
       
       if (response.success) {
         // Match the structure used in SurveyBatch.jsx
         const batchData = response.data?.data || [];
-        console.log('🔍 ReportGenerator - Batch data:', batchData);
-        console.log('🔍 ReportGenerator - Batch count:', batchData.length);
+        logger.debug('ReportGenerator - Batch data', { batchData, count: batchData.length });
         
         if (Array.isArray(batchData) && batchData.length > 0) {
           // Filter out draft batches - only include active and closed batches
@@ -288,18 +288,18 @@ const ReportGenerator = () => {
             return status !== 'draft';
           });
           
-          console.log('🔍 ReportGenerator - Filtered batches (excluding draft):', filteredBatches.length);
+          logger.debug('ReportGenerator - Filtered batches (excluding draft)', { count: filteredBatches.length });
           setBatches(filteredBatches);
         } else {
           setBatches([]);
-          console.log('🔍 ReportGenerator - No batches found');
+          logger.debug('ReportGenerator - No batches found');
         }
       } else {
-        console.error('🔍 ReportGenerator - Failed to load batches:', response.message);
+        logger.error('ReportGenerator - Failed to load batches', null, { message: response.message });
         setBatches([]);
       }
     } catch (error) {
-      console.error('🔍 ReportGenerator - Error loading batches:', error);
+      logger.error('ReportGenerator - Error loading batches', error);
       setBatches([]);
       showErrorToast('Failed to load batches', 'Could not fetch survey batches. Please refresh the page.');
     }
@@ -320,7 +320,7 @@ const ReportGenerator = () => {
         setTerms(filteredTerms);
       }
     } catch (error) {
-      console.error('Failed to load terms:', error);
+      logger.error('Failed to load terms', error);
     }
   };
 
@@ -414,7 +414,7 @@ const ReportGenerator = () => {
             return;
           }
           
-          console.log('🔍 Processing batches:', batchIdsToProcess.length, batchIdsToProcess);
+          logger.debug('Processing batches', { count: batchIdsToProcess.length, batchIds: batchIdsToProcess });
           
           // Fetch data for all selected batches
           const allBatches = [];
@@ -477,10 +477,7 @@ const ReportGenerator = () => {
                     batchResponses = respData;
                   }
                   
-                  console.log('🔍 ReportGenerator - Extracted batchResponses:', batchResponses.length, 'items');
-                  if (batchResponses.length > 0) {
-                    console.log('🔍 ReportGenerator - First response sample:', batchResponses[0]);
-                  }
+                  logger.debug('ReportGenerator - Extracted batchResponses', { count: batchResponses.length, firstSample: batchResponses[0] });
                   
                   // Add batch info to each response
                   batchResponses = batchResponses.map(r => ({
@@ -514,7 +511,7 @@ const ReportGenerator = () => {
               }
             }
             } catch (error) {
-              console.error(`Failed to load batch ${batchId}:`, error);
+              logger.error(`Failed to load batch ${batchId}`, error);
               // Continue with other batches instead of failing completely
             }
           }
@@ -553,7 +550,7 @@ const ReportGenerator = () => {
             return;
           }
           
-          console.log('🔍 Processing SK terms:', termIdsToProcess.length, termIdsToProcess);
+          logger.debug('Processing SK terms', { count: termIdsToProcess.length, termIds: termIdsToProcess });
           
           // Fetch data for all selected terms
           const allTerms = [];
@@ -569,24 +566,26 @@ const ReportGenerator = () => {
                 
                 // Fetch vacancies for this term (all barangays)
                 const vacanciesResp = await skService.getAllBarangayVacancies(termId);
-                console.log('🔍 SK Term Report - Vacancies response for term', termId, ':', vacanciesResp);
+                logger.debug('SK Term Report - Vacancies response for term', { termId, response: vacanciesResp });
                 if (vacanciesResp.success && vacanciesResp.data) {
                   // Merge vacancies data, adding term info to each entry
                   const termVacancies = vacanciesResp.data;
-                  console.log('🔍 SK Term Report - Term vacancies data structure:', termVacancies);
-                  console.log('🔍 SK Term Report - Is object?', typeof termVacancies === 'object');
-                  console.log('🔍 SK Term Report - Is array?', Array.isArray(termVacancies));
-                  console.log('🔍 SK Term Report - Barangay keys:', Object.keys(termVacancies || {}));
+                  logger.debug('SK Term Report - Term vacancies data structure', { 
+                    termVacancies, 
+                    isObject: typeof termVacancies === 'object',
+                    isArray: Array.isArray(termVacancies),
+                    barangayKeys: Object.keys(termVacancies || {})
+                  });
                   
                   // Backend structure: { [barangayId]: { barangayName, vacancies: { [position]: { current, max, available, ... } } } }
                   // Transform to: { [barangayName]: { [position]: positionData[] } }
                   if (typeof termVacancies === 'object' && !Array.isArray(termVacancies)) {
                     Object.entries(termVacancies).forEach(([barangayId, barangayData]) => {
-                      console.log('🔍 SK Term Report - Processing barangay:', barangayId, 'data:', barangayData);
+                      logger.debug('SK Term Report - Processing barangay', { barangayId, barangayData });
                       const barangayName = barangayData.barangayName || barangayData.barangay_name || barangayId;
                       const positions = barangayData.vacancies || barangayData;
                       
-                      console.log('🔍 SK Term Report - Barangay name:', barangayName, 'positions structure:', positions);
+                      logger.debug('SK Term Report - Barangay name and positions structure', { barangayName, positions });
                       
                       // Filter by selected barangays (use barangay name for filtering)
                       const shouldIncludeBarangay = reportConfig.allBarangays || 
@@ -594,7 +593,8 @@ const ReportGenerator = () => {
                         reportConfig.barangayIds.includes(barangayName) ||
                         reportConfig.barangayIds.includes(barangayId);
                       
-                      console.log('🔍 SK Term Report - Should include barangay?', shouldIncludeBarangay, {
+                      logger.debug('SK Term Report - Should include barangay?', {
+                        shouldIncludeBarangay,
                         allBarangays: reportConfig.allBarangays,
                         barangayIds: reportConfig.barangayIds,
                         barangayName,
@@ -609,16 +609,18 @@ const ReportGenerator = () => {
                       
                       // Handle both structures: positions could be the vacancies object or directly the data
                       const positionsToProcess = positions.vacancies || positions;
-                      console.log('🔍 SK Term Report - Positions to process:', positionsToProcess);
-                      console.log('🔍 SK Term Report - Position keys:', Object.keys(positionsToProcess || {}));
+                      logger.debug('SK Term Report - Positions to process', { 
+                        positionsToProcess, 
+                        positionKeys: Object.keys(positionsToProcess || {})
+                      });
                       
                       if (!positionsToProcess || typeof positionsToProcess !== 'object') {
-                        console.warn('🔍 SK Term Report - No valid positions to process for barangay:', barangayName);
+                        logger.warn('SK Term Report - No valid positions to process for barangay', null, { barangayName });
                         return;
                       }
                       
                       Object.entries(positionsToProcess).forEach(([position, positionData]) => {
-                        console.log('🔍 SK Term Report - Processing position:', position, 'data:', positionData);
+                        logger.debug('SK Term Report - Processing position', { position, positionData });
                         // Filter by selected positions
                         const shouldIncludePosition = reportConfig.allPositions || 
                           reportConfig.positionIds.length === 0 ||
@@ -667,7 +669,7 @@ const ReportGenerator = () => {
                 }
               }
             } catch (error) {
-              console.error(`Failed to load term ${termId}:`, error);
+              logger.error(`Failed to load term ${termId}`, error);
               // Continue with other terms instead of failing completely
             }
           }
@@ -684,9 +686,11 @@ const ReportGenerator = () => {
             totalPositions += Object.keys(positions).length;
           });
           
-          console.log('🔍 SK Term Report - Total positions found:', totalPositions);
-          console.log('🔍 SK Term Report - Vacancies structure:', allVacancies);
-          console.log('🔍 SK Term Report - Number of terms:', allTerms.length);
+          logger.debug('SK Term Report - Summary', { 
+            totalPositions, 
+            vacanciesStructure: allVacancies, 
+            numberOfTerms: allTerms.length 
+          });
           
           data = {
             type: 'sk_term',
@@ -2718,7 +2722,7 @@ ${bodyRows}
                   {terms.map(term => {
                     const id = term.id || term.term_id || term.termId;
                     if (!id) {
-                      console.warn('Term missing ID field:', term);
+                      logger.warn('Term missing ID field', null, { term });
                     }
                     const name = term.termName || term.term_name || 'Unnamed Term';
                     const status = term.status || 'Unknown';
@@ -2755,14 +2759,14 @@ ${bodyRows}
                               if (e.target.checked && !wasChecked) {
                                 // Adding this term
                                 currentIds.push(id);
-                                console.log('✅ Adding term:', id, 'New termIds:', currentIds);
+                                logger.debug('Adding term', { termId: id, newTermIds: currentIds });
                               } else if (!e.target.checked && wasChecked) {
                                 // Removing this term
                                 const index = currentIds.indexOf(id);
                                 if (index > -1) {
                                   currentIds.splice(index, 1);
                                 }
-                                console.log('❌ Removing term:', id, 'New termIds:', currentIds);
+                                logger.debug('Removing term', { termId: id, newTermIds: currentIds });
                               }
                               
                               return {

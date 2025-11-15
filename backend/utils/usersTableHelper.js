@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import { generateUserId } from './idGenerator.js';
+import logger from './logger.js';
 
 /**
  * Utility functions for managing Users table integration
@@ -23,7 +24,7 @@ export const createUserForStaff = async (lydoId, client = null) => {
     );
     
     if (existingUser.rows.length > 0) {
-      console.log(`👤 User already exists for LYDO ID ${lydoId}: ${existingUser.rows[0].user_id}`);
+      logger.debug(`User already exists for LYDO ID ${lydoId}`, { lydoId, userId: existingUser.rows[0].user_id });
       return existingUser.rows[0].user_id;
     }
     
@@ -52,11 +53,11 @@ export const createUserForStaff = async (lydoId, client = null) => {
       null          // youth_id (null for staff)
     ]);
     
-    console.log(`✅ Created Users table entry: ${userId} for LYDO ID ${lydoId}`);
+    logger.info(`Created Users table entry: ${userId} for LYDO ID ${lydoId}`, { userId, lydoId });
     return result.rows[0].user_id;
     
   } catch (error) {
-    console.error('❌ Error creating user for staff:', error);
+    logger.error('Error creating user for staff', { error: error.message, stack: error.stack, lydoId });
     throw new Error(`Failed to create user entry for LYDO ID: ${lydoId}`);
   }
 };
@@ -78,7 +79,7 @@ export const createUserForSK = async (skId, client = null) => {
     );
     
     if (existingUser.rows.length > 0) {
-      console.log(`👤 User already exists for SK ID ${skId}: ${existingUser.rows[0].user_id}`);
+      logger.debug(`User already exists for SK ID ${skId}`, { skId, userId: existingUser.rows[0].user_id });
       return existingUser.rows[0].user_id;
     }
     
@@ -107,11 +108,11 @@ export const createUserForSK = async (skId, client = null) => {
       null           // youth_id (null for SK officials)
     ]);
     
-    console.log(`✅ Created Users table entry: ${userId} for SK ID ${skId}`);
+    logger.info(`Created Users table entry: ${userId} for SK ID ${skId}`, { userId, skId });
     return result.rows[0].user_id;
     
   } catch (error) {
-    console.error('❌ Error creating user for SK official:', error);
+    logger.error('Error creating user for SK official', { error: error.message, stack: error.stack, skId });
     throw new Error(`Failed to create user entry for SK ID: ${skId}`);
   }
 };
@@ -133,7 +134,7 @@ export const createUserForAdmin = async (lydoId, client = null) => {
     );
     
     if (existingUser.rows.length > 0) {
-      console.log(`👤 User already exists for Admin LYDO ID ${lydoId}: ${existingUser.rows[0].user_id}`);
+      logger.debug(`User already exists for Admin LYDO ID ${lydoId}`, { lydoId, userId: existingUser.rows[0].user_id });
       return existingUser.rows[0].user_id;
     }
     
@@ -162,12 +163,78 @@ export const createUserForAdmin = async (lydoId, client = null) => {
       null         // youth_id (null for admin)
     ]);
     
-    console.log(`✅ Created Users table entry: ${userId} for Admin LYDO ID ${lydoId}`);
+    logger.info(`Created Users table entry: ${userId} for Admin LYDO ID ${lydoId}`, { userId, lydoId });
     return result.rows[0].user_id;
     
   } catch (error) {
-    console.error('❌ Error creating user for admin:', error);
+    logger.error('Error creating user for admin', { error: error.message, stack: error.stack, lydoId });
     throw new Error(`Failed to create user entry for Admin LYDO ID: ${lydoId}`);
+  }
+};
+
+/**
+ * Gets the user_id from Users table based on lydo_id or sk_id
+ * @param {string} lydoId - The LYDO ID (optional)
+ * @param {string} skId - The SK ID (optional)
+ * @param {Object} client - Database client (for transactions, optional)
+ * @returns {Promise<string|null>} The user_id if found, null otherwise
+ */
+export const getUserIdFromUsersTable = async (lydoId = null, skId = null, client = null) => {
+  try {
+    const dbClient = client || { query };
+    
+    if (!lydoId && !skId) {
+      return null;
+    }
+    
+    let queryText;
+    let params;
+    
+    if (lydoId) {
+      queryText = 'SELECT user_id FROM "Users" WHERE lydo_id = $1 LIMIT 1';
+      params = [lydoId];
+    } else if (skId) {
+      queryText = 'SELECT user_id FROM "Users" WHERE sk_id = $1 LIMIT 1';
+      params = [skId];
+    }
+    
+    const result = await dbClient.query(queryText, params);
+    
+    if (result.rows.length > 0) {
+      return result.rows[0].user_id;
+    }
+    
+    // If user doesn't exist, try to create it
+    if (lydoId) {
+      // Check if it's admin or staff
+      const lydoResult = await dbClient.query(
+        'SELECT role_id FROM "LYDO" WHERE lydo_id = $1',
+        [lydoId]
+      );
+      
+      if (lydoResult.rows.length > 0) {
+        const roleResult = await dbClient.query(
+          'SELECT role_name FROM "Roles" WHERE role_id = $1',
+          [lydoResult.rows[0].role_id]
+        );
+        
+        if (roleResult.rows.length > 0) {
+          const roleName = roleResult.rows[0].role_name;
+          if (roleName === 'admin') {
+            return await createUserForAdmin(lydoId, dbClient);
+          } else {
+            return await createUserForStaff(lydoId, dbClient);
+          }
+        }
+      }
+    } else if (skId) {
+      return await createUserForSK(skId, dbClient);
+    }
+    
+    return null;
+  } catch (error) {
+    logger.error('Error getting user_id from Users table', { error: error.message, stack: error.stack, lydoId, skId });
+    return null;
   }
 };
 
@@ -177,7 +244,7 @@ export const createUserForAdmin = async (lydoId, client = null) => {
  */
 export const migrateExistingUsersToUsersTable = async () => {
   try {
-    console.log('🔄 Starting Users table migration...');
+    logger.info('Starting Users table migration');
     
     const summary = {
       staffProcessed: 0,
@@ -187,7 +254,7 @@ export const migrateExistingUsersToUsersTable = async () => {
     };
     
     // 1. Process existing LYDO staff
-    console.log('👥 Processing existing LYDO staff...');
+    logger.info('Processing existing LYDO staff');
     const staffResult = await query(`
       SELECT l.lydo_id, r.role_name 
       FROM "LYDO" l 
@@ -205,13 +272,13 @@ export const migrateExistingUsersToUsersTable = async () => {
           summary.staffProcessed++;
         }
       } catch (error) {
-        console.error(`❌ Failed to create user for ${staff.lydo_id}:`, error.message);
+        logger.error(`Failed to create user for ${staff.lydo_id}`, { error: error.message, stack: error.stack, lydoId: staff.lydo_id });
         summary.errors.push(`LYDO ${staff.lydo_id}: ${error.message}`);
       }
     }
     
     // 2. Process existing SK Officials (if any exist)
-    console.log('🏛️ Processing existing SK Officials...');
+    logger.info('Processing existing SK Officials');
     const skResult = await query('SELECT sk_id FROM "SK_Officials" WHERE is_active = true');
     
     for (const sk of skResult.rows) {
@@ -219,28 +286,26 @@ export const migrateExistingUsersToUsersTable = async () => {
         await createUserForSK(sk.sk_id);
         summary.skProcessed++;
       } catch (error) {
-        console.error(`❌ Failed to create user for ${sk.sk_id}:`, error.message);
+        logger.error(`Failed to create user for ${sk.sk_id}`, { error: error.message, stack: error.stack, skId: sk.sk_id });
         summary.errors.push(`SK ${sk.sk_id}: ${error.message}`);
       }
     }
     
-    console.log('✅ Users table migration completed!');
-    console.log(`📊 Summary:
-      - Staff processed: ${summary.staffProcessed}
-      - SK officials processed: ${summary.skProcessed}  
-      - Admins processed: ${summary.adminProcessed}
-      - Errors: ${summary.errors.length}
-    `);
+    logger.info('Users table migration completed', {
+      staffProcessed: summary.staffProcessed,
+      skProcessed: summary.skProcessed,
+      adminProcessed: summary.adminProcessed,
+      errorCount: summary.errors.length
+    });
     
     if (summary.errors.length > 0) {
-      console.log('❌ Migration errors:');
-      summary.errors.forEach(error => console.log(`  - ${error}`));
+      logger.warn('Migration errors occurred', { errors: summary.errors });
     }
     
     return summary;
     
   } catch (error) {
-    console.error('❌ Users table migration failed:', error);
+    logger.error('Users table migration failed', { error: error.message, stack: error.stack });
     throw error;
   }
 };
@@ -251,7 +316,7 @@ export const migrateExistingUsersToUsersTable = async () => {
  */
 export const validateUsersTableIntegrity = async () => {
   try {
-    console.log('🔍 Validating Users table integrity...');
+    logger.info('Validating Users table integrity');
     
     const report = {
       totalUsers: 0,
@@ -313,18 +378,19 @@ export const validateUsersTableIntegrity = async () => {
       report.duplicateUsers.length === 0
     );
     
-    console.log('📊 Users table validation report:');
-    console.log(`  - Total users: ${report.totalUsers}`);
-    console.log(`  - Staff without Users entries: ${report.staffWithoutUsers.length}`);
-    console.log(`  - SK officials without Users entries: ${report.skWithoutUsers.length}`);
-    console.log(`  - Orphaned Users: ${report.orphanedUsers.length}`);
-    console.log(`  - Duplicate Users: ${report.duplicateUsers.length}`);
-    console.log(`  - Overall status: ${report.isValid ? '✅ VALID' : '❌ INVALID'}`);
+    logger.info('Users table validation report', {
+      totalUsers: report.totalUsers,
+      staffWithoutUsers: report.staffWithoutUsers.length,
+      skWithoutUsers: report.skWithoutUsers.length,
+      orphanedUsers: report.orphanedUsers.length,
+      duplicateUsers: report.duplicateUsers.length,
+      isValid: report.isValid
+    });
     
     return report;
     
   } catch (error) {
-    console.error('❌ Users table validation failed:', error);
+    logger.error('Users table validation failed', { error: error.message, stack: error.stack });
     throw error;
   }
 };

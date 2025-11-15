@@ -4,6 +4,8 @@ import universalAuditService from './universalAuditService.js';
 import universalNotificationService from './universalNotificationService.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import { emitToAdmins, emitToRole } from './realtime.js';
+import cron from 'node-cron';
+import logger from '../utils/logger.js';
 
 /**
  * Automatic SK Terms Status Update Service
@@ -12,6 +14,94 @@ import { emitToAdmins, emitToRole } from './realtime.js';
 
 class SKTermsAutoUpdateService {
   
+  constructor() {
+    this.cronJob = null;
+    this.isRunning = false;
+  }
+
+  /**
+   * Start the scheduled cron job for automatic term status updates
+   * Runs daily at midnight (00:00)
+   */
+  start() {
+    if (this.cronJob) {
+      logger.warn('SK Terms cron job is already running');
+      return;
+    }
+
+    // Schedule: '0 0 * * *' = Daily at midnight (00:00)
+    // Can be customized via SK_TERMS_CRON_SCHEDULE environment variable
+    const schedule = process.env.SK_TERMS_CRON_SCHEDULE || '0 0 * * *';
+    
+    logger.info('Starting SK Terms Auto-Update Cron Service', {
+      schedule,
+      description: 'Daily at midnight',
+      timezone: process.env.TZ || 'Asia/Manila'
+    });
+
+    this.cronJob = cron.schedule(schedule, async () => {
+      await this.runScheduledUpdate();
+    }, {
+      scheduled: true,
+      timezone: process.env.TZ || 'Asia/Manila'
+    });
+
+    logger.info('SK Terms cron job scheduled successfully', { schedule, timezone: process.env.TZ || 'Asia/Manila' });
+  }
+  
+  /**
+   * Stop the cron job
+   */
+  stop() {
+    if (this.cronJob) {
+      this.cronJob.stop();
+      this.cronJob = null;
+      logger.info('SK Terms cron job stopped');
+    }
+  }
+  
+  /**
+   * Run scheduled status update (called by cron)
+   */
+  async runScheduledUpdate() {
+    if (this.isRunning) {
+      logger.warn('SK Terms status update already running, skipping');
+      return;
+    }
+
+    this.isRunning = true;
+    logger.info('SCHEDULED SK TERMS STATUS UPDATE STARTED');
+    
+    try {
+      const result = await this.updateTermStatuses();
+      if (result.success) {
+        logger.info('SCHEDULED SK TERMS STATUS UPDATE COMPLETED', {
+          activated: result.changes.activated.length,
+          completed: result.changes.completed.length
+        });
+      } else {
+        logger.error('SCHEDULED SK TERMS STATUS UPDATE FAILED', { error: result.error });
+      }
+    } catch (error) {
+      logger.error('SCHEDULED SK TERMS STATUS UPDATE ERROR', { error: error.message, stack: error.stack });
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /**
+   * Get cron job status
+   */
+  getStatus() {
+    return {
+      isScheduled: this.cronJob !== null,
+      isRunning: this.isRunning,
+      schedule: process.env.SK_TERMS_CRON_SCHEDULE || '0 0 * * *',
+      description: 'Daily at midnight (00:00)',
+      nextRun: this.cronJob ? 'Based on schedule' : 'Not scheduled'
+    };
+  }
+
   /**
    * Update term statuses automatically based on current date
    * This should be called daily via cron job
@@ -23,7 +113,7 @@ class SKTermsAutoUpdateService {
       await client.query('BEGIN');
       
       const today = new Date().toISOString().split('T')[0];
-      console.log(`🔄 Starting automatic term status update for date: ${today}`);
+      logger.info('Starting automatic term status update', { date: today });
       
       // Track changes for audit and notifications
       const changes = {
@@ -33,10 +123,13 @@ class SKTermsAutoUpdateService {
       };
       
       // 1. Update upcoming terms to active (start_date = today)
+      // Also set is_current = true and is_active = true for consistency
       const activateResult = await client.query(`
         UPDATE "SK_Terms" 
         SET 
           status = 'active',
+          is_current = true,
+          is_active = true,
           last_status_change_at = CURRENT_TIMESTAMP,
           last_status_change_by = 'SYSTEM',
           status_change_reason = 'Automatic activation: start date reached'
@@ -47,29 +140,31 @@ class SKTermsAutoUpdateService {
       `, [today]);
       
       changes.activated = activateResult.rows;
-      console.log(`✅ Activated ${changes.activated.length} terms`);
+      logger.info(`Activated ${changes.activated.length} terms`, { count: changes.activated.length, terms: changes.activated.map(t => t.term_id) });
       
-      // 2. Update active terms to completed (end_date = today)
-      // Also set is_current = false to prevent it from being selected as active
+      // 2. Update active terms to completed (end_date < today, not <=)
+      // Use strict less than so term stays active on its end date
+      // Also set is_current = false and is_active = false to prevent it from being selected as active
       const completeResult = await client.query(`
         UPDATE "SK_Terms" 
         SET 
           status = 'completed',
           is_current = false,
+          is_active = false,
           completion_type = 'automatic',
           completed_at = CURRENT_TIMESTAMP,
           completed_by = NULL,
           last_status_change_at = CURRENT_TIMESTAMP,
           last_status_change_by = NULL,
-          status_change_reason = 'Automatic completion: end date reached'
+          status_change_reason = 'Automatic completion: end date passed'
         WHERE 
           status = 'active' 
-          AND end_date <= $1
+          AND end_date < $1
         RETURNING term_id, term_name, start_date, end_date
       `, [today]);
       
       changes.completed = completeResult.rows;
-      console.log(`✅ Completed ${changes.completed.length} terms`);
+      logger.info(`Completed ${changes.completed.length} terms`, { count: changes.completed.length, terms: changes.completed.map(t => t.term_id) });
 
       // Emit realtime events for status changes
       try {
@@ -100,7 +195,7 @@ class SKTermsAutoUpdateService {
           RETURNING sk_id, first_name, last_name, email, term_id
         `, [termIds]);
         
-        console.log(`🔒 Disabled account access for ${accountUpdateResult.rows.length} officials`);
+        logger.info(`Disabled account access for ${accountUpdateResult.rows.length} officials`, { count: accountUpdateResult.rows.length, termIds });
         
         // Log account access changes
         for (const official of accountUpdateResult.rows) {
@@ -177,8 +272,11 @@ class SKTermsAutoUpdateService {
       
       await client.query('COMMIT');
       
-      console.log(`🎉 Automatic term status update completed successfully`);
-      console.log(`📊 Summary: ${changes.activated.length} activated, ${changes.completed.length} completed`);
+      logger.info('Automatic term status update completed successfully', {
+        activated: changes.activated.length,
+        completed: changes.completed.length,
+        summary: `${changes.activated.length} activated, ${changes.completed.length} completed`
+      });
       
       return {
         success: true,
@@ -188,7 +286,7 @@ class SKTermsAutoUpdateService {
       
     } catch (error) {
       await client.query('ROLLBACK');
-      console.error('❌ Error during automatic term status update:', error);
+      logger.error('Error during automatic term status update', { error: error.message, stack: error.stack });
       
       return {
         success: false,
@@ -232,9 +330,18 @@ class SKTermsAutoUpdateService {
    * Manual trigger for status updates (for testing or immediate updates)
    */
   async triggerManualUpdate() {
-    console.log('🔧 Manual status update triggered');
+    logger.info('Manual status update triggered');
     return await this.updateTermStatuses();
   }
 }
 
-export default new SKTermsAutoUpdateService();
+const skTermsAutoUpdateService = new SKTermsAutoUpdateService();
+
+// Auto-start cron job when module is loaded (only in production or if enabled)
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_SK_TERMS_CRON === 'true') {
+  skTermsAutoUpdateService.start();
+} else {
+  logger.info('SK Terms cron job disabled in development', { recommendation: 'Set ENABLE_SK_TERMS_CRON=true to enable' });
+}
+
+export default skTermsAutoUpdateService;

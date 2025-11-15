@@ -1,4 +1,5 @@
 import { createAuditLog } from '../middleware/auditLogger.js';
+import logger from '../utils/logger.js';
 
 /**
  * Universal Audit Service
@@ -71,7 +72,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -88,7 +89,7 @@ class UniversalAuditService {
         status: 'success'
       });
     } catch (error) {
-      console.error(`❌ Failed to log ${entityType} creation:`, error);
+      logger.error(`Failed to log ${entityType} creation`, { error: error.message, stack: error.stack, entityType });
       return null;
     }
   }
@@ -105,7 +106,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -121,7 +122,7 @@ class UniversalAuditService {
         status: 'success'
       });
     } catch (error) {
-      console.error(`❌ Failed to log ${entityType} update:`, error);
+      logger.error(`Failed to log ${entityType} update`, { error: error.message, stack: error.stack, entityType, entityId });
       return null;
     }
   }
@@ -139,7 +140,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -172,7 +173,7 @@ class UniversalAuditService {
       
       // Only use 'SYSTEM' for automated/system actions, not for admin actions
       if (!userId && userContext?.userType === 'admin') {
-        console.warn('⚠️ Admin action without user ID - this should not happen');
+        logger.warn('Admin action without user ID - this should not happen', { entityType, entityId, userContext });
         userId = null; // Let the database handle this appropriately
       } else if (!userId) {
         userId = 'SYSTEM'; // For automated/system actions
@@ -190,7 +191,7 @@ class UniversalAuditService {
         status: 'success'
       });
     } catch (error) {
-      console.error(`❌ Failed to log ${entityType} status change:`, error);
+      logger.error(`Failed to log ${entityType} status change`, { error: error.message, stack: error.stack, entityType, entityId, newStatus });
       return null;
     }
   }
@@ -207,7 +208,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -223,7 +224,7 @@ class UniversalAuditService {
         status: 'success'
       });
     } catch (error) {
-      console.error(`❌ Failed to log ${entityType} deletion:`, error);
+      logger.error(`Failed to log ${entityType} deletion`, { error: error.message, stack: error.stack, entityType, entityId });
       return null;
     }
   }
@@ -241,7 +242,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -262,7 +263,7 @@ class UniversalAuditService {
         status: 'success'
       });
     } catch (error) {
-      console.error(`❌ Failed to log ${entityType} bulk operation:`, error);
+      logger.error(`Failed to log ${entityType} bulk operation`, { error: error.message, stack: error.stack, entityType, operation });
       return null;
     }
   }
@@ -279,7 +280,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -295,7 +296,7 @@ class UniversalAuditService {
         status: 'success'
       });
     } catch (error) {
-      console.error(`❌ Failed to log ${entityType} bulk import:`, error);
+      logger.error(`Failed to log ${entityType} bulk import`, { error: error.message, stack: error.stack, entityType, fileName });
       return null;
     }
   }
@@ -312,7 +313,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -328,12 +329,12 @@ class UniversalAuditService {
           ipAddress: userContext?.ipAddress || '127.0.0.1',
           userAgent: userContext?.userAgent || 'Bulk Import',
           status: 'success'
-        }).catch(err => console.error('Individual audit log failed:', err));
+        }).catch(err => logger.error('Individual audit log failed', { error: err.message, stack: err.stack, entityType, entityId: entityData[config.idField] }));
       }, index * 50); // Stagger by 50ms intervals
 
       return true;
     } catch (error) {
-      console.error(`❌ Failed to log ${entityType} individual import:`, error);
+      logger.error(`Failed to log ${entityType} individual import`, { error: error.message, stack: error.stack, entityType });
       return null;
     }
   }
@@ -351,7 +352,7 @@ class UniversalAuditService {
     try {
       const config = this.entityConfigs[entityType];
       if (!config) {
-        console.error(`❌ Unknown entity type: ${entityType}`);
+        logger.error(`Unknown entity type: ${entityType}`);
         return null;
       }
 
@@ -368,7 +369,7 @@ class UniversalAuditService {
         errorMessage: error.message
       });
     } catch (logError) {
-      console.error(`❌ Failed to log ${entityType} error:`, logError);
+      logger.error(`Failed to log ${entityType} error`, { error: logError.message, stack: logError.stack, entityType, operation, resourceId });
       return null;
     }
   }

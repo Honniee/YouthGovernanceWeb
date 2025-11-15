@@ -7,6 +7,7 @@
 import { getClient } from '../config/database.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import youthClusteringService from '../services/youthClusteringService.js';
+import logger from '../utils/logger.js';
 
 /**
  * Run clustering manually (triggered by user)
@@ -21,8 +22,7 @@ export const runClustering = async (req, res) => {
   const userRole = req.user.role; // 'LYDO' or 'SK'
   
   try {
-    console.log(`🚀 Manual clustering initiated by ${userRole}: ${userId}`);
-    console.log(`   Scope: ${scope}, Barangay: ${barangayId || 'All'}`);
+    logger.info('Manual clustering initiated', { userRole, userId, scope, barangayId: barangayId || 'All' });
     
     // Validation: SK Officials can only run for their barangay
     if (userRole === 'SK' && scope !== 'barangay') {
@@ -76,7 +76,7 @@ export const runClustering = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Clustering failed:', error);
+    logger.error('Clustering failed', { error: error.message, stack: error.stack });
     
     res.status(500).json({
       success: false,
@@ -161,7 +161,7 @@ export const getSegments = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Failed to fetch segments:', error);
+    logger.error('Failed to fetch segments', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch segments',
@@ -256,7 +256,7 @@ export const getSegmentDetails = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Failed to fetch segment details:', error);
+    logger.error('Failed to fetch segment details', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch segment details',
@@ -329,7 +329,7 @@ export const getClusteringRuns = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Failed to fetch clustering runs:', error);
+    logger.error('Failed to fetch clustering runs', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch clustering runs',
@@ -438,7 +438,7 @@ export const getClusteringStats = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Failed to fetch clustering stats:', error);
+    logger.error('Failed to fetch clustering stats', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch clustering statistics',
@@ -521,7 +521,7 @@ export const getRecommendations = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Failed to fetch recommendations:', error);
+    logger.error('Failed to fetch recommendations', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch recommendations',

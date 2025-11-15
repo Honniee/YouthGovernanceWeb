@@ -3,6 +3,7 @@ import { Menu, Bell, Grid3X3, User, Settings, LogOut, ChevronDown, X, Check, Clo
 import sanJoseLogo from '../../assets/logos/san_jose_logo.webp';
 import notificationService from '../../services/notificationService';
 import { useNavigate } from 'react-router-dom';
+import logger from '../../utils/logger.js';
 
 const StaffHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   const [showNotifications, setShowNotifications] = useState(false);
@@ -20,7 +21,7 @@ const StaffHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   // Load notifications data
   const loadNotifications = async () => {
     try {
-      console.log('🔔 Loading notifications...');
+      logger.debug('Loading notifications');
       setLoadingNotifications(true);
       
       const [notificationsResponse, unreadCountResponse] = await Promise.all([
@@ -28,16 +29,15 @@ const StaffHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
         notificationService.getUnreadCount()
       ]);
       
-      console.log('📊 Notifications response:', notificationsResponse);
-      console.log('🔢 Unread count response:', unreadCountResponse);
+      logger.debug('Notifications loaded', { 
+        count: notificationsResponse.data?.notifications?.length || 0,
+        unreadCount: unreadCountResponse 
+      });
       
       setNotifications(notificationsResponse.data.notifications);
       setUnreadCount(unreadCountResponse);
-      
-      console.log('✅ Notifications loaded successfully');
     } catch (error) {
-      console.error('❌ Failed to load notifications:', error);
-      console.error('📝 Error details:', error.message);
+      logger.error('Failed to load notifications', error);
       // Fallback to empty state
       setNotifications([]);
       setUnreadCount(0);
@@ -60,7 +60,7 @@ const StaffHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
       );
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
-      console.error('Failed to mark notification as read:', error);
+      logger.error('Failed to mark notification as read', error, { notificationId });
     }
   };
 
@@ -68,18 +68,16 @@ const StaffHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
   const handleMarkAllAsRead = async () => {
     try {
       setMarkingAllAsRead(true);
-      console.log('🔄 Marking all notifications as read...');
+      logger.debug('Marking all notifications as read');
       
       // Try the API call first
       let apiSuccess = false;
       try {
-        console.log('🔗 Making API call to mark all as read...');
         const response = await notificationService.markAllAsRead();
-        console.log('✅ Mark all as read response:', response);
+        logger.debug('Mark all as read response', { response });
         apiSuccess = true;
       } catch (apiError) {
-        console.error('❌ API call failed:', apiError);
-        console.error('📝 Error details:', {
+        logger.error('API call failed to mark all as read', apiError, {
           message: apiError.message,
           response: apiError.response?.data,
           status: apiError.response?.status,
@@ -96,18 +94,14 @@ const StaffHeader = ({ sidebarOpen, setSidebarOpen, user, onLogout }) => {
       );
       setUnreadCount(0);
       
-      console.log('✅ All notifications marked as read successfully');
+      logger.info('All notifications marked as read successfully');
       
       // Show success feedback
       setMarkAllSuccess(true);
       setTimeout(() => setMarkAllSuccess(false), 2000); // Hide after 2 seconds
       
     } catch (error) {
-      console.error('❌ Failed to mark all notifications as read:', error);
-      console.error('📝 Error details:', error.message);
-      
-      // Show user feedback - you can replace this with a proper toast system
-      console.error('❌ Failed to mark all notifications as read. Please try again.');
+      logger.error('Failed to mark all notifications as read', error);
     } finally {
       setMarkingAllAsRead(false);
     }

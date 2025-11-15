@@ -1,4 +1,5 @@
 import api from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * SK Terms Management Service
@@ -116,12 +117,12 @@ class SKTermsService {
    */
   async createSKTerm(termData) {
     try {
-      console.log('🔧 SKTerms Service: Creating term with data:', termData);
+      logger.debug('Creating term', { termDataKeys: Object.keys(termData || {}) });
       const response = await api.post('/sk-terms', termData);
-      console.log('🔧 SKTerms Service: API response:', response.data);
+      logger.debug('Create term success', { termId: response.data?.data?.termId });
       return { success: true, data: response.data };
     } catch (error) {
-      console.error('🔧 SKTerms Service: Error creating term:', error);
+      logger.error('Error creating term', error, { termData });
       return this.handleError(error, 'Failed to create SK term');
     }
   }
@@ -134,12 +135,12 @@ class SKTermsService {
    */
   async updateSKTerm(id, updateData) {
     try {
-      console.log('🔧 SKTerms Service: Updating term with data:', { id, updateData });
+      logger.debug('Updating term', { id, updateDataKeys: Object.keys(updateData || {}) });
       const response = await api.put(`/sk-terms/${id}`, updateData);
-      console.log('🔧 SKTerms Service: Update successful:', response.data);
+      logger.debug('Update term success', { id });
       return { success: true, data: response.data };
     } catch (error) {
-      console.log('🔧 SKTerms Service: Update failed, calling handleError');
+      logger.debug('Update term failed, calling handleError', { id });
       return this.handleError(error, 'Failed to update SK term');
     }
   }
@@ -529,9 +530,7 @@ class SKTermsService {
    * @returns {Object} Formatted error response
    */
   handleError(error, defaultMessage) {
-    console.error('SK Terms service error:', error);
-    console.log('🔍 Error response data:', error.response?.data);
-    console.log('🔍 Error response status:', error.response?.status);
+    logger.error('SK Terms service error', error, { defaultMessage });
     
     let message = defaultMessage;
     let details = null;
@@ -540,8 +539,7 @@ class SKTermsService {
     if (error.response) {
       const { data, status } = error.response;
       
-      console.log('🔍 Raw error response data:', data);
-      console.log('🔍 Error response status:', status);
+      logger.debug('Error response', { status, hasData: !!data });
       
       if (data && data.message) {
         message = data.message;
@@ -550,15 +548,15 @@ class SKTermsService {
       // Backend sends 'details' for validation errors, but may also send 'errors'
       if (data && data.details) {
         details = Array.isArray(data.details) ? data.details : [data.details];
-        console.log('🔍 Extracted details:', details);
+        logger.debug('Extracted details', { detailsCount: details.length });
       } else if (data && data.errors) {
         details = Array.isArray(data.errors) ? data.errors : [data.errors];
-        console.log('🔍 Extracted errors:', details);
+        logger.debug('Extracted errors', { errorsCount: details.length });
       }
       
       if (data && data.suggestions) {
         suggestions = data.suggestions;
-        console.log('🔍 Extracted suggestions:', suggestions);
+        logger.debug('Extracted suggestions', { hasSuggestions: !!suggestions });
       }
 
       switch (status) {
@@ -600,7 +598,7 @@ class SKTermsService {
       status: error.response?.status || 0
     };
     
-    console.log('🔧 SKTerms Service handleError result:', result);
+    logger.debug('handleError result', { success: result.success, status: result.status });
     return result;
   }
 }

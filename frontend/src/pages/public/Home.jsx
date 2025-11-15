@@ -32,8 +32,11 @@ import { LoadingSpinner } from '../../components/portal_main_content';
 import { useAuth } from '../../context/AuthContext';
 import surveyBatchesService from '../../services/surveyBatchesService';
 import useConfirmation from '../../hooks/useConfirmation';
-import { useNotice } from '../../context/NoticeContext';
+import { useContext } from 'react';
+import NoticeContext from '../../context/NoticeContext';
 import { useRealtime } from '../../realtime/useRealtime';
+import logger from '../../utils/logger.js';
+import DOMPurify from 'dompurify';
 
 // Scroll reveal hook (from About page)
 const useScrollReveal = () => {
@@ -106,7 +109,9 @@ const Home = () => {
   const { statistics, isLoading: statisticsLoading, error: statisticsError, refreshStatistics } = useStatistics();
   const { isAuthenticated, hasRole } = useAuth();
   const { showConfirmation } = useConfirmation();
-  const { showNotice } = useNotice();
+  // Safely get notice context - use useContext directly to handle missing provider gracefully
+  const noticeContext = useContext(NoticeContext);
+  const showNotice = noticeContext?.showNotice || false;
   
   // Pause/Resume state
   const [isPauseResumeLoading, setIsPauseResumeLoading] = useState(false);
@@ -313,10 +318,10 @@ const Home = () => {
         setLastUpdated(new Date());
         await refreshActiveSurvey();
       } else {
-        console.error('Failed to pause survey:', result.message);
+        logger.error('Failed to pause survey', null, { message: result.message, batchId: activeSurvey.batchId });
       }
     } catch (error) {
-      console.error('Error pausing survey:', error);
+      logger.error('Error pausing survey', error, { batchId: activeSurvey?.batchId });
     } finally {
       setIsPauseResumeLoading(false);
     }
@@ -344,10 +349,10 @@ const Home = () => {
         setLastUpdated(new Date());
         await refreshActiveSurvey();
       } else {
-        console.error('Failed to resume survey:', result.message);
+        logger.error('Failed to resume survey', null, { message: result.message, batchId: activeSurvey.batchId });
       }
     } catch (error) {
-      console.error('Error resuming survey:', error);
+      logger.error('Error resuming survey', error, { batchId: activeSurvey?.batchId });
     } finally {
       setIsPauseResumeLoading(false);
     }
@@ -364,7 +369,7 @@ const Home = () => {
       await refreshActiveSurvey();
       setLastUpdated(new Date());
     } catch (error) {
-      console.error('Error refreshing survey data:', error);
+      logger.error('Error refreshing survey data', error);
     } finally {
       setIsRefreshing(false);
     }
@@ -955,8 +960,8 @@ const Home = () => {
                   </div>
                 </div>
               </div>
-              {/* Temporary keyframes for shimmer */}
-              <style dangerouslySetInnerHTML={{ __html: `@keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }` }} />
+              {/* Temporary keyframes for shimmer - SECURITY: Sanitized with DOMPurify */}
+              <style dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(`@keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }`) }} />
             </div>
           )}
 

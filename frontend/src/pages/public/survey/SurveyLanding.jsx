@@ -7,6 +7,7 @@ import ReCaptchaComponent from '../../../components/ui/ReCaptchaComponent';
 import ResumeSurveyModal from '../../../components/ui/ResumeSurveyModal';
 import { useReCaptcha } from '../../../hooks/useReCaptcha';
 import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
+import logger from '../../../utils/logger.js';
 
 // Simple scroll reveal (aligned with Programs/Barangays)
 const useScrollReveal = () => {
@@ -104,7 +105,7 @@ const SurveyLanding = () => {
         }
       }
       
-      console.log('🔍 Survey data check:', { 
+      logger.debug('Survey data check', { 
         hasData, 
         personal: !!existingData.personal, 
         demographics: !!existingData.demographics, 
@@ -118,7 +119,7 @@ const SurveyLanding = () => {
       }
       return false;
     } catch (error) {
-      console.error('Error checking existing survey data:', error);
+      logger.error('Error checking existing survey data', error);
       return false;
     }
   };
@@ -275,7 +276,7 @@ const SurveyLanding = () => {
           
       setMobileIndicatorLeft(left);
           setMobileIndicatorWidth(width);
-          console.log('📏 Tab indicator updated:', { 
+          logger.debug('Tab indicator updated', { 
             activeTab, 
             left, 
             width, 

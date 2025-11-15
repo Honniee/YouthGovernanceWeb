@@ -3,6 +3,7 @@ import multer from 'multer';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
+import logger from '../utils/logger.js';
 import { 
   // Roles
   getCouncilRoles, 
@@ -169,13 +170,13 @@ router.post('/page/hero/:idx', authenticateToken, requireLYDOStaff, upload.singl
         status: 'success'
       });
     } catch (logError) {
-      console.error('❌ Failed to log activity for hero image upload:', logError);
+      logger.error('Failed to log activity for hero image upload', { error: logError.message, stack: logError.stack });
       // Don't fail the request if logging fails
     }
 
     return res.json({ success: true, url: relUrl });
   } catch (error) {
-    console.error('Failed to upload council hero image:', error);
+    logger.error('Failed to upload council hero image', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, message: 'Failed to upload hero image' });
   }
 });

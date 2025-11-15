@@ -82,7 +82,12 @@ export const showToast = (toast) => {
   if (window.showToast) {
     return window.showToast(toast);
   }
-  console.warn('ToastContainer not mounted. Toast:', toast);
+  // Import logger dynamically to avoid circular dependencies
+  import('../../utils/logger.js').then(({ default: logger }) => {
+    logger.warn('ToastContainer not mounted', { toast });
+  }).catch(() => {
+    // Fallback if logger import fails
+  });
   return null;
 };
 

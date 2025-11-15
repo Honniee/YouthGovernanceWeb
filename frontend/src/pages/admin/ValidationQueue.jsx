@@ -20,7 +20,13 @@ import {
   Database,
   Globe,
   Grid,
-  List
+  List,
+  Phone,
+  Mail,
+  AlertCircle,
+  AlertTriangle,
+  UserPlus,
+  ArrowRightLeft
 } from 'lucide-react';
 import { 
   HeaderMainContent, 
@@ -49,6 +55,7 @@ import { apiHelpers } from '../../services/api';
 import { useBarangays } from '../../hooks/useBarangays';
 import { useRealtime } from '../../realtime/useRealtime';
 import { validationQueueConfig } from '../../components/portal_main_content/tabbedModalConfigs.jsx';
+import logger from '../../utils/logger.js';
 
 const ValidationQueue = () => {
   // Confirmation modal hook
@@ -71,6 +78,11 @@ const ValidationQueue = () => {
   const [viewMode, setViewMode] = useState('grid');
   const [selectedValidationItem, setSelectedValidationItem] = useState(null);
   const [showValidationModal, setShowValidationModal] = useState(false);
+  const [showContactMismatchModal, setShowContactMismatchModal] = useState(false);
+  const [contactMismatchAction, setContactMismatchAction] = useState(null);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [rejectionComments, setRejectionComments] = useState('');
+  const [rejectionLoading, setRejectionLoading] = useState(false); // 'update', 'create_new', 'reassign'
   const [paginationData, setPaginationData] = useState({
     totalItems: 0,
     totalPages: 0,
@@ -274,7 +286,7 @@ const ValidationQueue = () => {
   // Load validation items
   const loadValidationItems = async () => {
     try {
-      console.log('📋 Loading admin validation items...');
+      logger.debug('Loading admin validation items', { currentPage, itemsPerPage, searchQuery, tabFilter });
       setIsLoading(true);
       setError(null);
 
@@ -326,11 +338,34 @@ const ValidationQueue = () => {
           const rawScore = typeof item.validationScore === 'number' ? item.validationScore : 0;
           const normalizedScore = rawScore > 1 ? rawScore / 100 : rawScore;
           
-          return {
-            ...item,
+          // Debug: Log contact mismatch data
+          if (item.contactMismatch) {
+            logger.debug('Contact mismatch found in API response', {
+              itemId: item.id,
+              type: item.contactMismatch.type,
+              severity: item.contactMismatch.severity
+            });
+          }
+          
+          // IMPORTANT: Preserve ALL fields including contactMismatch
+          const normalizedItem = {
+            ...item, // Spread all fields first
             status: item.status === 'validated' ? 'completed' : item.status,
-            validationScore: normalizedScore
+            validationScore: normalizedScore,
+            // Explicitly preserve contactMismatch (even if null/undefined)
+            contactMismatch: item.contactMismatch !== undefined ? item.contactMismatch : null
           };
+          
+          // Verify contactMismatch is preserved
+          if (item.contactMismatch && !normalizedItem.contactMismatch) {
+            logger.error('Contact mismatch was lost during normalization', null, {
+              itemId: item.id,
+              original: item.contactMismatch,
+              normalized: normalizedItem.contactMismatch
+            });
+          }
+          
+          return normalizedItem;
         });
         setValidationItems(normalized);
         
@@ -344,12 +379,12 @@ const ValidationQueue = () => {
           });
         }
         
-        console.log(`✅ Loaded ${data.data.length} validation items (${data.pagination?.totalItems || 0} total)`);
+        logger.debug(`Loaded ${data.data.length} validation items`, { totalItems: data.pagination?.totalItems || 0 });
       } else {
         throw new Error(data.message || 'Failed to load validation items');
       }
     } catch (error) {
-      console.error('Failed to load validation items:', error);
+      logger.error('Failed to load validation items', error, { params });
       setError(typeof error?.message === 'string' ? error.message : 'Failed to load validation items');
       // Avoid mock fallback to ensure real empty state if API fails
       setValidationItems([]);
@@ -383,7 +418,7 @@ const ValidationQueue = () => {
         setApiStats(data.data);
       }
     } catch (error) {
-      console.error('Failed to load validation stats:', error);
+      logger.error('Failed to load validation stats', error);
     }
   };
 
@@ -674,7 +709,7 @@ const ValidationQueue = () => {
         downloadCsv(`validation-queue-${ts}.csv`, rows);
         return { success: true };
       } catch (error) {
-        console.error('Export logging error (GET):', error);
+        logger.error('Export logging error (GET)', error, { format, logFormat, count: dataset.length });
         // Retry via POST body (some proxies strip query params)
         try {
           await apiHelpers.post('/validation-queue/export', {
@@ -684,7 +719,7 @@ const ValidationQueue = () => {
             status: tabFilter !== 'all' ? tabFilter : undefined
           });
         } catch (postErr) {
-          console.error('Export logging error (POST):', postErr);
+          logger.error('Export logging error (POST)', postErr, { format, logFormat });
         }
         // Continue with export even if logging fails
         const dataset = getFilteredItems() || [];
@@ -737,7 +772,7 @@ const ValidationQueue = () => {
             }
           });
         } catch (logError) {
-          console.error('Export logging error (GET selected):', logError);
+          logger.error('Export logging error (GET selected)', logError, { format, count: selectedItemsData.length });
           try {
             await apiHelpers.post('/validation-queue/export', {
               format: format === 'excel' ? 'excel' : format,
@@ -747,7 +782,7 @@ const ValidationQueue = () => {
               status: 'selected'
             });
           } catch (postErr) {
-            console.error('Export logging error (POST selected):', postErr);
+            logger.error('Export logging error (POST selected)', postErr, { format, count: selectedItemsData.length });
           }
           // Continue with export even if logging fails
         }
@@ -780,6 +815,22 @@ const ValidationQueue = () => {
   // Handle validation action
   // Handle card click to open validation modal
   const handleCardClick = (item) => {
+    // Debug: Check if contact mismatch data is present
+    logger.debug('Card clicked', {
+      itemId: item.id,
+      name: `${item.firstName} ${item.lastName}`,
+      hasContactMismatch: !!item.contactMismatch,
+      contactMismatchType: item.contactMismatch?.type
+    });
+    
+    if (item.contactMismatch) {
+      logger.debug('Contact mismatch detected in card click', {
+        itemId: item.id,
+        type: item.contactMismatch.type,
+        severity: item.contactMismatch.severity
+      });
+    }
+    
     setSelectedValidationItem(item);
     setShowValidationModal(true);
   };
@@ -797,9 +848,36 @@ const ValidationQueue = () => {
       : '';
     const submittedLine = submittedAtText ? `Submitted: ${submittedAtText}` : '';
 
+    // Check if this is a contact mismatch scenario
+    const hasContactMismatch = item.contactMismatch && action === 'approve';
+    
+    // Debug logging
+    logger.debug('handleValidateItem called', {
+      itemId: item.id,
+      action,
+      hasContactMismatch
+    });
+
     const impactLine = action === 'approve'
       ? 'This will mark the response as validated.'
       : 'This will mark the response as rejected and remove it from the queue.';
+
+    // Build contact mismatch content if present
+    const contactMismatchContent = hasContactMismatch ? (
+      <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <div className="flex items-center gap-2 mb-2">
+          <AlertCircle className="w-4 h-4 text-yellow-600" />
+          <span className="font-semibold text-yellow-900 text-sm">Contact Mismatch Detected</span>
+        </div>
+        <div className="text-xs text-yellow-800 space-y-1">
+          <p><strong>Existing:</strong> {item.contactMismatch.existing?.contact || 'N/A'} / {item.contactMismatch.existing?.email || 'N/A'}</p>
+          <p><strong>New:</strong> {item.contactMismatch.new?.contact || 'N/A'} / {item.contactMismatch.new?.email || 'N/A'}</p>
+        </div>
+        <div className="mt-2 text-xs text-yellow-700">
+          <p>⚠️ Verify if this is the same person with updated contact info or a different person.</p>
+        </div>
+      </div>
+    ) : null;
 
     const detailsContent = (
       <div className="space-y-2 text-sm">
@@ -840,16 +918,56 @@ const ValidationQueue = () => {
             <span>Submitted date: {submittedAtText}</span>
           </div>
         )}
+
+        {/* Contact Mismatch Alert */}
+        {contactMismatchContent}
       </div>
     );
 
+    // If contact mismatch and approve, show special handling modal INSTEAD of confirmation
+    if (hasContactMismatch) {
+      logger.debug('Contact mismatch detected, showing contact mismatch modal', {
+        itemId: item.id,
+        type: item.contactMismatch?.type,
+        severity: item.contactMismatch?.severity
+      });
+      
+      // Close validation modal first
+      setShowValidationModal(false);
+      
+      // Set the item and show contact mismatch modal
+      setSelectedValidationItem(item);
+      setContactMismatchAction('approve');
+      
+      // Use requestAnimationFrame to ensure modal closes before opening new one
+      requestAnimationFrame(() => {
+        setShowContactMismatchModal(true);
+      });
+      
+      return; // IMPORTANT: Return early, don't show confirmation dialog
+    }
+
+    // If rejecting, show rejection modal with comments field
+    if (action === 'reject') {
+      // Close validation modal first
+      setShowValidationModal(false);
+      
+      // Set the item and show rejection modal
+      setSelectedValidationItem(item);
+      setRejectionComments('');
+      setShowRejectionModal(true);
+      
+      return; // Return early, don't show confirmation dialog
+    }
+
+    // For approve action, show confirmation dialog
     const confirmed = await confirmation.showConfirmation({
-      title: action === 'approve' ? 'Approve Validation' : 'Reject Validation',
+      title: 'Approve Validation',
       message: `${impactLine}`,
       content: detailsContent,
-      confirmText: action === 'approve' ? 'Approve' : 'Reject',
+      confirmText: 'Approve',
       cancelText: 'Cancel',
-      variant: action === 'approve' ? 'success' : 'danger'
+      variant: 'success'
     });
 
     if (!confirmed) return;
@@ -857,27 +975,156 @@ const ValidationQueue = () => {
     try {
       confirmation.setLoading(true);
       const data = await apiHelpers.patch(`/validation-queue/${item.id}/validate`, {
-        action,
-        comments: null
+        action: 'approve',
+        comments: null,
+        updateContactInfo: false
       });
 
       if (data.success) {
         await loadValidationItems();
-        showSuccessToast('Validation completed', `Item ${action === 'approve' ? 'approved' : 'rejected'} successfully`);
+        showSuccessToast('Validation completed', 'Item approved successfully');
       } else {
         throw new Error(data.message || 'Failed to validate item');
       }
     } catch (error) {
-      console.error('Failed to validate item:', error);
+      logger.error('Failed to validate item', error, { itemId: item.id, action });
       showErrorToast('Error', 'Failed to validate item');
     } finally {
       confirmation.hideConfirmation();
     }
   };
 
-  const handleModalValidationAction = (action) => {
+  // Handle rejection with comments
+  const handleRejection = async () => {
     if (!selectedValidationItem) return;
-    setShowValidationModal(false);
+
+    setRejectionLoading(true);
+
+    try {
+      const data = await apiHelpers.patch(`/validation-queue/${selectedValidationItem.id}/validate`, {
+        action: 'reject',
+        comments: rejectionComments.trim() || null,
+        updateContactInfo: false
+      });
+
+      if (data.success) {
+        await loadValidationItems();
+        showSuccessToast('Rejection completed', 'Item rejected successfully');
+        setShowRejectionModal(false);
+        setSelectedValidationItem(null);
+        setRejectionComments('');
+      } else {
+        throw new Error(data.message || 'Failed to reject item');
+      }
+    } catch (error) {
+      logger.error('Failed to reject item', error, { itemId: selectedValidationItem.id });
+      showErrorToast('Error', error.message || 'Failed to reject item');
+    } finally {
+      setRejectionLoading(false);
+    }
+  };
+
+  // Handle contact mismatch actions
+  const handleContactMismatchAction = async (actionType) => {
+    if (!selectedValidationItem) return;
+
+    try {
+      if (actionType === 'update_contact') {
+        // Same person - approve with contact update
+        const data = await apiHelpers.patch(`/validation-queue/${selectedValidationItem.id}/validate`, {
+          action: 'approve',
+          comments: 'Verified same person - contact info updated',
+          updateContactInfo: true
+        });
+
+        if (data.success) {
+          await loadValidationItems();
+          showSuccessToast('Validation completed', 'Response approved and contact info updated successfully');
+          setShowContactMismatchModal(false);
+          setSelectedValidationItem(null);
+        } else {
+          throw new Error(data.message || 'Failed to validate item');
+        }
+      } else if (actionType === 'create_new_profile') {
+        // Different person - create new profile
+        const mismatch = selectedValidationItem.contactMismatch;
+        const personalData = {
+          first_name: selectedValidationItem.firstName,
+          last_name: selectedValidationItem.lastName,
+          middle_name: selectedValidationItem.middleName || null,
+          suffix: selectedValidationItem.suffix || null,
+          age: selectedValidationItem.age,
+          gender: selectedValidationItem.gender,
+          contact_number: mismatch.new.contact,
+          email: mismatch.new.email,
+          barangay_id: selectedValidationItem.barangayId,
+          purok_zone: null, // Not available in validation queue data
+          birth_date: selectedValidationItem.birthDate
+        };
+
+        const data = await apiHelpers.post(`/validation-queue/${selectedValidationItem.id}/reassign`, {
+          createNewProfile: true,
+          personalData: personalData
+        });
+
+        if (data.success) {
+          // After creating new profile, approve the response
+          const approveData = await apiHelpers.patch(`/validation-queue/${selectedValidationItem.id}/validate`, {
+            action: 'approve',
+            comments: 'Created new youth profile - different person with same demographics'
+          });
+
+          if (approveData.success) {
+            await loadValidationItems();
+            showSuccessToast('Profile created', 'New youth profile created and response approved successfully');
+            setShowContactMismatchModal(false);
+            setSelectedValidationItem(null);
+          } else {
+            throw new Error(approveData.message || 'Failed to approve after reassignment');
+          }
+        } else {
+          throw new Error(data.message || 'Failed to create new profile');
+        }
+      } else if (actionType === 'reassign_existing') {
+        // Different person - reassign to existing profile (would need youth ID input)
+        showInfoToast('Reassign to Existing', 'Please use the reassign feature to select an existing youth profile');
+        // TODO: Implement reassign to existing profile UI
+      }
+    } catch (error) {
+      logger.error('Failed to handle contact mismatch', error, { itemId: selectedValidationItem.id, actionType });
+      showErrorToast('Error', error.message || 'Failed to handle contact mismatch');
+    }
+  };
+
+  const handleModalValidationAction = async (action) => {
+    if (!selectedValidationItem) return;
+    
+    logger.debug('handleModalValidationAction called', {
+      action,
+      itemId: selectedValidationItem.id,
+      hasContactMismatch: !!selectedValidationItem.contactMismatch
+    });
+    
+    // Check for contact mismatch BEFORE calling handleValidateItem
+    // If contact mismatch exists and action is approve, show contact mismatch modal directly
+    if (selectedValidationItem.contactMismatch && action === 'approve') {
+      logger.debug('Contact mismatch detected in handleModalValidationAction - showing contact mismatch modal', {
+        itemId: selectedValidationItem.id,
+        type: selectedValidationItem.contactMismatch?.type
+      });
+      
+      // Close the detail modal
+      setShowValidationModal(false);
+      
+      // Show contact mismatch modal with a small delay to ensure smooth transition
+      setTimeout(() => {
+        setShowContactMismatchModal(true);
+      }, 150);
+      
+      return; // Don't proceed to handleValidateItem
+    }
+    
+    // For reject or no contact mismatch, proceed with normal flow
     handleValidateItem(selectedValidationItem, action);
   };
 
@@ -1135,7 +1382,7 @@ const ValidationQueue = () => {
                           throw new Error(data.message || 'Failed to approve items');
                         }
                       } catch (error) {
-                        console.error('Bulk approve error:', error);
+                        logger.error('Bulk approve error', error, { itemIds: selectedItems });
                         confirmation.hideConfirmation();
                         showErrorToast('Error', 'Failed to approve selected items');
                       }
@@ -1179,7 +1426,7 @@ const ValidationQueue = () => {
                           throw new Error(data.message || 'Failed to reject items');
                         }
                       } catch (error) {
-                        console.error('Bulk reject error:', error);
+                        logger.error('Bulk reject error', error, { itemIds: selectedItems });
                         confirmation.hideConfirmation();
                         showErrorToast('Error', 'Failed to reject selected items');
                       }
@@ -1242,6 +1489,17 @@ const ValidationQueue = () => {
                       extraBadges: (item) => {
                         if (tabFilter === 'completed_today' || tabFilter === 'rejected') return [];
                         const badges = [];
+                        
+                        // Contact mismatch badge (highest priority - show first)
+                        if (item.contactMismatch) {
+                          badges.push({
+                            text: 'contact mismatch',
+                            className: item.contactMismatch.severity === 'high' 
+                              ? 'bg-red-100 text-red-700 border border-red-200 font-medium'
+                              : 'bg-yellow-100 text-yellow-700 border border-yellow-200 font-medium'
+                          });
+                        }
+                        
                         if (item.voterMatch) {
                           badges.push({
                             text: item.voterMatch.replace('_', ' '),
@@ -1475,8 +1733,324 @@ const ValidationQueue = () => {
         config={detailModalConfig}
       />
 
+      {/* Contact Mismatch Handling Modal */}
+      {showContactMismatchModal && selectedValidationItem && selectedValidationItem.contactMismatch && (
+        <div 
+          className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => {
+            setShowContactMismatchModal(false);
+            setSelectedValidationItem(null);
+          }}
+        >
+          <div 
+            className="relative flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
+              <div className="flex items-center gap-3">
+                {selectedValidationItem.contactMismatch.severity === 'high' ? (
+                  <AlertTriangle className="w-6 h-6 text-red-600" />
+                ) : (
+                  <AlertCircle className="w-6 h-6 text-yellow-600" />
+                )}
+                <h2 className="text-xl font-bold text-gray-900">Contact Mismatch Detected</h2>
+              </div>
+              <button
+                onClick={() => {
+                  setShowContactMismatchModal(false);
+                  setSelectedValidationItem(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6" style={{ scrollbarGutter: 'stable' }}>
+              {/* Youth Info */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Youth Information</h3>
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-gray-900 font-medium">
+                    {selectedValidationItem.firstName} {selectedValidationItem.middleName || ''} {selectedValidationItem.lastName} {selectedValidationItem.suffix || ''}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Age: {selectedValidationItem.age} • Gender: {selectedValidationItem.gender} • Barangay: {selectedValidationItem.barangay}
+                  </p>
+                </div>
+              </div>
+
+              {/* Contact Comparison */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Contact Information Comparison</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      <span className="text-sm font-semibold text-gray-700">Existing (in Profile)</span>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Phone className="w-4 h-4" />
+                        <span>{selectedValidationItem.contactMismatch.existing?.contact || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Mail className="w-4 h-4" />
+                        <span>{selectedValidationItem.contactMismatch.existing?.email || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span className="text-sm font-semibold text-gray-700">New (from Submission)</span>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Phone className="w-4 h-4" />
+                        <span>{selectedValidationItem.contactMismatch.new?.contact || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Mail className="w-4 h-4" />
+                        <span>{selectedValidationItem.contactMismatch.new?.email || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Options */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">How would you like to proceed?</h3>
+                <div className="space-y-3">
+                  {/* Option 1: Same Person - Update Contact */}
+                  <button
+                    onClick={() => handleContactMismatchAction('update_contact')}
+                    className="w-full text-left p-4 border-2 border-green-200 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900 mb-1">Same Person - Update Contact Info</h4>
+                        <p className="text-sm text-gray-600">
+                          Approve the response and update the youth profile with the new contact information. Use this when you've verified it's the same person with updated contact details.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Different Person - Create New Profile */}
+                  <button
+                    onClick={() => handleContactMismatchAction('create_new_profile')}
+                    className="w-full text-left p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                        <UserPlus className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900 mb-1">Different Person - Create New Profile</h4>
+                        <p className="text-sm text-gray-600">
+                          Create a new youth profile with the new contact information and reassign the response. Use this when it's a different person (e.g., sibling, cousin) with the same name and demographics.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Option 3: Reject */}
+                  <button
+                    onClick={() => {
+                      setShowContactMismatchModal(false);
+                      setRejectionComments('');
+                      // Use requestAnimationFrame to ensure smooth transition
+                      requestAnimationFrame(() => {
+                        setShowRejectionModal(true);
+                      });
+                    }}
+                    className="w-full text-left p-4 border-2 border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                        <XCircle className="w-5 h-5 text-red-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900 mb-1">Reject Response</h4>
+                        <p className="text-sm text-gray-600">
+                          Reject this response if there's an error or you need more information. The response will be removed from the validation queue.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Warning for High Severity */}
+              {selectedValidationItem.contactMismatch.severity === 'high' && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-900 mb-1">High Priority - Contact Conflict</p>
+                      <p className="text-xs text-red-800">
+                        The new contact information is already used by another profile. This requires careful verification to determine if profiles should be merged or kept separate.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-white px-6 py-4">
+              <button
+                onClick={() => {
+                  setShowContactMismatchModal(false);
+                  setSelectedValidationItem(null);
+                }}
+                className="px-5 py-2 rounded-lg text-sm font-medium text-gray-700 transition hover:bg-gray-100 flex items-center gap-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Container */}
       <ToastContainer position="top-right" maxToasts={5} />
+
+      {/* Rejection Modal with Comments */}
+      {showRejectionModal && selectedValidationItem && (
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => {
+            setShowRejectionModal(false);
+            setSelectedValidationItem(null);
+            setRejectionComments('');
+          }}
+        >
+          <div
+            className="relative flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                  <XCircle className="h-5 w-5 text-red-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Reject Validation</h2>
+                  <p className="text-sm text-gray-500">Provide a reason for rejecting this submission</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6" style={{ scrollbarGutter: 'stable' }}>
+              {/* Youth Information */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-gray-900 flex items-center">
+                  <User className="w-4 h-4 mr-2 text-blue-600" />
+                  Submission Details
+                </h3>
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700">Name:</span>
+                    <span className="text-sm text-gray-900">
+                      {selectedValidationItem.firstName} {selectedValidationItem.lastName}
+                    </span>
+                  </div>
+                  {selectedValidationItem.age && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Age:</span>
+                      <span className="text-sm text-gray-900">{selectedValidationItem.age} years</span>
+                    </div>
+                  )}
+                  {selectedValidationItem.gender && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Gender:</span>
+                      <span className="text-sm text-gray-900">{selectedValidationItem.gender}</span>
+                    </div>
+                  )}
+                  {selectedValidationItem.barangay && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Barangay:</span>
+                      <span className="text-sm text-gray-900">{selectedValidationItem.barangay}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Rejection Reason/Comments */}
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="rejection-comments" className="block text-sm font-semibold text-gray-900 mb-2">
+                    Rejection Reason <span className="text-gray-500 font-normal">(Optional but recommended)</span>
+                  </label>
+                  <textarea
+                    id="rejection-comments"
+                    value={rejectionComments}
+                    onChange={(e) => setRejectionComments(e.target.value)}
+                    placeholder="Enter the reason for rejection (e.g., incomplete information, duplicate submission, invalid data, etc.)"
+                    rows={4}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all duration-200 resize-none text-sm"
+                  />
+                  <p className="mt-2 text-xs text-gray-500">
+                    This comment will be visible to the youth when they check their submission status and will help them understand what needs to be corrected.
+                  </p>
+                </div>
+              </div>
+
+              {/* Warning */}
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-red-900 mb-1">Are you sure you want to reject this submission?</p>
+                    <p className="text-xs text-red-800">
+                      This action will mark the submission as rejected and remove it from the validation queue. The youth will be notified via email.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-white px-6 py-4">
+              <button
+                onClick={() => {
+                  setShowRejectionModal(false);
+                  setSelectedValidationItem(null);
+                  setRejectionComments('');
+                }}
+                disabled={rejectionLoading}
+                className="px-5 py-2 rounded-lg text-sm font-medium text-gray-700 transition hover:bg-gray-100 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRejection}
+                disabled={rejectionLoading}
+                className="px-5 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {rejectionLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Rejecting...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4" />
+                    Reject Submission
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

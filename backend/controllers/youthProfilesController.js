@@ -1,6 +1,7 @@
 import db, { getClient } from '../config/database.js';
 import { generateId } from '../utils/idGenerator.js';
 import { validateYouthProfile } from '../utils/validation.js';
+import logger from '../utils/logger.js';
 
 /**
  * Check if a youth profile exists using multiple detection methods:
@@ -22,7 +23,7 @@ const checkYouthProfile = async (req, res) => {
       barangay_id 
     } = req.body;
 
-    console.log('🔍 Checking youth profile with data:', { 
+    logger.debug('Checking youth profile with data', { 
       email, 
       contact_number, 
       first_name, 
@@ -52,7 +53,7 @@ const checkYouthProfile = async (req, res) => {
 
     // Method 1: Complete name + gender + birth date detection (most reliable)
     if (hasCompleteName) {
-      console.log('🔍 Using complete name detection method');
+      logger.debug('Using complete name detection method');
       query = `
         SELECT yp.youth_id, u.user_id, yp.first_name, yp.last_name, yp.middle_name, yp.suffix, yp.gender, yp.birth_date, yp.email
         FROM "Youth_Profiling" yp
@@ -68,7 +69,7 @@ const checkYouthProfile = async (req, res) => {
     }
     // Method 2: Email detection (unique identifier)
     else if (hasEmail) {
-      console.log('🔍 Using email detection method');
+      logger.debug('Using email detection method');
       query = `
         SELECT yp.youth_id, u.user_id, yp.first_name, yp.last_name, yp.middle_name, yp.suffix, yp.gender, yp.birth_date, yp.email
         FROM "Youth_Profiling" yp
@@ -79,7 +80,7 @@ const checkYouthProfile = async (req, res) => {
     }
     // Method 3: Legacy name + barangay detection
     else if (hasLegacyName) {
-      console.log('🔍 Using legacy name + barangay detection method');
+      logger.debug('Using legacy name + barangay detection method');
       query = `
         SELECT yp.youth_id, u.user_id, yp.first_name, yp.last_name, yp.middle_name, yp.suffix, yp.gender, yp.birth_date, yp.email
         FROM "Youth_Profiling" yp
@@ -90,7 +91,7 @@ const checkYouthProfile = async (req, res) => {
     }
     // Method 4: Phone number detection (fallback)
     else if (hasPhone) {
-      console.log('🔍 Using phone detection method');
+      logger.debug('Using phone detection method');
       query = `
         SELECT yp.youth_id, u.user_id, yp.first_name, yp.last_name, yp.middle_name, yp.suffix, yp.gender, yp.birth_date, yp.email
         FROM "Youth_Profiling" yp
@@ -100,12 +101,11 @@ const checkYouthProfile = async (req, res) => {
       params = [contact_number];
     }
 
-    console.log('🔍 Executing query:', query);
-    console.log('🔍 With params:', params);
+    logger.debug('Executing query', { query, params });
 
     const result = await db.query(query, params);
 
-    console.log('🔍 Query result:', result.rows);
+    logger.debug('Query result', { rowCount: result.rows.length });
 
     if (result.rows.length === 0) {
       return res.status(200).json({
@@ -140,9 +140,7 @@ const checkYouthProfile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error checking youth profile:', error);
-    console.error('❌ Error details:', error.message);
-    console.error('❌ Error stack:', error.stack);
+    logger.error('Error checking youth profile', { error: error.message, stack: error.stack });
     return res.status(500).json({
       success: false,
       message: 'Internal server error while checking youth profile',
@@ -245,11 +243,13 @@ const createYouthProfile = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Error creating youth profile:', error);
-    console.error('❌ Error message:', error.message);
-    console.error('❌ Error detail:', error.detail);
-    console.error('❌ Error code:', error.code);
-    console.error('❌ Request body:', req.body);
+    logger.error('Error creating youth profile', { 
+      error: error.message, 
+      stack: error.stack, 
+      detail: error.detail, 
+      code: error.code,
+      requestBody: req.body 
+    });
     res.status(500).json({
       success: false,
       message: 'Internal server error while creating youth profile',
@@ -315,7 +315,7 @@ const getYouthProfile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error getting youth profile:', error);
+    logger.error('Error getting youth profile', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error while retrieving youth profile'
@@ -390,7 +390,7 @@ const updateYouthProfile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error updating youth profile:', error);
+    logger.error('Error updating youth profile', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Internal server error while updating youth profile'

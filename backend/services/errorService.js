@@ -3,6 +3,8 @@
  * Provides consistent error handling across all controllers
  */
 
+import logger from '../utils/logger.js';
+
 /**
  * Handle errors and send appropriate HTTP responses
  * @param {Object} res - Express response object
@@ -11,7 +13,7 @@
  * @param {Object} options - Additional options
  */
 export const handleError = (res, error, defaultMessage = 'An error occurred', options = {}) => {
-  console.error('Error:', error);
+  logger.error('Error handled', { error: error.message, stack: error.stack, code: error.code, defaultMessage, options });
 
   // Determine status code based on error type
   let statusCode = 500;

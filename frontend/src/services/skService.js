@@ -253,10 +253,9 @@ class SKService {
         },
       });
 
-      // Unwrap to return the validation payload directly for easier consumption
-      return { success: true, data: response.data?.data || response.data };
+      return response.data;
     } catch (error) {
-      return this.handleError(error, 'Failed to validate bulk import');
+      throw this.handleError(error, 'Failed to validate bulk import');
     }
   }
 
@@ -266,10 +265,11 @@ class SKService {
    * @param {Function} onProgress - Progress callback function
    * @returns {Promise<Object>} API response with import results
    */
-  async bulkImportSKOfficials(file, onProgress = null) {
+  async bulkImportSKOfficials(file, duplicateStrategy = 'skip', onProgress = null) {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('duplicateStrategy', duplicateStrategy);
 
       const response = await api.post('/sk-officials/bulk/import', formData, {
         headers: {
@@ -283,10 +283,9 @@ class SKService {
         },
       });
 
-      // Unwrap to return the results payload directly
-      return { success: true, data: response.data?.data || response.data };
+      return response.data;
     } catch (error) {
-      return this.handleError(error, 'Failed to import SK officials');
+      throw this.handleError(error, 'Failed to import SK officials');
     }
   }
 
@@ -725,7 +724,7 @@ class SKService {
 
       return { success: true, message: 'Template downloaded successfully' };
     } catch (error) {
-      console.error('Template download error:', error);
+      logger.error('Template download error', error, { format });
       
       // Fallback to frontend generation if backend fails
       return this.downloadTemplateFallback(format);
@@ -910,7 +909,7 @@ Juan,Dela Cruz,Reyes,Jr.,juan.delacruz@yahoo.com,SK Secretary,Anus`;
    * @returns {Object} Formatted error response
    */
   handleError(error, defaultMessage) {
-    console.error('SK service error:', error);
+    logger.error('SK service error', error, { defaultMessage });
     
     let message = defaultMessage;
     let details = null;

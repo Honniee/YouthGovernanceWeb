@@ -9,6 +9,8 @@
  * - Key characteristics
  */
 
+import logger from '../utils/logger.js';
+
 class SegmentAnalysisService {
 
   /**
@@ -21,7 +23,7 @@ class SegmentAnalysisService {
    * @param {Number} totalYouth - Total number of youth across all clusters
    */
   async analyzeSegment(clusterNum, responses, metadata, features, centroid, totalYouth) {
-    console.log(`\n📊 Analyzing Cluster ${clusterNum}...`);
+    logger.debug(`Analyzing Cluster ${clusterNum}`, { clusterNum, responseCount: responses.length });
     
     // Calculate demographics
     const avgAge = this.calculateAverage(metadata.map(m => m.raw_age));
@@ -112,9 +114,7 @@ class SegmentAnalysisService {
       qualityScore: this.calculateCohesion(features)
     };
 
-    console.log(`   Name: ${name}`);
-    console.log(`   Youth Count: ${responses.length}`);
-    console.log(`   Priority: ${priority}`);
+    logger.debug(`Cluster ${clusterNum} analysis complete`, { clusterNum, name, youthCount: responses.length, priority });
 
     return segment;
   }

@@ -2,13 +2,13 @@
 // 🏗️ src/components/layouts/PublicLayout.jsx - Reusable Public Page Wrapper
 // =================================================================
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
 import { useLocation } from 'react-router-dom';
 import PublicHeader from '../website/PublicHeader';
 import ScrollToTop from '../website/ScrollToTop';
 import CookieBanner from '../website/CookieBanner';
 import Footer from '../website/Footer';
-import { useNotice } from '../../context/NoticeContext';
+import NoticeContext from '../../context/NoticeContext';
 
 export default function PublicLayout({ 
   children, 
@@ -20,7 +20,10 @@ export default function PublicLayout({
   headerProps = {},
   footerProps = {}
 }) {
-  const { showNotice } = useNotice();
+  // Safely get notice context - use useContext directly to handle missing provider gracefully
+  const noticeContext = useContext(NoticeContext);
+  const showNotice = noticeContext?.showNotice || false;
+  
   const location = useLocation();
   const [headerHeight, setHeaderHeight] = useState(0);
 

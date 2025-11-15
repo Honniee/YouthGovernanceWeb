@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import logger from './logger.js';
 
 // === VALIDATION RULES ===
 
@@ -95,7 +96,7 @@ export const validateVoterCreation = async (voterData) => {
         errors.push('A voter with the same name and birth date already exists');
       }
     } catch (error) {
-      console.error('Error checking for duplicate voters:', error);
+      logger.error('Error checking for duplicate voters', { error: error.message, stack: error.stack, voterData });
       errors.push('Error checking for duplicate voters');
     }
   }
@@ -202,7 +203,7 @@ export const validateVoterUpdate = async (voterData, voterId = null) => {
         errors.push('A voter with the same name and birth date already exists');
       }
     } catch (error) {
-      console.error('Error checking for duplicate voters:', error);
+      logger.error('Error checking for duplicate voters', { error: error.message, stack: error.stack, voterData });
       errors.push('Error checking for duplicate voters');
     }
   }
@@ -218,181 +219,326 @@ export const validateVoterUpdate = async (voterData, voterId = null) => {
  * @param {Array} records - Array of voter records to validate
  * @returns {Object} Validation result with isValid, errors, and suggestions
  */
-export const validateBulkImport = (records) => {
-  const errors = [];
-  const suggestions = {
-    totalRecords: records.length,
-    validRecords: 0,
-    invalidRecords: 0,
-    commonIssues: []
+export const validateBulkImport = async (records) => {
+  const normalizeString = (value) => {
+    if (value === null || value === undefined) return '';
+    return String(value).trim();
+  };
+
+  const normalizeGender = (value) => {
+    const gender = normalizeString(value).toLowerCase();
+    if (gender === 'male' || gender === 'm') return 'Male';
+    if (gender === 'female' || gender === 'f') return 'Female';
+    return gender ? value : '';
+  };
+
+  const formatDateParts = (year, month, day) => {
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return '';
+    const safeYear = Math.trunc(year);
+    const safeMonth = Math.trunc(month);
+    const safeDay = Math.trunc(day);
+    if (safeMonth < 1 || safeMonth > 12 || safeDay < 1 || safeDay > 31) return '';
+    return `${safeYear.toString().padStart(4, '0')}-${safeMonth.toString().padStart(2, '0')}-${safeDay
+      .toString()
+      .padStart(2, '0')}`;
+  };
+
+  const normalizeDate = (value) => {
+    if (value === null || value === undefined || value === '') return '';
+
+    const asDateParts = (dateObj) => {
+      if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return '';
+      return formatDateParts(
+        dateObj.getUTCFullYear(),
+        dateObj.getUTCMonth() + 1,
+        dateObj.getUTCDate()
+      );
+    };
+
+    if (value instanceof Date) {
+      return asDateParts(value);
+    }
+
+    const trimmed = normalizeString(value);
+    if (!trimmed) return '';
+
+    // Excel serial number (e.g., 45123)
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      const excelSerial = Number(trimmed);
+      if (!Number.isNaN(excelSerial)) {
+        const baseDate = Date.UTC(1899, 11, 30);
+        const wholeDays = Math.floor(excelSerial);
+        const milliseconds = Math.round((excelSerial - wholeDays) * 24 * 60 * 60 * 1000);
+        const jsDate = new Date(baseDate + wholeDays * 86400000 + milliseconds);
+        return asDateParts(jsDate) || '';
+      }
+    }
+
+    // ISO-like (YYYY-MM-DD)
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(trimmed)) {
+      const [year, month, day] = trimmed.split('-').map((part) => Number(part));
+      return formatDateParts(year, month, day);
+    }
+
+    // US style (MM/DD/YYYY)
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+      const [month, day, year] = trimmed.split('/').map((part) => Number(part));
+      return formatDateParts(year, month, day);
+    }
+
+    // Fallback: let Date parse, then extract UTC parts
+    const parsed = new Date(trimmed);
+    const normalized = asDateParts(parsed);
+    return normalized || '';
   };
 
   if (!Array.isArray(records) || records.length === 0) {
-    errors.push('No records found in the file');
     return {
       isValid: false,
-      errors,
-      suggestions
+      summary: {
+        totalRecords: 0,
+        validRecords: 0,
+        invalidRecords: 0,
+        duplicateRecords: 0,
+        duplicateInFile: 0,
+        duplicateInDbActive: 0,
+        duplicateInDbArchived: 0
+      },
+      rows: [],
+      errors: ['No records found in the file'],
+      suggestions: {}
     };
   }
 
-  // Track common issues
-  const issueCounts = {
-    missingFirstName: 0,
-    missingLastName: 0,
-    missingBirthDate: 0,
-    missingGender: 0,
-    invalidGender: 0,
-    invalidBirthDate: 0,
-    underage: 0,
-    duplicateNames: 0
-  };
-
-  const seenNames = new Set();
+  const rows = [];
+  const comboKeyToIndexes = new Map();
 
   records.forEach((record, index) => {
     const rowNumber = index + 1;
-    let rowHasErrors = false;
+    const normalizedRecord = {
+      first_name: normalizeString(record.first_name ?? record.firstName),
+      last_name: normalizeString(record.last_name ?? record.lastName),
+      middle_name: normalizeString(record.middle_name ?? record.middleName),
+      suffix: normalizeString(record.suffix),
+      birth_date: normalizeDate(record.birth_date ?? record.birthDate),
+      gender: normalizeGender(record.gender ?? record.Gender)
+    };
 
-    // Required fields
-    if (!record.first_name || record.first_name.trim() === '') {
-      errors.push(`Row ${rowNumber}: First name is required`);
-      issueCounts.missingFirstName++;
-      rowHasErrors = true;
+    const issues = [];
+    let status = 'valid';
+
+    if (!normalizedRecord.first_name) {
+      issues.push('First name is required');
+      status = 'error';
     }
 
-    if (!record.last_name || record.last_name.trim() === '') {
-      errors.push(`Row ${rowNumber}: Last name is required`);
-      issueCounts.missingLastName++;
-      rowHasErrors = true;
+    if (!normalizedRecord.last_name) {
+      issues.push('Last name is required');
+      status = 'error';
     }
 
-    if (!record.birth_date) {
-      errors.push(`Row ${rowNumber}: Birth date is required`);
-      issueCounts.missingBirthDate++;
-      rowHasErrors = true;
+    if (!normalizedRecord.birth_date) {
+      issues.push('Birth date is required');
+      status = 'error';
     }
 
-    if (!record.gender) {
-      errors.push(`Row ${rowNumber}: Gender is required`);
-      issueCounts.missingGender++;
-      rowHasErrors = true;
+    if (!normalizedRecord.gender) {
+      issues.push('Gender is required');
+      status = 'error';
+    } else if (!['Male', 'Female'].includes(normalizedRecord.gender)) {
+      issues.push('Gender must be either "Male" or "Female"');
+      status = 'error';
     }
 
-    // Field length validation
-    if (record.first_name && record.first_name.length > 50) {
-      errors.push(`Row ${rowNumber}: First name must be 50 characters or less`);
-      rowHasErrors = true;
+    if (normalizedRecord.first_name.length > 50) {
+      issues.push('First name must be 50 characters or less');
+      status = 'error';
     }
 
-    if (record.last_name && record.last_name.length > 50) {
-      errors.push(`Row ${rowNumber}: Last name must be 50 characters or less`);
-      rowHasErrors = true;
+    if (normalizedRecord.last_name.length > 50) {
+      issues.push('Last name must be 50 characters or less');
+      status = 'error';
     }
 
-    if (record.middle_name && record.middle_name.length > 50) {
-      errors.push(`Row ${rowNumber}: Middle name must be 50 characters or less`);
-      rowHasErrors = true;
+    if (normalizedRecord.middle_name && normalizedRecord.middle_name.length > 50) {
+      issues.push('Middle name must be 50 characters or less');
+      status = 'error';
     }
 
-    if (record.suffix && record.suffix.length > 50) {
-      errors.push(`Row ${rowNumber}: Suffix must be 50 characters or less`);
-      rowHasErrors = true;
+    if (normalizedRecord.suffix && normalizedRecord.suffix.length > 50) {
+      issues.push('Suffix must be 50 characters or less');
+      status = 'error';
     }
 
-    // Gender validation
-    if (record.gender && !['Male', 'Female'].includes(record.gender)) {
-      errors.push(`Row ${rowNumber}: Gender must be either "Male" or "Female"`);
-      issueCounts.invalidGender++;
-      rowHasErrors = true;
-    }
-
-    // Birth date validation
-    if (record.birth_date) {
-      const birthDate = new Date(record.birth_date);
+    if (normalizedRecord.birth_date) {
+      const birthDate = new Date(normalizedRecord.birth_date);
       const today = new Date();
-
-      if (isNaN(birthDate.getTime())) {
-        errors.push(`Row ${rowNumber}: Invalid birth date format`);
-        issueCounts.invalidBirthDate++;
-        rowHasErrors = true;
+      if (Number.isNaN(birthDate.getTime())) {
+        issues.push('Invalid birth date format');
+        status = 'error';
       } else {
         let age = today.getFullYear() - birthDate.getFullYear();
         const monthDiff = today.getMonth() - birthDate.getMonth();
-        
         if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
           age--;
         }
-
         if (age < 18) {
-          errors.push(`Row ${rowNumber}: Voter must be at least 18 years old (age: ${age})`);
-          issueCounts.underage++;
-          rowHasErrors = true;
+          issues.push(`Voter must be at least 18 years old (age: ${age})`);
+          status = 'error';
         }
-
         if (age > 120) {
-          errors.push(`Row ${rowNumber}: Invalid birth date (age: ${age})`);
-          issueCounts.invalidBirthDate++;
-          rowHasErrors = true;
+          issues.push(`Invalid birth date (age: ${age})`);
+          status = 'error';
         }
-
         if (birthDate > today) {
-          errors.push(`Row ${rowNumber}: Birth date cannot be in the future`);
-          issueCounts.invalidBirthDate++;
-          rowHasErrors = true;
+          issues.push('Birth date cannot be in the future');
+          status = 'error';
         }
       }
     }
 
-    // Check for duplicate names within the file
-    if (record.first_name && record.last_name) {
-      const nameKey = `${record.first_name.trim().toLowerCase()}_${record.last_name.trim().toLowerCase()}`;
-      if (seenNames.has(nameKey)) {
-        errors.push(`Row ${rowNumber}: Duplicate name found in the file`);
-        issueCounts.duplicateNames++;
-        rowHasErrors = true;
-      } else {
-        seenNames.add(nameKey);
+    const comboKey = (normalizedRecord.first_name && normalizedRecord.last_name && normalizedRecord.birth_date)
+      ? `${normalizedRecord.first_name.toLowerCase()}|${normalizedRecord.last_name.toLowerCase()}|${normalizedRecord.birth_date}`
+      : null;
+
+    if (comboKey) {
+      if (!comboKeyToIndexes.has(comboKey)) {
+        comboKeyToIndexes.set(comboKey, []);
       }
+      comboKeyToIndexes.get(comboKey).push(index);
     }
 
-    if (!rowHasErrors) {
-      suggestions.validRecords++;
-    } else {
-      suggestions.invalidRecords++;
+    rows.push({
+      rowNumber,
+      original: record,
+      normalized: normalizedRecord,
+      status,
+      issues,
+      duplicate: {
+        inFile: false,
+        isPrimaryInFile: false,
+        inDbActive: false,
+        inDbArchived: false
+      },
+      existingMatches: [],
+      comboKey
+    });
+  });
+
+  comboKeyToIndexes.forEach((indexes) => {
+    if (indexes.length > 1) {
+      indexes.forEach((idx, position) => {
+        const row = rows[idx];
+        row.duplicate.inFile = true;
+        row.duplicate.isPrimaryInFile = position === 0;
+        if (position > 0) {
+          row.issues.push('Duplicate record found within the file');
+          if (row.status !== 'error') {
+            row.status = 'warning';
+          }
+        } else if (row.status !== 'error') {
+          row.status = 'warning';
+          row.issues.push('Duplicate group detected in file (first occurrence)');
+        }
+      });
     }
   });
 
-  // Generate suggestions based on common issues
-  if (issueCounts.missingFirstName > 0) {
-    suggestions.commonIssues.push(`${issueCounts.missingFirstName} records missing first name`);
-  }
-  if (issueCounts.missingLastName > 0) {
-    suggestions.commonIssues.push(`${issueCounts.missingLastName} records missing last name`);
-  }
-  if (issueCounts.missingBirthDate > 0) {
-    suggestions.commonIssues.push(`${issueCounts.missingBirthDate} records missing birth date`);
-  }
-  if (issueCounts.missingGender > 0) {
-    suggestions.commonIssues.push(`${issueCounts.missingGender} records missing gender`);
-  }
-  if (issueCounts.invalidGender > 0) {
-    suggestions.commonIssues.push(`${issueCounts.invalidGender} records have invalid gender (use "Male" or "Female")`);
-  }
-  if (issueCounts.invalidBirthDate > 0) {
-    suggestions.commonIssues.push(`${issueCounts.invalidBirthDate} records have invalid birth date`);
-  }
-  if (issueCounts.underage > 0) {
-    suggestions.commonIssues.push(`${issueCounts.underage} records have voters under 18 years old`);
-  }
-  if (issueCounts.duplicateNames > 0) {
-    suggestions.commonIssues.push(`${issueCounts.duplicateNames} records have duplicate names in the file`);
+  const uniqueCombos = Array.from(comboKeyToIndexes.keys());
+  if (uniqueCombos.length > 0) {
+    const params = [];
+    const valueRows = uniqueCombos
+      .map((key, idx) => {
+        const [firstName, lastName, birthDate] = key.split('|');
+        const baseIndex = idx * 3 + 1;
+        params.push(firstName, lastName, birthDate);
+        return `($${baseIndex}, $${baseIndex + 1}, TO_DATE($${baseIndex + 2}, 'YYYY-MM-DD'))`;
+      })
+      .join(', ');
+
+    if (valueRows) {
+      const duplicateQuery = `
+        SELECT 
+          v.voter_id,
+          LOWER(v.first_name) AS first_name,
+          LOWER(v.last_name) AS last_name,
+          TO_CHAR(v.birth_date, 'YYYY-MM-DD') AS birth_date,
+          v.is_active
+        FROM "Voters_List" v
+        JOIN (
+          VALUES ${valueRows}
+        ) AS candidates(first_name, last_name, birth_date)
+          ON LOWER(v.first_name) = candidates.first_name
+         AND LOWER(v.last_name) = candidates.last_name
+         AND v.birth_date = candidates.birth_date
+      `;
+
+      try {
+        const duplicateResult = await query(duplicateQuery, params);
+        const dbDuplicateMap = new Map();
+
+        duplicateResult.rows.forEach(row => {
+          const normalizedBirthDate = normalizeDate(row.birth_date) || '';
+          const key = `${row.first_name}|${row.last_name}|${normalizedBirthDate}`;
+          if (!dbDuplicateMap.has(key)) {
+            dbDuplicateMap.set(key, []);
+          }
+          dbDuplicateMap.get(key).push({
+            voter_id: row.voter_id,
+            is_active: row.is_active,
+            birth_date: normalizedBirthDate
+          });
+        });
+
+        rows.forEach(row => {
+          if (!row.comboKey) return;
+          const matches = dbDuplicateMap.get(row.comboKey);
+          if (matches && matches.length > 0) {
+            const hasActive = matches.some(match => match.is_active);
+            const hasArchived = matches.some(match => !match.is_active);
+            row.duplicate.inDbActive = hasActive;
+            row.duplicate.inDbArchived = hasArchived;
+            row.existingMatches = matches;
+            const duplicateMessages = [];
+            if (hasActive) duplicateMessages.push('active');
+            if (hasArchived) duplicateMessages.push('archived');
+            row.issues.push(`Duplicate exists in system (${duplicateMessages.join(' & ')})`);
+            if (row.status !== 'error') {
+              row.status = 'warning';
+            }
+          }
+        });
+      } catch (error) {
+        logger.error('Error detecting duplicate voters during validation', { error: error.message, stack: error.stack });
+      }
+    }
   }
 
+  const invalidRecords = rows.filter(row => row.status === 'error').length;
+  const duplicateInFile = rows.filter(row => row.duplicate.inFile).length;
+  const duplicateInDbActive = rows.filter(row => row.duplicate.inDbActive).length;
+  const duplicateInDbArchived = rows.filter(row => row.duplicate.inDbArchived).length;
+
+  const summary = {
+    totalRecords: records.length,
+    validRecords: rows.length - invalidRecords,
+    invalidRecords,
+    duplicateRecords: duplicateInFile + duplicateInDbActive + duplicateInDbArchived,
+    duplicateInFile,
+    duplicateInDbActive,
+    duplicateInDbArchived
+  };
+
+  const validationErrors = rows
+    .filter(row => row.status === 'error')
+    .flatMap(row => row.issues.map(issue => `Row ${row.rowNumber}: ${issue}`));
+
   return {
-    isValid: errors.length === 0,
-    errors,
-    suggestions
+    isValid: invalidRecords === 0,
+    summary,
+    rows,
+    errors: validationErrors,
+    suggestions: summary
   };
 };
 
@@ -441,7 +587,7 @@ export const checkVoterExists = async (firstName, lastName, birthDate, excludeId
     const result = await query(queryText, queryParams);
     return result.rows.length > 0;
   } catch (error) {
-    console.error('Error checking if voter exists:', error);
+    logger.error('Error checking if voter exists', { error: error.message, stack: error.stack, firstName, lastName, birthDate });
     return false;
   }
 };

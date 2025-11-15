@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import surveyBatchesService from '../services/surveyBatchesService';
 import { showSuccessToast, showErrorToast, showInfoToast } from '../components/universal';
+import logger from '../utils/logger.js';
 
 /**
  * Custom hook for Survey Batches management
@@ -96,8 +97,7 @@ export const useSurveyBatches = (options = {}) => {
         ...params
       };
 
-      console.log('🔍 Hook - loadBatches called with queryParams:', queryParams);
-      console.log('🔍 Hook - Current filters:', currentFiltersRef.current);
+      logger.debug('Hook - loadBatches called', { queryParams, currentFilters: currentFiltersRef.current });
 
       const result = await surveyBatchesService.getSurveyBatches(queryParams);
 
@@ -362,7 +362,7 @@ export const useSurveyBatches = (options = {}) => {
 
       return updates;
     } catch (err) {
-      console.error('Auto-update check failed:', err);
+      logger.error('Auto-update check failed', err);
       return [];
     }
   }, [batches, computeSuggestedStatus, isKKName]);
@@ -393,10 +393,10 @@ export const useSurveyBatches = (options = {}) => {
    * Search and filter functions
    */
   const updateFilters = useCallback((newFilters) => {
-    console.log('🔍 Hook - updateFilters called with:', newFilters);
+    logger.debug('Hook - updateFilters called', { newFilters });
     setFilters(prev => {
       const updated = { ...prev, ...newFilters };
-      console.log('🔍 Hook - Filters updated from:', prev, 'to:', updated);
+      logger.debug('Hook - Filters updated', { from: prev, to: updated });
       return updated;
     });
     setPagination(prev => ({ ...prev, page: 1 })); // Reset to first page

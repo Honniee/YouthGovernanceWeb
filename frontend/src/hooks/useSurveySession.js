@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useActiveSurvey } from './useActiveSurvey';
 import { useYouthProfile } from './useYouthProfile';
 import { useSurveyAutoSave } from './useSurveyAutoSave';
+import logger from '../utils/logger.js';
 
 /**
  * Comprehensive survey session management hook
@@ -94,11 +95,11 @@ export const useSurveySession = () => {
       // Step 4: Try to retrieve existing response (only if we have both IDs)
       let existingResponse = null;
       if (activeSurvey?.batch_id && youthId) {
-        console.log('🔍 Attempting to retrieve existing response...');
+        logger.debug('Attempting to retrieve existing response', { batchId: activeSurvey.batch_id, youthId });
         existingResponse = await retrieveResponse();
-        console.log('🔍 Retrieved response:', existingResponse);
+        logger.debug('Retrieved response', { hasResponse: !!existingResponse });
       } else {
-        console.log('❌ Cannot retrieve response: missing batchId or youthId', { 
+        logger.debug('Cannot retrieve response: missing batchId or youthId', { 
           batchId: activeSurvey?.batch_id, 
           youthId 
         });

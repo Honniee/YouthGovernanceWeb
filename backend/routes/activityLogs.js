@@ -1,5 +1,6 @@
 import express from 'express';
 import { query } from '../config/database.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -120,7 +121,7 @@ router.get('/', async (req, res) => {
             row.created_at = timestampStr;
           }
         } catch (error) {
-          console.error('Error formatting timestamp:', error, row.created_at);
+          logger.error('Error formatting timestamp', { error: error.message, stack: error.stack, timestamp: row.created_at });
           // Keep original value on error
         }
       }
@@ -138,7 +139,7 @@ router.get('/', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('GET /api/activity-logs error:', err);
+    logger.error('GET /api/activity-logs error', { error: err.message, stack: err.stack });
     res.status(500).json({ success: false, message: 'Failed to fetch activity logs' });
   }
 });
@@ -198,7 +199,7 @@ router.get('/recent', async (req, res) => {
     
     res.json({ success: true, data: recentActivity });
   } catch (err) {
-    console.error('GET /api/activity-logs/recent error:', err);
+    logger.error('GET /api/activity-logs/recent error', { error: err.message, stack: err.stack });
     res.status(500).json({ success: false, message: 'Failed to fetch recent activity' });
   }
 });

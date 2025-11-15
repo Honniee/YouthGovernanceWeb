@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useActiveTerm } from './useActiveTerm.js';
 import skService from '../services/skService.js';
+import logger from '../utils/logger.js';
 
 // Position limits per barangay (matching backend)
 const POSITION_LIMITS = {
@@ -21,7 +22,7 @@ export const useSKValidation = () => {
   // Load vacancy statistics for a specific barangay
   const loadBarangayVacancies = useCallback(async (barangayId, detailed = false) => {
     if (!hasActiveTerm || !activeTerm?.termId) {
-      console.warn('No active term available for vacancy loading');
+      logger.warn('No active term available for vacancy loading', { barangayId });
       return;
     }
 
@@ -37,11 +38,11 @@ export const useSKValidation = () => {
           [barangayId]: response.data
         }));
       } else {
-        console.error('Failed to load barangay vacancies:', response.message);
+        logger.error('Failed to load barangay vacancies', null, { message: response.message, barangayId });
         setValidationError(response.message);
       }
     } catch (error) {
-      console.error('Error loading barangay vacancies:', error);
+      logger.error('Error loading barangay vacancies', error, { barangayId });
       setValidationError('Failed to load vacancy data');
     } finally {
       setIsLoadingVacancies(false);
@@ -51,7 +52,7 @@ export const useSKValidation = () => {
   // Load all barangay vacancies
   const loadAllBarangayVacancies = useCallback(async () => {
     if (!hasActiveTerm || !activeTerm?.termId) {
-      console.warn('No active term available for all barangay vacancy loading');
+      logger.warn('No active term available for all barangay vacancy loading');
       return;
     }
 
@@ -64,11 +65,11 @@ export const useSKValidation = () => {
       if (response.success) {
         setBarangayVacancies(response.data);
       } else {
-        console.error('Failed to load all barangay vacancies:', response.message);
+        logger.error('Failed to load all barangay vacancies', null, { message: response.message });
         setValidationError(response.message);
       }
     } catch (error) {
-      console.error('Error loading all barangay vacancies:', error);
+      logger.error('Error loading all barangay vacancies', error);
       setValidationError('Failed to load all barangay vacancy data');
     } finally {
       setIsLoadingVacancies(false);
@@ -78,7 +79,7 @@ export const useSKValidation = () => {
   // Load overall vacancy statistics
   const loadOverallVacancyStats = useCallback(async () => {
     if (!hasActiveTerm || !activeTerm?.termId) {
-      console.warn('No active term available for overall vacancy loading');
+      logger.warn('No active term available for overall vacancy loading');
       return;
     }
 
@@ -91,11 +92,11 @@ export const useSKValidation = () => {
       if (response.success) {
         setOverallVacancyStats(response.data);
       } else {
-        console.error('Failed to load overall vacancy stats:', response.message);
+        logger.error('Failed to load overall vacancy stats', null, { message: response.message });
         setValidationError(response.message);
       }
     } catch (error) {
-      console.error('Error loading overall vacancy stats:', error);
+      logger.error('Error loading overall vacancy stats', error);
       setValidationError('Failed to load overall vacancy data');
     } finally {
       setIsLoadingVacancies(false);
@@ -178,7 +179,7 @@ export const useSKValidation = () => {
         };
       }
     } catch (error) {
-      console.error('Error validating position:', error);
+      logger.error('Error validating position', error, { position, barangayId, termId: activeTerm?.termId });
       return {
         isValid: false,
         error: 'Failed to validate position'

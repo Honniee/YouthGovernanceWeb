@@ -523,7 +523,21 @@ class SKTermsService {
         query = `
           UPDATE "SK_Terms"
           SET status = $1,
+              is_current = true,
+              is_active = true,
               start_date = CASE WHEN start_date > CURRENT_DATE THEN CURRENT_DATE ELSE start_date END,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE term_id = $2
+          RETURNING *
+        `;
+        values = [newStatus, termId];
+      } else if (newStatus === 'active') {
+        // Normal activation: set status and flags
+        query = `
+          UPDATE "SK_Terms"
+          SET status = $1,
+              is_current = true,
+              is_active = true,
               updated_at = CURRENT_TIMESTAMP
           WHERE term_id = $2
           RETURNING *
@@ -531,12 +545,13 @@ class SKTermsService {
         values = [newStatus, termId];
       } else if (newStatus === 'completed') {
         // Completing: update end_date to today for active terms (like closing a batch)
-        // Also set is_current = false to prevent it from being selected as active
+        // Also set is_current = false and is_active = false to prevent it from being selected as active
         const today = new Date().toISOString().split('T')[0];
         query = `
           UPDATE "SK_Terms"
           SET status = $1,
               is_current = false,
+              is_active = false,
               end_date = CASE WHEN status = 'active' THEN $2 ELSE end_date END,
               completion_type = $3,
               completed_at = CURRENT_TIMESTAMP,
@@ -556,7 +571,7 @@ class SKTermsService {
           : 'Manual completion by admin';
         values = [newStatus, today, completionType, userId, statusChangeReason, termId];
       } else {
-        // Regular status update (normal activate)
+        // Regular status update (other statuses)
         query = `
           UPDATE "SK_Terms" 
           SET status = $1, updated_at = CURRENT_TIMESTAMP
@@ -636,12 +651,14 @@ class SKTermsService {
       }
 
       // Activate the term
-      // Force-activate: set status active and align start_date to today if it is in the future
+      // Set status, flags, and adjust start_date if needed (force activate)
       let updateQuery;
       if (force) {
         updateQuery = `
           UPDATE "SK_Terms"
           SET status = 'active',
+              is_current = true,
+              is_active = true,
               start_date = CASE WHEN start_date > CURRENT_DATE THEN CURRENT_DATE ELSE start_date END,
               updated_at = CURRENT_TIMESTAMP
           WHERE term_id = $1
@@ -650,7 +667,10 @@ class SKTermsService {
       } else {
         updateQuery = `
           UPDATE "SK_Terms"
-          SET status = 'active', updated_at = CURRENT_TIMESTAMP
+          SET status = 'active',
+              is_current = true,
+              is_active = true,
+              updated_at = CURRENT_TIMESTAMP
           WHERE term_id = $1
           RETURNING *
         `;

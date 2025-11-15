@@ -53,6 +53,7 @@ import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast, Confir
 import { useBarangays } from '../../hooks/useBarangays.js';
 import { apiHelpers } from '../../services/api.js';
 import { youthDetailConfig } from '../../components/portal_main_content/tabbedModalConfigs.jsx';
+import logger from '../../utils/logger.js';
 
 const YouthManagement = () => {
   // Tab state for filtering youth by status
@@ -73,7 +74,7 @@ const YouthManagement = () => {
   const loadValidatedYouth = async () => {
     try {
       setIsLoading(true);
-      console.log('📋 Loading validated youth from API...');
+      logger.debug('Loading validated youth from API');
       
       // Build query parameters for pagination and filtering
       const params = new URLSearchParams();
@@ -102,9 +103,9 @@ const YouthManagement = () => {
       
       // Backend already calculates age and status, so we can use it directly
       setValidatedYouth(validatedYouthData);
-      console.log(`✅ Loaded ${validatedYouthData.length} validated youth from database`);
+      logger.debug('Validated youth loaded', { count: validatedYouthData.length });
     } catch (error) {
-      console.error('Failed to load validated youth:', error);
+      logger.error('Failed to load validated youth', error);
       showErrorToast('Error', `Failed to load validated youth: ${error.message}`);
       
       // Set empty array if API fails - no fallback data
@@ -278,7 +279,7 @@ const YouthManagement = () => {
   // Sort modal state
   const sortModal = useSortModal('createdAt', 'desc', (newSortBy, newSortOrder) => {
     // TODO: Implement sorting
-    console.log('Sorting by:', newSortBy, newSortOrder);
+    logger.debug('YouthManagement sort change', { newSortBy, newSortOrder });
   });
 
   // Filter modal state
@@ -373,7 +374,7 @@ const YouthManagement = () => {
     switch (action) {
       case 'view':
         // TODO: Implement view details modal
-        console.log('View details for:', item);
+        logger.debug('Viewing youth details', { item });
         break;
       case 'archive':
         await handleArchive(item);
@@ -455,7 +456,7 @@ const YouthManagement = () => {
       const dataset = getFilteredYouth();
       
       // Debug logging
-      console.log('📤 Export Debug:', {
+      logger.debug('Youth export dataset', {
         activeTab,
         totalYouth: validatedYouth.length,
         filteredCount: dataset.length,
@@ -507,10 +508,10 @@ const YouthManagement = () => {
         const apiModule = await import('../../services/api.js');
         const api = apiModule.default;
         api.get(`/youth/export?${queryParams.toString()}`).catch(err => {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log youth export activity', err);
         });
       } catch (err) {
-        console.error('Failed to log export activity:', err);
+        logger.error('Failed to log youth export activity', err);
       }
       
       return { success: true };
@@ -546,10 +547,10 @@ const YouthManagement = () => {
         const apiModule = await import('../../services/api.js');
         const api = apiModule.default;
         api.get(`/youth/export?${queryParams.toString()}`).catch(err => {
-          console.error('Failed to log export activity:', err);
+          logger.error('Failed to log youth export activity', err);
         });
       } catch (err) {
-        console.error('Failed to log export activity:', err);
+        logger.error('Failed to log youth export activity', err);
       }
       
       return { success: true };
@@ -660,7 +661,7 @@ const YouthManagement = () => {
         showErrorToast('Bulk Operation Failed', response.message);
       }
     } catch (error) {
-      console.error('Error in bulk operation:', error);
+      logger.error('Error in youth bulk operation', error, { bulkAction, selectedCount: selectedItems.length });
       confirmation.hideConfirmation();
       setBulkAction(''); // Reset bulk action on error
       showErrorToast('Bulk Operation Error', error.message || 'Error performing bulk operation');

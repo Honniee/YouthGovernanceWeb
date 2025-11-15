@@ -38,6 +38,7 @@ import {
 import { ToastContainer, showSuccessToast, showErrorToast } from '../../components/universal';
 import validationLogsService from '../../services/validationLogsService.js';
 import api from '../../services/api.js';
+import logger from '../../utils/logger.js';
 
 const ValidationLogs = () => {
   // Tab state for filtering by action (all, validated, rejected)
@@ -92,11 +93,12 @@ const ValidationLogs = () => {
 
   // Load validation logs
   const loadValidationLogs = async () => {
+    let params = {};
     try {
       setIsLoading(true);
       setError(null);
 
-      const params = {
+      params = {
         page: currentPage,
         perPage: itemsPerPage,
         sortBy: sortModal.sortBy,
@@ -142,7 +144,7 @@ const ValidationLogs = () => {
         throw new Error(response?.message || 'Failed to load validation logs');
       }
     } catch (error) {
-      console.error('Failed to load validation logs:', error);
+      logger.error('Failed to load validation logs', error, { params });
       setError(error.message || 'Failed to load validation logs');
       setValidationLogs([]);
       showErrorToast('Error', 'Failed to load validation logs');
@@ -208,7 +210,7 @@ const ValidationLogs = () => {
         });
       }
     } catch (error) {
-      console.error('Failed to load statistics:', error);
+      logger.error('Failed to load validation log statistics', error);
     }
   };
 

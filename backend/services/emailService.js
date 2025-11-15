@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import { renderTemplate, validateTemplateData } from './emailTemplates.js';
+import logger from '../utils/logger.js';
 
 dotenv.config();
 
@@ -22,17 +23,18 @@ class EmailService {
   async init() {
     try {
       // Check if email configuration exists
-      console.log('🔍 Checking email environment variables:', {
-        EMAIL_HOST: process.env.EMAIL_HOST ? '✅ Set' : '❌ Missing',
-        EMAIL_USER: process.env.EMAIL_USER ? '✅ Set' : '❌ Missing',
-        EMAIL_PASS: process.env.EMAIL_PASS ? '✅ Set' : '❌ Missing',
+      logger.debug('Checking email environment variables', {
+        EMAIL_HOST: process.env.EMAIL_HOST ? 'Set' : 'Missing',
+        EMAIL_USER: process.env.EMAIL_USER ? 'Set' : 'Missing',
+        EMAIL_PASS: process.env.EMAIL_PASS ? 'Set' : 'Missing',
         EMAIL_PORT: process.env.EMAIL_PORT || 'Using default 587',
         EMAIL_SECURE: process.env.EMAIL_SECURE || 'Using default false'
       });
       
       if (!process.env.EMAIL_HOST || !process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.log('⚠️ Email configuration not found. Email service will be disabled.');
-        console.log('💡 Please set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS environment variables');
+        logger.warn('Email configuration not found. Email service will be disabled', {
+          recommendation: 'Please set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS environment variables'
+        });
         this.isConfigured = false;
         return;
       }
@@ -54,17 +56,16 @@ class EmailService {
       // Verify connection
       await this.transporter.verify();
       this.isConfigured = true;
-      console.log('✅ Email service initialized successfully');
-          console.log('📧 Email configuration:', {
-      host: process.env.EMAIL_HOST,
-      port: process.env.EMAIL_PORT || 587,
-      user: process.env.EMAIL_USER,
-      secure: process.env.EMAIL_SECURE === 'true',
-      isConfigured: this.isConfigured
-    });
+      logger.info('Email service initialized successfully', {
+        host: process.env.EMAIL_HOST,
+        port: process.env.EMAIL_PORT || 587,
+        user: process.env.EMAIL_USER,
+        secure: process.env.EMAIL_SECURE === 'true',
+        isConfigured: this.isConfigured
+      });
       
     } catch (error) {
-      console.error('❌ Email service initialization failed:', error.message);
+      logger.error('Email service initialization failed', { error: error.message, stack: error.stack });
       this.isConfigured = false;
     }
   }
@@ -81,21 +82,43 @@ class EmailService {
    * @returns {Promise<boolean>} Success status
    */
   async sendWelcomeEmail(staffData) {
-    console.log(`🔍 Email service status: configured=${this.isConfigured}`);
+    logger.debug(`Email service status: configured=${this.isConfigured}`);
     
     if (!this.isConfigured) {
-      console.log('⚠️ Email service not configured. Skipping welcome email.');
-      console.log('💡 Check EMAIL_HOST, EMAIL_USER, and EMAIL_PASS environment variables');
+      logger.warn('Email service not configured. Skipping welcome email', {
+        recommendation: 'Check EMAIL_HOST, EMAIL_USER, and EMAIL_PASS environment variables'
+      });
       return false;
     }
 
     try {
       const { firstName, lastName, personalEmail, orgEmail, password, lydoId } = staffData;
-      console.log(`📧 Preparing welcome email for ${firstName} ${lastName} (${lydoId}) to ${personalEmail}`);
+      
+      // Validate personalEmail is provided
+      if (!personalEmail || typeof personalEmail !== 'string' || personalEmail.trim() === '') {
+        logger.error('Invalid personalEmail provided', { personalEmail, staffData: {
+          firstName,
+          lastName,
+          personalEmail,
+          orgEmail,
+          lydoId,
+          hasPassword: !!password
+        }});
+        return false;
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(personalEmail.trim())) {
+        logger.error('Invalid email format for personalEmail', { personalEmail });
+        return false;
+      }
+
+      logger.info(`Preparing welcome email for ${firstName} ${lastName}`, { lydoId, to: personalEmail.trim(), from: process.env.EMAIL_USER });
       
       const mailOptions = {
         from: `"LYDO Youth Governance" <${process.env.EMAIL_USER}>`,
-        to: personalEmail,
+        to: personalEmail.trim(),
         subject: 'Welcome to LYDO - Your Account Credentials',
         html: this.generateWelcomeEmailHTML({
           firstName,
@@ -113,21 +136,70 @@ class EmailService {
         })
       };
 
+      logger.debug('Sending email via SMTP', { to: personalEmail.trim() });
       const result = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Welcome email sent to ${personalEmail}`, result.messageId);
-      console.log(`📧 Email service details:`, {
-        host: process.env.EMAIL_HOST,
-        user: process.env.EMAIL_USER,
-        from: mailOptions.from,
-        to: mailOptions.to,
-        subject: mailOptions.subject,
+      
+      logger.debug('SMTP accepted email for delivery', {
         messageId: result.messageId,
-        response: result.response
+        accepted: result.accepted,
+        rejected: result.rejected,
+        pending: result.pending,
+        response: result.response,
+        responseCode: result.responseCode,
+        envelope: result.envelope
       });
+      
+      // Check if email was actually accepted
+      if (result.rejected && result.rejected.length > 0) {
+        logger.error('Email was rejected by SMTP server', { rejected: result.rejected });
+        return false;
+      }
+      
+      if (!result.accepted || result.accepted.length === 0) {
+        logger.error('Email was not accepted by SMTP server', { result: JSON.stringify(result, null, 2) });
+        return false;
+      }
+
+      logger.info(`Welcome email sent to ${personalEmail.trim()}`, {
+        messageId: result.messageId,
+        config: {
+          host: process.env.EMAIL_HOST,
+          port: process.env.EMAIL_PORT || 587,
+          user: process.env.EMAIL_USER,
+          from: mailOptions.from,
+          to: mailOptions.to,
+          subject: mailOptions.subject
+        }
+      });
+      
+      // Important note about email delivery
+      logger.info(`Email successfully queued for delivery to ${personalEmail.trim()}`, {
+        note: 'Email delivery may take 5-15 minutes (sometimes longer). This is normal for Gmail and cloud providers like Render. If email doesn\'t arrive, check spam/junk folder'
+      });
+      
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to send welcome email:', error);
+      logger.error('Failed to send welcome email', {
+        error: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        responseCode: error.responseCode,
+        stack: error.stack,
+        personalEmail: staffData.personalEmail,
+        lydoId: staffData.lydoId
+      });
+      
+      // Check for specific error types
+      if (error.code === 'EAUTH') {
+        logger.error('Authentication failed. Check EMAIL_USER and EMAIL_PASS (app password for Gmail)');
+      } else if (error.code === 'ECONNECTION') {
+        logger.error('Connection failed. Check EMAIL_HOST and EMAIL_PORT');
+      } else if (error.code === 'ETIMEDOUT') {
+        logger.error('Connection timeout. Check network connectivity');
+      }
+      
       return false;
     }
   }
@@ -147,43 +219,32 @@ class EmailService {
    */
   async sendSKWelcomeEmail(skData) {
     if (!this.isConfigured) {
-      console.log('⚠️ Email service not configured. Skipping SK welcome email.');
+      logger.warn('Email service not configured. Skipping SK welcome email');
       return false;
     }
 
     try {
       const { first_name, last_name, personal_email, org_email, password, sk_id, position, barangay_name } = skData;
       
-      const mailOptions = {
-        from: `"LYDO Youth Governance" <${process.env.EMAIL_USER}>`,
-        to: personal_email,
-        subject: 'Welcome to SK Governance - Your Account Credentials',
-        html: this.generateSKWelcomeEmailHTML({
-          firstName: first_name,
-          lastName: last_name,
-          orgEmail: org_email,
-          password,
-          skId: sk_id,
-          position,
-          barangayName: barangay_name
-        }),
-        text: this.generateSKWelcomeEmailText({
-          firstName: first_name,
-          lastName: last_name,
-          orgEmail: org_email,
-          password,
-          skId: sk_id,
-          position,
-          barangayName: barangay_name
-        })
+      // Use the new template system
+      const emailData = {
+        firstName: first_name,
+        lastName: last_name,
+        skId: sk_id,
+        position: position,
+        barangayName: barangay_name,
+        password: password,
+        orgEmail: org_email
       };
 
-      const result = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ SK welcome email sent to ${personal_email}`, result.messageId);
-      return true;
+      return await this.sendTemplatedEmail(
+        'skOfficialWelcome',
+        emailData,
+        personal_email
+      );
 
     } catch (error) {
-      console.error('❌ Failed to send SK welcome email:', error);
+      logger.error('Failed to send SK welcome email', { error: error.message, stack: error.stack, skId: skData.sk_id });
       return false;
     }
   }
@@ -199,7 +260,7 @@ class EmailService {
    */
   async sendAdminNotification(notificationData) {
     if (!this.isConfigured) {
-      console.log('⚠️ Email service not configured. Skipping admin notification.');
+      logger.warn('Email service not configured. Skipping admin notification');
       return false;
     }
 
@@ -223,11 +284,11 @@ class EmailService {
       };
 
       const result = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Admin notification sent to ${adminEmail}`, result.messageId);
+      logger.info(`Admin notification sent to ${adminEmail}`, { messageId: result.messageId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to send admin notification:', error);
+      logger.error('Failed to send admin notification', { error: error.message, stack: error.stack, adminEmail });
       return false;
     }
   }
@@ -242,7 +303,7 @@ class EmailService {
    */
   async sendPasswordResetEmail(resetData) {
     if (!this.isConfigured) {
-      console.log('⚠️ Email service not configured. Skipping password reset email.');
+      logger.warn('Email service not configured. Skipping password reset email');
       return false;
     }
 
@@ -264,11 +325,11 @@ class EmailService {
       };
 
       const result = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Password reset email sent to ${email}`, result.messageId);
+      logger.info(`Password reset email sent to ${email}`, { messageId: result.messageId });
       return true;
 
     } catch (error) {
-      console.error('❌ Failed to send password reset email:', error);
+      logger.error('Failed to send password reset email', { error: error.message, stack: error.stack, email });
       return false;
     }
   }
@@ -509,19 +570,28 @@ If you didn't request this password reset, please ignore this email.
    */
   async sendTemplatedEmail(templateName, data, toEmail, options = {}) {
     if (!this.isConfigured) {
-      console.log(`⚠️ Email service not configured. Skipping ${templateName} email.`);
+      logger.warn(`Email service not configured. Skipping ${templateName} email`);
       return false;
     }
 
     try {
+      // Add common data fields to all emails
+      const emailData = {
+        ...data,
+        logoUrl: data.logoUrl || process.env.EMAIL_LOGO_URL || process.env.MUNICIPALITY_LOGO_URL || null,
+        frontendUrl: data.frontendUrl || process.env.FRONTEND_URL || 'http://localhost:3000',
+        contactEmail: data.contactEmail || process.env.CONTACT_EMAIL || 'lydo@sanjosebatangas.gov.ph',
+        contactPhone: data.contactPhone || process.env.CONTACT_PHONE || '(043) 123-4567'
+      };
+
       // Validate template data
-      const validation = validateTemplateData(templateName, data);
+      const validation = validateTemplateData(templateName, emailData);
       if (!validation.isValid) {
         throw new Error(`Invalid template data for ${templateName}: Missing fields: ${validation.missingFields.join(', ')}`);
       }
 
       // Render template
-      const rendered = renderTemplate(templateName, data);
+      const rendered = renderTemplate(templateName, emailData);
       
       const mailOptions = {
         from: options.from || `"LYDO Youth Governance" <${process.env.EMAIL_USER}>`,
@@ -534,11 +604,77 @@ If you didn't request this password reset, please ignore this email.
       };
 
       const result = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Template email '${templateName}' sent to ${toEmail}`, result.messageId);
+      logger.info(`Template email '${templateName}' sent to ${toEmail}`, { messageId: result.messageId });
       return true;
 
     } catch (error) {
-      console.error(`❌ Failed to send template email '${templateName}':`, error);
+      logger.error(`Failed to send template email '${templateName}'`, { error: error.message, stack: error.stack, templateName, toEmail });
+      return false;
+    }
+  }
+
+  /**
+   * Send generic email with custom HTML content
+   * @param {object} emailOptions - Email options
+   * @param {string} emailOptions.to - Recipient email address
+   * @param {string} emailOptions.subject - Email subject
+   * @param {string} emailOptions.html - HTML content
+   * @param {string} [emailOptions.from] - Sender email (optional)
+   * @param {string} [emailOptions.text] - Plain text content (optional)
+   * @returns {Promise<boolean>} Success status
+   */
+  async sendEmail(emailOptions) {
+    if (!this.isConfigured) {
+      logger.warn('Email service not configured. Skipping email');
+      return false;
+    }
+
+    try {
+      // Validate required fields
+      if (!emailOptions || !emailOptions.to || !emailOptions.subject || !emailOptions.html) {
+        logger.error('Invalid email options: missing required fields', { requiredFields: ['to', 'subject', 'html'], received: Object.keys(emailOptions || {}) });
+        return false;
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(emailOptions.to.trim())) {
+        logger.error('Invalid email format for recipient', { email: emailOptions.to });
+        return false;
+      }
+
+      logger.debug(`Preparing email to ${emailOptions.to.trim()}`, { subject: emailOptions.subject });
+
+      const mailOptions = {
+        from: emailOptions.from || `"LYDO Youth Governance" <${process.env.EMAIL_USER}>`,
+        to: emailOptions.to.trim(),
+        subject: emailOptions.subject,
+        html: emailOptions.html,
+        text: emailOptions.text || emailOptions.html.replace(/<[^>]*>/g, ''), // Strip HTML tags for text version if not provided
+      };
+
+      logger.debug('Sending email via SMTP', { to: emailOptions.to.trim() });
+      const result = await this.transporter.sendMail(mailOptions);
+      
+      logger.debug('SMTP accepted email for delivery', {
+        messageId: result.messageId,
+        accepted: result.accepted,
+        rejected: result.rejected,
+        pending: result.pending,
+        response: result.response,
+        responseCode: result.responseCode,
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to send email', {
+        error: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        stack: error.stack,
+        to: emailOptions.to
+      });
       return false;
     }
   }
@@ -551,7 +687,7 @@ If you didn't request this password reset, please ignore this email.
    */
   async sendCriticalAlert(alertData, recipients) {
     if (!this.isConfigured) {
-      console.log('⚠️ Email service not configured. Cannot send critical alert.');
+      logger.warn('Email service not configured. Cannot send critical alert');
       return false;
     }
 
@@ -574,11 +710,11 @@ If you didn't request this password reset, please ignore this email.
       const results = await Promise.all(sendPromises);
       const successCount = results.filter(result => result).length;
       
-      console.log(`📧 Critical alert sent to ${successCount}/${recipients.length} recipients`);
+      logger.info(`Critical alert sent to ${successCount}/${recipients.length} recipients`, { successCount, total: recipients.length });
       return successCount > 0;
 
     } catch (error) {
-      console.error('❌ Failed to send critical alert:', error);
+      logger.error('Failed to send critical alert', { error: error.message, stack: error.stack });
       return false;
     }
   }
@@ -619,11 +755,11 @@ If you didn't request this password reset, please ignore this email.
       const results = await Promise.all(sendPromises);
       const successCount = results.filter(result => result).length;
       
-      console.log(`📧 Term activation email sent to ${successCount}/${recipients.length} recipients`);
+      logger.info(`Term activation email sent to ${successCount}/${recipients.length} recipients`, { successCount, total: recipients.length });
       return successCount > 0;
 
     } catch (error) {
-      console.error('❌ Failed to send term activation emails:', error);
+      logger.error('Failed to send term activation emails', { error: error.message, stack: error.stack });
       return false;
     }
   }
@@ -647,114 +783,6 @@ If you didn't request this password reset, please ignore this email.
     };
   }
 
-  /**
-   * Generate HTML welcome email for SK Officials
-   */
-  generateSKWelcomeEmailHTML(data) {
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Welcome to SK Governance</title>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: #059669; color: white; padding: 20px; text-align: center; }
-          .content { padding: 20px; background: #f0fdf4; }
-          .credentials { background: #dcfce7; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #059669; }
-          .footer { text-align: center; padding: 20px; color: #6b7280; font-size: 14px; }
-          .position-badge { background: #10b981; color: white; padding: 5px 10px; border-radius: 15px; font-weight: bold; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>🏛️ Welcome to SK Governance</h1>
-            <p>Sangguniang Kabataan Management System</p>
-          </div>
-          <div class="content">
-            <h2>Congratulations ${data.firstName} ${data.lastName}! 🎉</h2>
-            <p>You have been successfully appointed as <span class="position-badge">${data.position}</span> for <strong>Barangay ${data.barangayName}</strong>.</p>
-            <p>Your SK Official account has been created in the LYDO Youth Governance System.</p>
-            
-            <div class="credentials">
-              <h3>🔑 Your SK Official Credentials</h3>
-              <p><strong>SK ID:</strong> ${data.skId}</p>
-              <p><strong>Position:</strong> ${data.position}</p>
-              <p><strong>Barangay:</strong> ${data.barangayName}</p>
-              <p><strong>Organization Email:</strong> ${data.orgEmail}</p>
-              <p><strong>Temporary Password:</strong> ${data.password}</p>
-            </div>
-            
-            <p><strong>⚠️ Important Security Notice:</strong></p>
-            <ul>
-              <li>Please change your password immediately after your first login</li>
-              <li>Keep your credentials secure and never share them</li>
-              <li>Use your organization email for official SK communications</li>
-            </ul>
-            
-            <p>You can now access the SK Governance system at: <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" style="color: #059669; font-weight: bold;">SK Governance Portal</a></p>
-            
-            <p>As an SK Official, you will have access to:</p>
-            <ul>
-              <li>Youth survey validation and management</li>
-              <li>Community project tracking</li>
-              <li>SK meeting and event coordination</li>
-              <li>Youth engagement programs</li>
-            </ul>
-            
-            <p>If you have any questions or need assistance, please contact the LYDO administration.</p>
-          </div>
-          <div class="footer">
-            <p>This is an automated message from the LYDO Youth Governance System.</p>
-            <p>Please do not reply to this email.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  /**
-   * Generate plain text welcome email for SK Officials
-   */
-  generateSKWelcomeEmailText(data) {
-    return `
-Welcome to SK Governance - Sangguniang Kabataan Management System
-
-Congratulations ${data.firstName} ${data.lastName}!
-
-You have been successfully appointed as ${data.position} for Barangay ${data.barangayName}.
-
-Your SK Official account has been created in the LYDO Youth Governance System.
-
-Your SK Official Credentials:
-- SK ID: ${data.skId}
-- Position: ${data.position}
-- Barangay: ${data.barangayName}
-- Organization Email: ${data.orgEmail}
-- Temporary Password: ${data.password}
-
-IMPORTANT SECURITY NOTICE:
-- Please change your password immediately after your first login
-- Keep your credentials secure and never share them
-- Use your organization email for official SK communications
-
-You can now access the SK Governance system at: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/login
-
-As an SK Official, you will have access to:
-- Youth survey validation and management
-- Community project tracking
-- SK meeting and event coordination
-- Youth engagement programs
-
-If you have any questions or need assistance, please contact the LYDO administration.
-
-This is an automated message from the LYDO Youth Governance System.
-Please do not reply to this email.
-    `;
-  }
 }
 
 // Create singleton instance

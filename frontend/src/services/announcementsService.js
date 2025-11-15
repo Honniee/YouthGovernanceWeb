@@ -1,4 +1,5 @@
 import { apiHelpers } from './api.js';
+import logger from '../utils/logger.js';
 
 /**
  * Announcements Service
@@ -39,7 +40,7 @@ export const getAnnouncements = async (params = {}) => {
       }
     };
   } catch (error) {
-    console.error('Error fetching announcements:', error);
+      logger.error('Error fetching announcements', error, { params });
     throw error;
   }
 };
@@ -55,7 +56,7 @@ export const getFeaturedAnnouncements = async (limit = 5) => {
       sortOrder: 'DESC'
     });
   } catch (error) {
-    console.error('Error fetching featured announcements:', error);
+      logger.error('Error fetching featured announcements', error, { limit });
     throw error;
   }
 };
@@ -65,7 +66,7 @@ export const getAnnouncementById = async (id) => {
   try {
     return await apiHelpers.get(`/announcements/${id}`);
   } catch (error) {
-    console.error('Error fetching announcement:', error);
+      logger.error('Error fetching announcement', error, { id });
     throw error;
   }
 };
@@ -75,7 +76,7 @@ export const getAnnouncementCategories = async () => {
   try {
     return await apiHelpers.get('/announcements/categories');
   } catch (error) {
-    console.error('Error fetching categories:', error);
+      logger.error('Error fetching categories', error);
     throw error;
   }
 };
@@ -109,7 +110,7 @@ export const createAnnouncement = async (announcementData) => {
       return await apiHelpers.post('/announcements', announcementData);
     }
   } catch (error) {
-    console.error('Error creating announcement:', error);
+      logger.error('Error creating announcement', error, { announcementDataKeys: Object.keys(announcementData || {}) });
     throw error;
   }
 };
@@ -143,7 +144,7 @@ export const updateAnnouncement = async (id, announcementData) => {
       return await apiHelpers.put(`/announcements/${id}`, announcementData);
     }
   } catch (error) {
-    console.error('Error updating announcement:', error);
+      logger.error('Error updating announcement', error, { id });
     throw error;
   }
 };
@@ -151,7 +152,7 @@ export const updateAnnouncement = async (id, announcementData) => {
 // Upload announcement image
 export const uploadAnnouncementImage = async (id, imageFile) => {
   try {
-    console.log('🖼️ Uploading image for announcement:', id);
+    logger.debug('Uploading image for announcement', { id });
     
     const formData = new FormData();
     formData.append('image', imageFile);
@@ -162,7 +163,7 @@ export const uploadAnnouncementImage = async (id, imageFile) => {
       },
     });
   } catch (error) {
-    console.error('Error uploading announcement image:', error);
+      logger.error('Error uploading announcement image', error, { id });
     throw error;
   }
 };
@@ -172,7 +173,7 @@ export const deleteAnnouncement = async (id) => {
   try {
     return await apiHelpers.delete(`/announcements/${id}`);
   } catch (error) {
-    console.error('Error deleting announcement:', error);
+      logger.error('Error deleting announcement', error, { id });
     throw error;
   }
 };
@@ -184,7 +185,7 @@ export const updateAnnouncementStatus = async (id, status) => {
       status: status
     });
   } catch (error) {
-    console.error('Error updating announcement status:', error);
+      logger.error('Error updating announcement status', error, { id, status });
     throw error;
   }
 };
@@ -197,7 +198,7 @@ export const bulkUpdateAnnouncementStatus = async (announcementIds, status) => {
       status: status
     });
   } catch (error) {
-    console.error('Error bulk updating announcement status:', error);
+      logger.error('Error bulk updating announcement status', error, { announcementIds, status });
     throw error;
   }
 };
@@ -207,7 +208,7 @@ export const getAnnouncementStatistics = async () => {
   try {
     return await apiHelpers.get('/announcements/admin/statistics');
   } catch (error) {
-    console.error('Error fetching announcement statistics:', error);
+      logger.error('Error fetching announcement statistics', error);
     throw error;
   }
 };

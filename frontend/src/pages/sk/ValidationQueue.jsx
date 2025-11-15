@@ -42,6 +42,7 @@ import {
 import { ToastContainer, showSuccessToast, showErrorToast, showInfoToast } from '../../components/universal';
 import { apiHelpers } from '../../services/api';
 import { useBarangays } from '../../hooks/useBarangays';
+import logger from '../../utils/logger.js';
 
 const ValidationQueue = () => {
   // Tab state
@@ -191,7 +192,7 @@ const ValidationQueue = () => {
   // Load validation items
   const loadValidationItems = async () => {
     try {
-      console.log('📋 Loading SK validation items...');
+      logger.debug('Loading SK validation items');
       setIsLoading(true);
       setError(null);
 
@@ -235,12 +236,12 @@ const ValidationQueue = () => {
           };
         });
         setValidationItems(normalized);
-        console.log(`✅ Loaded ${data.data.length} validation items`);
+        logger.info('Loaded validation items', { count: data.data.length });
       } else {
         throw new Error(data.message || 'Failed to load validation items');
       }
     } catch (error) {
-      console.error('Failed to load validation items:', error);
+      logger.error('Failed to load validation items', error);
       setError(typeof error?.message === 'string' ? error.message : 'Failed to load validation items');
       // Do not use mock data in production path to avoid confusion
       setValidationItems([]);
@@ -391,7 +392,7 @@ const ValidationQueue = () => {
   // Handle validation action
   const handleValidateItem = async (id, action) => {
     try {
-      console.log(`Validating item ${id} with action: ${action}`);
+      logger.debug('Validating item', { itemId: id, action });
       
       const data = await apiHelpers.patch(`/validation-queue/${id}/validate`, {
         action,
@@ -406,7 +407,7 @@ const ValidationQueue = () => {
         throw new Error(data.message || 'Failed to validate item');
       }
     } catch (error) {
-      console.error('Failed to validate item:', error);
+      logger.error('Failed to validate item', error, { itemId: id, action });
       showErrorToast('Error', 'Failed to validate item');
     }
   };
@@ -518,7 +519,7 @@ const ValidationQueue = () => {
                 <div className="flex items-center space-x-3 flex-shrink-0">
                   <ExportButton
                     formats={['csv', 'xlsx', 'pdf']}
-                    onExport={(format) => console.log('Exporting as:', format)}
+                    onExport={(format) => logger.debug('Exporting as', { format })}
                     isExporting={false}
                     label="Export"
                     size="md"
@@ -535,13 +536,13 @@ const ValidationQueue = () => {
                 actions={[
                   {
                     label: 'Approve Selected',
-                    onClick: () => console.log('Bulk approve'),
+                    onClick: () => logger.debug('Bulk approve'),
                     icon: CheckCircle,
                     variant: 'success'
                   },
                   {
                     label: 'Reject Selected',
-                    onClick: () => console.log('Bulk reject'),
+                    onClick: () => logger.debug('Bulk reject'),
                     icon: XCircle,
                     variant: 'danger'
                   }

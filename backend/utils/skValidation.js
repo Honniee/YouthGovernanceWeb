@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import { sanitizeInput, isValidEmail, isValidPhone } from './validation.js';
+import logger from './logger.js';
 
 /**
  * SK-specific validation functions
@@ -125,7 +126,7 @@ export const validateSKCreation = (data, isUpdate = false) => {
     };
 
   } catch (error) {
-    console.error('❌ Error in SK validation:', error);
+    logger.error('Error in SK validation', { error: error.message, stack: error.stack, data });
     return {
       isValid: false,
       errors: ['Validation failed due to internal error'],
@@ -198,7 +199,7 @@ export const validateSKProfiling = (data) => {
     };
 
   } catch (error) {
-    console.error('❌ Error in SK profiling validation:', error);
+    logger.error('Error in SK profiling validation', { error: error.message, stack: error.stack, data });
     return {
       isValid: false,
       errors: ['Profiling validation failed due to internal error'],
@@ -286,7 +287,7 @@ export const validateTermCreation = async (data, isUpdate = false, client = null
     };
 
   } catch (error) {
-    console.error('❌ Error in term validation:', error);
+    logger.error('Error in term validation', { error: error.message, stack: error.stack, data });
     return {
       isValid: false,
       errors: ['Term validation failed due to internal error'],
@@ -312,7 +313,7 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
     const currentDate = new Date();
     
     // 1. TERM OVERLAP VALIDATION - Critical for data integrity
-    console.log('🔍 Validating term overlap...', { 
+    logger.debug('Validating term overlap', { 
       isUpdate, 
       datesChanged,
       willCheckOverlap: !isUpdate || datesChanged 
@@ -322,7 +323,7 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
     // - It's a new term, OR
     // - It's an update AND dates have actually changed
     if (!isUpdate || datesChanged) {
-      console.log('✅ Performing overlap validation (new term or dates changed)');
+      logger.debug('Performing overlap validation (new term or dates changed)');
       let overlapQuery;
       let overlapParams;
       
@@ -364,17 +365,17 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
           `${term.term_name} (${new Date(term.start_date).toLocaleDateString()} - ${new Date(term.end_date).toLocaleDateString()})`
         );
         errors.push(`Term date range conflicts with existing terms: ${overlappingTerms.join(', ')}`);
-        console.log('❌ Term overlap detected:', overlappingTerms);
+        logger.warn('Term overlap detected', { overlappingTerms });
       } else {
-        console.log('✅ No term overlap detected');
+        logger.debug('No term overlap detected');
       }
     } else {
-      console.log('⏭️ Skipping overlap validation (update without date changes)');
+      logger.debug('Skipping overlap validation (update without date changes)');
     }
     
     // 2. ACTIVE TERM UNIQUENESS - Ensures only one active term at a time
     if (data.autoActivate || data.status === 'active') {
-      console.log('🔍 Validating active term uniqueness...');
+      logger.debug('Validating active term uniqueness');
       const activeTermQuery = `
         SELECT term_id, term_name, start_date, end_date 
         FROM "SK_Terms" 
@@ -386,14 +387,14 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
       if (activeResult.rows.length > 0) {
         const activeTerm = activeResult.rows[0];
         errors.push(`Cannot activate term. Another term is already active: ${activeTerm.term_name} (${new Date(activeTerm.start_date).toLocaleDateString()} - ${new Date(activeTerm.end_date).toLocaleDateString()})`);
-        console.log('❌ Active term conflict detected:', activeTerm.term_name);
+        logger.warn('Active term conflict detected', { termName: activeTerm.term_name });
       } else {
-        console.log('✅ No active term conflict detected');
+        logger.debug('No active term conflict detected');
       }
     }
     
     // 3. TERM NAME UNIQUENESS - Prevents duplicate term names
-    console.log('🔍 Validating term name uniqueness...');
+    logger.debug('Validating term name uniqueness');
     let nameQuery;
     let nameParams;
     
@@ -419,20 +420,20 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
     
     if (nameResult.rows.length > 0) {
       errors.push(`Term name "${data.termName}" already exists. Please choose a different name.`);
-      console.log('❌ Duplicate term name detected:', data.termName);
+      logger.warn('Duplicate term name detected', { termName: data.termName });
     } else {
-      console.log('✅ Term name is unique');
+      logger.debug('Term name is unique');
     }
     
     // 4. ENHANCED DATE VALIDATION - Prevents invalid date ranges
-    console.log('🔍 Validating enhanced date constraints...');
+    logger.debug('Validating enhanced date constraints');
     
     // Check if start date is in the past (for new terms)
     if (!isUpdate && startDate < currentDate) {
       const daysDiff = Math.ceil((currentDate - startDate) / (1000 * 60 * 60 * 24));
       if (daysDiff > 30) {
         errors.push(`Start date cannot be more than 30 days in the past (${daysDiff} days ago)`);
-        console.log('❌ Start date too far in past:', daysDiff, 'days');
+        logger.warn('Start date too far in past', { daysDiff });
       }
     }
     
@@ -443,13 +444,13 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
     
     if (endDate > maxEndDate) {
       errors.push(`End date cannot be more than ${maxFutureYears} years in the future. Please choose a closer end date.`);
-      console.log('❌ End date too far in future');
+      logger.warn('End date too far in future');
     }
     
 
     
     // 5. REFERENTIAL INTEGRITY CHECKS - Ensure database consistency
-    console.log('🔍 Validating referential integrity...');
+    logger.debug('Validating referential integrity');
     
     // Check if there are any orphaned SK officials without valid terms
     const orphanedOfficialsQuery = `
@@ -463,7 +464,7 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
     const orphanedCount = parseInt(orphanedResult.rows[0].count);
     
     if (orphanedCount > 0) {
-      console.warn('⚠️ Found orphaned SK officials without valid terms:', orphanedCount);
+      logger.warn('Found orphaned SK officials without valid terms', { orphanedCount });
       // This is a warning, not an error, as it doesn't prevent term creation
     }
     
@@ -479,13 +480,13 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
     const emptyTermsCount = parseInt(emptyTermsResult.rows[0].count);
     
     if (emptyTermsCount > 0) {
-      console.warn('⚠️ Found completed terms without officials:', emptyTermsCount);
+      logger.warn('Found completed terms without officials', { emptyTermsCount });
     }
     
-    console.log('✅ Referential integrity checks completed');
+    logger.debug('Referential integrity checks completed');
     
     // 6. BUSINESS RULE VALIDATIONS
-    console.log('🔍 Validating business rules...');
+    logger.debug('Validating business rules');
     
     // Ensure terms don't span across unreasonable time periods
     const currentYear = currentDate.getFullYear();
@@ -494,25 +495,25 @@ const validateDataIntegrity = async (data, isUpdate, client, datesChanged = true
     
     if (startYear < currentYear - 5) {
       errors.push('Start date cannot be more than 5 years in the past');
-      console.log('❌ Start date too far in past');
+      logger.warn('Start date too far in past');
     }
     
     if (endYear > currentYear + 10) {
       errors.push('End date cannot be more than 10 years in the future');
-      console.log('❌ End date too far in future');
+      logger.warn('End date too far in future');
     }
     
     // Validate term naming convention (optional business rule)
     const termNamePattern = /^SK Term \d{4}-\d{4}$/;
     if (!termNamePattern.test(data.termName.trim())) {
-      console.log('⚠️ Term name does not follow suggested pattern (SK Term YYYY-YYYY)');
+      logger.debug('Term name does not follow suggested pattern (SK Term YYYY-YYYY)', { termName: data.termName });
       // This is a warning, not an error
     }
     
-    console.log('✅ Business rule validations completed');
+    logger.debug('Business rule validations completed');
     
   } catch (dbError) {
-    console.error('❌ Database error during integrity validation:', dbError);
+    logger.error('Database error during integrity validation', { error: dbError.message, stack: dbError.stack });
     errors.push('Database integrity check failed. Please try again.');
   }
   
@@ -529,7 +530,7 @@ export const validateTermActivation = async (termId, client) => {
   const errors = [];
   
   try {
-    console.log('🔍 Validating term activation for termId:', termId);
+    logger.debug('Validating term activation', { termId });
     
     // Check if term exists and is in 'upcoming' status
     const termQuery = `
@@ -538,18 +539,18 @@ export const validateTermActivation = async (termId, client) => {
       WHERE term_id = $1
     `;
     
-    console.log('🔍 Executing term query with termId:', termId);
+    logger.debug('Executing term query', { termId });
     const termResult = await client.query(termQuery, [termId]);
-    console.log('🔍 Term query result:', termResult.rows);
+    logger.debug('Term query result', { rowCount: termResult.rows.length });
     
     if (termResult.rows.length === 0) {
-      console.error('❌ Term not found in database:', termId);
+      logger.error('Term not found in database', { termId });
       errors.push('Term not found');
       return errors;
     }
     
     const term = termResult.rows[0];
-    console.log('🔍 Found term:', {
+    logger.debug('Found term', {
       termId: term.term_id,
       termName: term.term_name,
       status: term.status,
@@ -558,7 +559,7 @@ export const validateTermActivation = async (termId, client) => {
     });
     
     if (term.status !== 'upcoming') {
-      console.error('❌ Term status validation failed:', {
+      logger.warn('Term status validation failed', {
         expected: 'upcoming',
         actual: term.status,
         termId: term.term_id,
@@ -569,7 +570,7 @@ export const validateTermActivation = async (termId, client) => {
     }
     
     // Check if there's already an active term
-    console.log('🔍 Checking for existing active terms...');
+    logger.debug('Checking for existing active terms');
     const activeTermQuery = `
       SELECT term_id, term_name, start_date, end_date 
       FROM "SK_Terms" 
@@ -577,11 +578,11 @@ export const validateTermActivation = async (termId, client) => {
     `;
     
     const activeResult = await client.query(activeTermQuery);
-    console.log('🔍 Active terms query result:', activeResult.rows);
+    logger.debug('Active terms query result', { rowCount: activeResult.rows.length });
     
     if (activeResult.rows.length > 0) {
       const activeTerm = activeResult.rows[0];
-      console.error('❌ Active term conflict detected:', {
+      logger.warn('Active term conflict detected', {
         existingActiveTerm: {
           termId: activeTerm.term_id,
           termName: activeTerm.term_name,
@@ -595,7 +596,7 @@ export const validateTermActivation = async (termId, client) => {
       });
       errors.push(`Cannot activate term "${term.term_name}". Another term is already active: ${activeTerm.term_name} (${new Date(activeTerm.start_date).toLocaleDateString()} - ${new Date(activeTerm.end_date).toLocaleDateString()})`);
     } else {
-      console.log('✅ No active term conflicts detected');
+      logger.debug('No active term conflicts detected');
     }
     
     // Check if term dates are valid for activation
@@ -603,7 +604,7 @@ export const validateTermActivation = async (termId, client) => {
     const startDate = new Date(term.start_date);
     const endDate = new Date(term.end_date);
     
-    console.log('🔍 Date validation:', {
+    logger.debug('Date validation', {
       currentDate: currentDate.toISOString(),
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
@@ -613,7 +614,7 @@ export const validateTermActivation = async (termId, client) => {
     
     if (startDate > currentDate) {
       const daysUntilStart = Math.ceil((startDate - currentDate) / (1000 * 60 * 60 * 24));
-      console.error('❌ Start date validation failed:', {
+      logger.warn('Start date validation failed', {
         startDate: startDate.toISOString(),
         currentDate: currentDate.toISOString(),
         daysUntilStart: daysUntilStart
@@ -623,7 +624,7 @@ export const validateTermActivation = async (termId, client) => {
     
     if (endDate < currentDate) {
       const daysSinceEnd = Math.ceil((currentDate - endDate) / (1000 * 60 * 60 * 24));
-      console.error('❌ End date validation failed:', {
+      logger.warn('End date validation failed', {
         endDate: endDate.toISOString(),
         currentDate: currentDate.toISOString(),
         daysSinceEnd: daysSinceEnd
@@ -631,21 +632,19 @@ export const validateTermActivation = async (termId, client) => {
       errors.push(`Cannot activate term "${term.term_name}". End date has already passed ${daysSinceEnd} days ago. The term has ended and cannot be activated.`);
     }
     
-    console.log('✅ Date validation completed');
+    logger.debug('Date validation completed');
     
   } catch (dbError) {
-    console.error('❌ Database error during activation validation:', dbError);
-    console.error('❌ Database error details:', {
-      termId: termId,
-      errorMessage: dbError.message,
-      errorCode: dbError.code,
-      errorStack: dbError.stack,
-      timestamp: new Date().toISOString()
+    logger.error('Database error during activation validation', {
+      error: dbError.message,
+      stack: dbError.stack,
+      code: dbError.code,
+      termId: termId
     });
     errors.push('Database validation failed. Please try again.');
   }
   
-  console.log('🔍 Activation validation completed with errors:', errors);
+  logger.debug('Activation validation completed', { errorCount: errors.length });
   return errors;
 };
 
@@ -691,12 +690,12 @@ export const validateTermCompletion = async (termId, client) => {
     const activeOfficials = parseInt(officialsResult.rows[0].active_count);
     
     if (activeOfficials > 0) {
-      console.warn(`⚠️ Term has ${activeOfficials} active officials. Consider reassigning them before completion.`);
+      logger.warn(`Term has ${activeOfficials} active officials. Consider reassigning them before completion.`, { termId, activeOfficials });
       // This is a warning, not an error, as it doesn't prevent completion
     }
     
   } catch (dbError) {
-    console.error('❌ Database error during completion validation:', dbError);
+    logger.error('Database error during completion validation', { error: dbError.message, stack: dbError.stack, termId });
     errors.push('Database validation failed. Please try again.');
   }
   
@@ -733,7 +732,7 @@ export const validateSKStatusUpdate = (data) => {
     };
 
   } catch (error) {
-    console.error('❌ Error in SK status validation:', error);
+    logger.error('Error in SK status validation', { error: error.message, stack: error.stack, data });
     return {
       isValid: false,
       errors: ['Status validation failed due to internal error'],
@@ -781,7 +780,7 @@ export const validateSKBulkOperation = (ids, action) => {
     };
 
   } catch (error) {
-    console.error('❌ Error in SK bulk validation:', error);
+    logger.error('Error in SK bulk validation', { error: error.message, stack: error.stack, ids, action });
     return {
       isValid: false,
       errors: ['Bulk operation validation failed due to internal error']
@@ -836,7 +835,7 @@ export const validateSKSearchParams = (params) => {
     };
 
   } catch (error) {
-    console.error('❌ Error in SK search validation:', error);
+    logger.error('Error in SK search validation', { error: error.message, stack: error.stack, params });
     return {
       isValid: false,
       errors: ['Search validation failed due to internal error'],
@@ -869,7 +868,7 @@ export const validateBarangayExists = async (barangayId, client = null) => {
       barangayId: exists ? result.rows[0].barangay_id : null
     };
   } catch (error) {
-    console.error('❌ Error checking barangay existence:', error);
+    logger.error('Error checking barangay existence', { error: error.message, stack: error.stack, barangayId });
     return { exists: false, barangayName: null, barangayId: null };
   }
 };
@@ -881,7 +880,19 @@ export const validateBarangayExists = async (barangayId, client = null) => {
  */
 export const getActiveTerm = async (client = null) => {
   try {
-    const queryText = 'SELECT * FROM "SK_Terms" WHERE is_current = true AND is_active = true LIMIT 1';
+    // Check for active term based on status AND date range
+    // A term is active if:
+    // 1. status = 'active' AND
+    // 2. CURRENT_DATE >= start_date AND
+    // 3. CURRENT_DATE <= end_date (inclusive - term is active on its end date)
+    const queryText = `
+      SELECT * FROM "SK_Terms" 
+      WHERE status = 'active' 
+        AND CURRENT_DATE >= start_date 
+        AND CURRENT_DATE <= end_date
+      ORDER BY is_current DESC, updated_at DESC
+      LIMIT 1
+    `;
     
     let result;
     if (client) {
@@ -892,7 +903,7 @@ export const getActiveTerm = async (client = null) => {
     
     return result.rows.length > 0 ? result.rows[0] : null;
   } catch (error) {
-    console.error('❌ Error getting active term:', error);
+    logger.error('Error getting active term', { error: error.message, stack: error.stack });
     return null;
   }
 };
@@ -936,7 +947,7 @@ export const checkPositionConflict = async (position, barangayId, termId, client
         : null
     };
   } catch (error) {
-    console.error('❌ Error checking position conflict:', error);
+    logger.error('Error checking position conflict', { error: error.message, stack: error.stack, position, barangayId, termId });
     return {
       hasConflict: true,
       message: 'Unable to check position availability. Please try again.'

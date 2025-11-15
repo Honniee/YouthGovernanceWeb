@@ -1,4 +1,5 @@
 import { apiHelpers } from './api.js';
+import logger from '../utils/logger.js';
 
 // Authentication service functions
 export const authService = {
@@ -17,10 +18,11 @@ export const authService = {
         recaptchaToken
       });
 
-      // Check if login was successful by looking for token
-      if (response.token && response.user) {
-        // Login successful - store authentication data
-        localStorage.setItem('authToken', response.token);
+      // SECURITY: Tokens are now in httpOnly cookies (set by backend)
+      // Check if login was successful by looking for user data
+      if (response.success && response.user) {
+        // Login successful - tokens are in httpOnly cookies (not accessible to JavaScript)
+        // Only store user data in localStorage (non-sensitive)
         localStorage.setItem('user', JSON.stringify(response.user));
         
         // Store remember me preference
@@ -33,7 +35,7 @@ export const authService = {
         return {
           success: true,
           user: response.user,
-          token: response.token,
+          // Token is in httpOnly cookie, not returned in response
           message: 'Login successful'
         };
       } else {
@@ -45,7 +47,7 @@ export const authService = {
         };
       }
     } catch (error) {
-      console.error('Login error:', error);
+      logger.error('Login error', error, { email });
       return {
         success: false,
         message: error.message || 'Login failed',
@@ -124,11 +126,11 @@ export const authService = {
    */
   logout: async (source = 'unknown') => {
     try {
-      // Call backend logout endpoint to log activity
+      // Call backend logout endpoint to log activity and clear cookies
       await apiHelpers.post('/auth/logout', { source });
       
-      // Clear local storage
-      localStorage.removeItem('authToken');
+      // SECURITY: Clear local storage (cookies cleared by backend)
+      localStorage.removeItem('authToken'); // Remove for backward compatibility
       localStorage.removeItem('user');
       localStorage.removeItem('rememberMe');
       
@@ -137,8 +139,9 @@ export const authService = {
         message: 'Logged out successfully'
       };
     } catch (error) {
-      console.error('Logout error:', error);
+      logger.error('Logout error', error, { source });
       // Still clear local storage even if API call fails
+      // Cookies will be cleared by browser on next request or manually
       localStorage.removeItem('authToken');
       localStorage.removeItem('user');
       localStorage.removeItem('rememberMe');
@@ -166,7 +169,7 @@ export const authService = {
         user: response.user
       };
     } catch (error) {
-      console.error('Get current user error:', error);
+      logger.error('Get current user error', error);
       return {
         success: false,
         message: error.message || 'Failed to get user information',
@@ -178,11 +181,15 @@ export const authService = {
   /**
    * Check if user is authenticated
    * @returns {boolean} Authentication status
+   * SECURITY: Tokens are in httpOnly cookies (not accessible to JavaScript)
+   * This is a client-side check only - backend will verify actual session
    */
   isAuthenticated: () => {
-    const token = localStorage.getItem('authToken');
+    // SECURITY: Check for user data (token is in httpOnly cookie, not accessible)
+    // Note: httpOnly cookies cannot be checked via document.cookie
+    // Backend will verify actual session validity
     const user = localStorage.getItem('user');
-    return !!(token && user);
+    return !!user;
   },
 
   /**
@@ -194,7 +201,7 @@ export const authService = {
       const userJson = localStorage.getItem('user');
       return userJson ? JSON.parse(userJson) : null;
     } catch (error) {
-      console.error('Error parsing stored user data:', error);
+      logger.error('Error parsing stored user data', error);
       return null;
     }
   },
@@ -202,9 +209,13 @@ export const authService = {
   /**
    * Get stored auth token
    * @returns {string|null} Auth token or null
+   * SECURITY: Tokens are in httpOnly cookies (not accessible to JavaScript)
+   * This method kept for backward compatibility but returns null
    */
   getStoredToken: () => {
-    return localStorage.getItem('authToken');
+    // SECURITY: Tokens are in httpOnly cookies, not accessible to JavaScript
+    // Return null - tokens are sent automatically by browser
+    return null;
   },
 
   /**
@@ -251,7 +262,7 @@ export const authService = {
       
       return permissions.includes(permission);
     } catch (error) {
-      console.error('Error checking permissions:', error);
+      logger.error('Error checking permissions', error, { permission });
       return false;
     }
   },
@@ -314,7 +325,7 @@ export const authService = {
         errors: response.errors || []
       };
     } catch (error) {
-      console.error('Change password error:', error);
+      logger.error('Change password error', error);
       return { 
         success: false, 
         message: error.message || 'Failed to change password',
@@ -336,7 +347,7 @@ export const authService = {
         loginInfo: response.loginInfo
       };
     } catch (error) {
-      console.error('Get test users error:', error);
+      logger.error('Get test users error', error);
       return {
         success: false,
         message: error.message || 'Failed to get test users',

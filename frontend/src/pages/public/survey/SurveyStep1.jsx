@@ -4,6 +4,7 @@ import { useBarangays } from '../../../hooks/useBarangays';
 import { useActiveSurvey } from '../../../hooks/useActiveSurvey';
 import { User, MapPin, Phone, Check, AlertCircle, CheckCircle, FlaskConical, Loader2, Shield, ArrowRight } from 'lucide-react';
 import SurveyLayout from '../../../components/layouts/SurveyLayout';
+import logger from '../../../utils/logger.js';
 import { 
   Card, 
   Button, 
@@ -100,7 +101,7 @@ const SurveyStep1 = () => {
     const recaptchaVerified = sessionStorage.getItem('recaptcha_verified');
     
     if (!recaptchaVerified) {
-      console.log('🚫 No reCAPTCHA verification found, redirecting to survey landing');
+      logger.debug('No reCAPTCHA verification found, redirecting to survey landing');
       navigate('/kk-survey', { replace: true });
           return;
         }
@@ -111,13 +112,13 @@ const SurveyStep1 = () => {
     const thirtyMinutes = 30 * 60 * 1000;
     
     if (currentTime - verificationTime > thirtyMinutes) {
-      console.log('⏰ reCAPTCHA verification expired, redirecting to survey landing');
+      logger.debug('reCAPTCHA verification expired, redirecting to survey landing');
       sessionStorage.removeItem('recaptcha_verified');
       navigate('/kk-survey', { replace: true });
           return;
         }
 
-    console.log('✅ reCAPTCHA verification valid, allowing access to personal info page');
+    logger.debug('reCAPTCHA verification valid, allowing access to personal info page');
   }, [navigate]);
 
   // ============================================
@@ -128,7 +129,7 @@ const SurveyStep1 = () => {
     // Check if terms were accepted
     const savedTerms = localStorage.getItem('kk_survey_terms_temp');
     if (!savedTerms) {
-      console.warn('⚠️ No terms data found, redirecting to terms page');
+      logger.warn('No terms data found, redirecting to terms page');
       navigate('/kk-survey/step-1', { replace: true });
       return;
     }
@@ -139,9 +140,9 @@ const SurveyStep1 = () => {
       try {
         const parsedData = JSON.parse(savedDraft);
         setFormData(parsedData);
-        console.log('📝 Loaded saved personal info from localStorage');
+        logger.debug('Loaded saved personal info from localStorage');
       } catch (error) {
-        console.error('Error loading saved data:', error);
+        logger.error('Error loading saved data', error);
       }
     }
   }, [navigate]);
@@ -165,7 +166,9 @@ const SurveyStep1 = () => {
         return '';
       case 'contactNumber':
         if (!value) return 'Contact number is required';
-        if (!/^(\+63|0)?9\d{9}$/.test(value.replace(/\s|-/g, ''))) return 'Please enter a valid Philippine mobile number';
+        // Remove +63 prefix for validation check (should be 10 digits starting with 9)
+        const cleanedNumber = value.replace(/^\+63/, '').replace(/\s|-/g, '');
+        if (!/^9\d{9}$/.test(cleanedNumber)) return 'Please enter a valid 10-digit Philippine mobile number (starting with 9)';
         return '';
       case 'barangay':
         if (!value) return 'Please select your barangay';
@@ -181,9 +184,34 @@ const SurveyStep1 = () => {
   const onChange = (field) => (e) => {
     const value = e.target.value;
     let processedValue = value;
+    
     if (['firstName', 'middleName', 'lastName', 'suffix'].includes(field)) {
       processedValue = value ? value.charAt(0).toUpperCase() + value.slice(1) : '';
+    } else if (field === 'contactNumber') {
+      // Remove any non-digit characters (user only sees digits in input, +63 is shown as prefix)
+      let cleaned = value.replace(/\D/g, '');
+      
+      // Remove leading 0 if present (some users type 0912...)
+      if (cleaned.startsWith('0')) {
+        cleaned = cleaned.substring(1);
+      }
+      
+      // Remove country code if user typed it manually
+      if (cleaned.startsWith('63')) {
+        cleaned = cleaned.substring(2);
+      }
+      
+      // Limit to 10 digits (Philippine mobile number)
+      cleaned = cleaned.substring(0, 10);
+      
+      // Auto-format with +63 prefix for storage
+      if (cleaned.length > 0) {
+        processedValue = `+63${cleaned}`;
+      } else {
+        processedValue = '';
+      }
     }
+    
     setFormData((prev) => ({ ...prev, [field]: processedValue }));
     if (fieldErrors[field]) {
       setFieldErrors((prev) => ({ ...prev, [field]: '' }));
@@ -228,39 +256,36 @@ const SurveyStep1 = () => {
 
   // ✅ FIXED: Immediately save demo data to prevent loss on navigation
   const toggleDemoMode = async () => {
-    const payload = !isDemoMode ? { ...demoData } : { ...emptyData };
-    // If demo, try to pick first barangay from API
     if (!isDemoMode) {
+      // Load demo data
+      const payload = { ...demoData };
+      // If demo, try to pick first barangay from API
       const first = barangays?.[0];
-      payload.barangay = (first?.name || first?.barangay_name || payload.barangay || '');
-    }
-    setIsDemoMode((v) => !v);
-    setFormData(payload);
-    if (!isDemoMode) setExpandedSections({ personal: true, location: true, demographics: true });
-    
-    // ✅ IMMEDIATE SAVE: Save demo data immediately to prevent loss
-    try {
-      if (!isDemoMode) { // Only save when loading demo data
-        console.log('💾 Immediately saving demo data...');
+      if (first) {
+        payload.barangay = first.barangay_id || first.id || payload.barangay;
+      }
+      setIsDemoMode(true);
+      setFormData(payload);
+      setExpandedSections({ personal: true, location: true, demographics: true });
+      
+      // ✅ IMMEDIATE SAVE: Save demo data immediately to prevent loss
+      try {
+        logger.debug('Immediately saving demo data');
         
-        // Save to localStorage as fallback
-        const draft = { personal: payload };
-        localStorage.setItem('kk_survey_draft_v1', JSON.stringify(draft));
-        
-        // If we have youthId, also save to session
-        if (youthId) {
-          const surveyData = {
-            personal: payload,
-            ...sessionFormData
-          };
-          await updateFormData(surveyData);
-        }
+        // Save to localStorage
+        localStorage.setItem('kk_survey_draft_personal', JSON.stringify(payload));
         
         setLastSavedAt(new Date());
-        console.log('✅ Demo data saved immediately');
+        logger.debug('Demo data saved immediately');
+      } catch (error) {
+        logger.error('Failed to save demo data', error);
       }
-    } catch (error) {
-      console.error('❌ Failed to save demo data:', error);
+    } else {
+      // Clear demo data
+      setIsDemoMode(false);
+      setFormData(emptyData);
+      localStorage.removeItem('kk_survey_draft_personal');
+      logger.debug('Demo data cleared');
     }
   };
 
@@ -274,9 +299,9 @@ const SurveyStep1 = () => {
       try {
         localStorage.setItem('kk_survey_draft_personal', JSON.stringify(formData));
         setLastSavedAt(new Date());
-        console.log('💾 Personal info auto-saved to localStorage');
+        logger.debug('Personal info auto-saved to localStorage');
       } catch (error) {
-        console.error('❌ Auto-save failed:', error);
+        logger.error('Auto-save failed', error);
       } finally {
         setTimeout(() => setIsSaving(false), 300);
       }
@@ -306,21 +331,18 @@ const SurveyStep1 = () => {
 
     setIsDetectingYouth(true);
     try {
-      console.log('🔍 Detecting youth status with data:', { 
-        firstName: data.firstName,
-        middleName: data.middleName,
-        lastName: data.lastName,
-        suffix: data.suffix,
-        gender: data.sexAtBirth,
-        birthDate: data.birthday,
-        email: data.email
+      logger.debug('Detecting youth status', { 
+        hasFirstName: !!data.firstName,
+        hasLastName: !!data.lastName,
+        hasEmail: !!data.email,
+        hasBirthDate: !!data.birthday
       });
       
       let profileCheck = null;
       
       // Method 1: Try name-based detection first (most reliable)
       if (canDetectByName) {
-        console.log('🔍 Trying name-based detection...');
+        logger.debug('Trying name-based detection');
         profileCheck = await checkProfile({
           first_name: data.firstName?.trim(),
           middle_name: data.middleName?.trim() || null,
@@ -333,26 +355,26 @@ const SurveyStep1 = () => {
       
       // Method 2: If name detection failed and we have email, try email detection
       if ((!profileCheck || !profileCheck.exists) && canDetectByEmail) {
-        console.log('🔍 Trying email-based detection...');
+        logger.debug('Trying email-based detection');
         profileCheck = await checkProfile({
           email: data.email?.trim()
         });
       }
 
       if (profileCheck.exists) {
-        console.log('👤 Found existing youth profile:', profileCheck.youthId);
+        logger.debug('Found existing youth profile', { youthId: profileCheck.youthId });
         
         // For now, assume returning user can continue (status check will be handled by session management)
-        console.log('✅ Returning user, can continue survey');
+        logger.debug('Returning user, can continue survey');
         setYouthStatus('returning');
         return { status: 'returning', youthId: profileCheck.youthId };
       } else {
-        console.log('🆕 New user detected');
+        logger.debug('New user detected');
         setYouthStatus('new');
         return { status: 'new' };
       }
     } catch (error) {
-      console.error('❌ Error detecting youth status:', error);
+      logger.error('Error detecting youth status', error);
       // Don't block user if detection fails
       return { status: 'unknown' };
     } finally {
@@ -363,7 +385,7 @@ const SurveyStep1 = () => {
   // ✅ FIXED: Create youth profile and return the result
   const createYouthProfileIfNeeded = async (data) => {
     if (youthId || isCreatingProfile) {
-      console.log('⏭️ Skipping profile creation - already have youthId or creating');
+      logger.debug('Skipping profile creation - already have youthId or creating', { youthId, isCreatingProfile });
       return { success: false, reason: 'already_exists', youthId };
     }
 
@@ -377,7 +399,7 @@ const SurveyStep1 = () => {
                            data.barangay;
 
     if (!hasRequiredData) {
-      console.log('⏭️ Skipping profile creation - missing required data:', {
+      logger.debug('Skipping profile creation - missing required data', {
         firstName: !!data.firstName?.trim(),
         lastName: !!data.lastName?.trim(),
         age: !!data.age && parseInt(data.age) > 0,
@@ -391,7 +413,7 @@ const SurveyStep1 = () => {
 
     setIsCreatingProfile(true);
     try {
-      console.log('👤 Creating youth profile with data:', data);
+      logger.debug('Creating youth profile', { hasData: !!data });
       
       // Get terms data from localStorage
       const savedTerms = localStorage.getItem('kk_survey_terms_temp');
@@ -413,22 +435,22 @@ const SurveyStep1 = () => {
 
       // Check if we have an active survey before trying to initialize session
       if (!activeSurvey) {
-        console.log('❌ No active survey available for profile creation');
+        logger.warn('No active survey available for profile creation');
         return { success: false, reason: 'no_survey', error: 'No active survey available' };
       }
 
       const result = await initializeSession(youthProfileData);
       if (result.success) {
-        console.log('✅ Youth profile created successfully:', result.youthId);
+        logger.info('Youth profile created successfully', { youthId: result.youthId });
         // Clear terms from localStorage since it's now saved in the profile
         localStorage.removeItem('kk_survey_terms_temp');
         return { success: true, youthId: result.youthId, userId: result.userId };
       } else {
-        console.error('❌ Failed to create youth profile:', result);
+        logger.error('Failed to create youth profile', null, { result });
         return { success: false, reason: 'creation_failed', error: result };
       }
     } catch (error) {
-      console.error('❌ Error creating youth profile:', error);
+      logger.error('Error creating youth profile', error);
       return { success: false, reason: 'exception', error: error.message };
     } finally {
       setIsCreatingProfile(false);
@@ -612,7 +634,7 @@ const SurveyStep1 = () => {
   const handleBack = () => {
     // Save to localStorage before going back
     localStorage.setItem('kk_survey_draft_personal', JSON.stringify(formData));
-    console.log('💾 Personal info saved, navigating back to terms');
+    logger.debug('Personal info saved, navigating back to terms');
     navigate('/kk-survey/step-1'); // Back to terms page
   };
 
@@ -621,7 +643,7 @@ const SurveyStep1 = () => {
     
     // Save to localStorage and navigate
     localStorage.setItem('kk_survey_draft_personal', JSON.stringify(formData));
-    console.log('💾 Personal info saved, navigating to demographics');
+    logger.debug('Personal info saved, navigating to demographics');
     navigate('/kk-survey/step-3'); // Demographics (Step 3)
   };
 
@@ -697,7 +719,23 @@ const SurveyStep1 = () => {
           {/* Removed complex youth status displays - simplified flow */}
 
           {/* Header Section */}
-          <div className="bg-gray-50 text-center py-8 mb-8 rounded-xl">
+          <div className="bg-gray-50 text-center py-8 mb-8 rounded-xl relative">
+            {/* Demo Button */}
+            <div className="absolute top-4 right-4">
+              <button
+                onClick={toggleDemoMode}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isDemoMode
+                    ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'
+                }`}
+                title={isDemoMode ? 'Clear demo data' : 'Load demo data'}
+              >
+                <FlaskConical size={16} />
+                {isDemoMode ? 'Clear Demo' : 'Load Demo'}
+              </button>
+            </div>
+
             <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold mb-4">KK Demographic Survey 2025</div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Personal Information</h1>
             <p className="text-sm sm:text-base text-gray-700 max-w-2xl mx-auto mb-6">Please provide your personal and location information. All fields marked with * are required.</p>
@@ -818,7 +856,44 @@ const SurveyStep1 = () => {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input label="Email Address" field="email" type="email" required placeholder="your.email@example.com" value={formData.email} onChange={onChange('email')} onBlur={onBlur('email')} error={fieldErrors.email} touched={touchedFields.email} />
-                    <Input label="Contact Number" field="contactNumber" required placeholder="+639123456789" value={formData.contactNumber} onChange={onChange('contactNumber')} onBlur={onBlur('contactNumber')} error={fieldErrors.contactNumber} touched={touchedFields.contactNumber} />
+                    <div className="mb-6">
+                      <label className="block text-sm font-semibold text-gray-800 mb-2">
+                        Contact Number <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-600 font-medium z-10 pointer-events-none">
+                          +63
+                        </div>
+                        <input
+                          type="tel"
+                          value={formData.contactNumber ? formData.contactNumber.replace(/^\+63/, '') : ''}
+                          onChange={onChange('contactNumber')}
+                          onBlur={onBlur('contactNumber')}
+                          placeholder="9123456789"
+                          maxLength={10}
+                          className={`w-full pl-14 pr-4 py-3 border rounded-xl transition-all duration-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            touchedFields.contactNumber && fieldErrors.contactNumber 
+                              ? 'border-red-300 bg-red-50 focus:ring-red-500 focus:border-red-500' 
+                              : touchedFields.contactNumber && formData.contactNumber && !fieldErrors.contactNumber
+                                ? 'border-green-300 bg-green-50' 
+                                : 'border-gray-300 bg-white'
+                          }`}
+                        />
+                      </div>
+                      {touchedFields.contactNumber && fieldErrors.contactNumber && (
+                        <div className="flex items-center gap-1 mt-2 text-red-600 text-sm">
+                          <AlertCircle className="w-4 h-4" />
+                          {fieldErrors.contactNumber}
+                        </div>
+                      )}
+                      {touchedFields.contactNumber && formData.contactNumber && !fieldErrors.contactNumber && (
+                        <div className="flex items-center gap-1 mt-2 text-green-600 text-sm">
+                          <Check className="w-4 h-4" />
+                          Looks good! ({formData.contactNumber})
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">Enter your 10-digit mobile number (we'll add +63 for you)</p>
+                    </div>
                   </div>
                 </div>
               )}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Grid, List } from 'lucide-react';
 import { ActionMenu, Avatar, Status } from './index';
+import logger from '../../utils/logger.js';
 
 /**
  * DataTable Component
@@ -126,7 +127,7 @@ const DataTable = ({
           const itemKey = item[keyField] || `item-${index}`;
           // Debug logging for key generation
           if (process.env.NODE_ENV === 'development' && !item[keyField]) {
-            console.warn(`DataTable: Missing keyField '${keyField}' for item at index ${index}, using fallback key '${itemKey}'`, item);
+            logger.warn('DataTable: Missing keyField', { keyField, index, itemKey, item });
           }
           const isSelected = selectedItems.includes(itemKey);
           
@@ -288,7 +289,7 @@ const DataTable = ({
           const itemKey = item[keyField] || `item-${index}`;
           // Debug logging for key generation
           if (process.env.NODE_ENV === 'development' && !item[keyField]) {
-            console.warn(`DataTable: Missing keyField '${keyField}' for item at index ${index}, using fallback key '${itemKey}'`, item);
+            logger.warn('DataTable: Missing keyField', { keyField, index, itemKey, item });
           }
           const isSelected = selectedItems.includes(itemKey);
           

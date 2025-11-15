@@ -1,4 +1,5 @@
 import api, { apiHelpers } from './api';
+import logger from '../utils/logger.js';
 
 /**
  * Notification Service
@@ -26,7 +27,7 @@ class NotificationService {
       const response = await api.get(`/notifications?${params.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      logger.error('Error fetching notifications', error, { options });
       throw new Error(error.response?.data?.message || 'Failed to fetch notifications');
     }
   }
@@ -40,7 +41,7 @@ class NotificationService {
       const response = await api.get('/notifications/unread-count');
       return response.data.data.unreadCount;
     } catch (error) {
-      console.error('Error fetching unread count:', error);
+      logger.error('Error fetching unread count', error);
       throw new Error(error.response?.data?.message || 'Failed to fetch unread count');
     }
   }
@@ -55,7 +56,7 @@ class NotificationService {
       const response = await api.patch(`/notifications/${notificationId}/read`);
       return response.data;
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      logger.error('Error marking notification as read', error, { notificationId });
       throw new Error(error.response?.data?.message || 'Failed to mark notification as read');
     }
   }
@@ -66,12 +67,12 @@ class NotificationService {
    */
   async markAllAsRead() {
     try {
-      console.log('🔗 NotificationService: Making markAllAsRead API call...');
+      logger.debug('Making markAllAsRead API call');
       const response = await apiHelpers.patch('/notifications/mark-all-read');
-      console.log('✅ NotificationService: markAllAsRead response:', response);
+      logger.debug('markAllAsRead response received', { success: response?.success });
       return response;
     } catch (error) {
-      console.error('❌ NotificationService: Error marking all notifications as read:', error);
+      logger.error('Error marking all notifications as read', error);
       throw error; // Re-throw the error to preserve the full error object
     }
   }
@@ -83,12 +84,12 @@ class NotificationService {
    */
   async deleteNotification(notificationId) {
     try {
-      console.log('🗑️ NotificationService: Making deleteNotification API call...');
+      logger.debug('Making deleteNotification API call', { notificationId });
       const response = await api.delete(`/notifications/${notificationId}`);
-      console.log('✅ NotificationService: deleteNotification response:', response);
+      logger.debug('deleteNotification response received', { success: response?.data?.success });
       return response.data;
     } catch (error) {
-      console.error('❌ NotificationService: Error deleting notification:', error);
+      logger.error('Error deleting notification', error, { notificationId });
       throw new Error(error.response?.data?.message || 'Failed to delete notification');
     }
   }
