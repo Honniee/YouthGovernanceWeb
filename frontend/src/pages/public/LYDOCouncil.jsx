@@ -163,29 +163,10 @@ const LYDOCouncil = () => {
     return `${base}${p}`;
   };
 
-  // Try to extract a profile photo URL from various field shapes
-  const getOfficerPhoto = (r) => {
-    if (!r || typeof r !== 'object') return '';
-    return (
-      r.profile_picture ||
-      r.profilePicture ||
-      r.photo_url ||
-      r.photo ||
-      r.avatar ||
-      r.image ||
-      (r.user && (r.user.profile_picture || r.user.profilePicture)) ||
-      (r.account && (r.account.profile_picture || r.account.profilePicture)) ||
-      (r.profile && (r.profile.profile_picture || r.profile.profilePicture)) ||
-      ''
-    );
-  };
-
   // Scroll reveal refs
   const [overviewRef, overviewVisible] = useScrollReveal();
   const [membersRef, membersVisible] = useScrollReveal();
   const [structureRef, structureVisible] = useScrollReveal();
-  const [federationRef, federationVisible] = useScrollReveal();
-  const [contactRef, contactVisible] = useScrollReveal();
 
   // Carousel state
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -367,76 +348,6 @@ const LYDOCouncil = () => {
     return Users;
   };
 
-  // SK Federation Officers data
-  const [federationOfficers, setFederationOfficers] = useState([]);
-  const [loadingFederation, setLoadingFederation] = useState(true);
-  const [federationError, setFederationError] = useState(null);
-  const [federationReloadKey, setFederationReloadKey] = useState(0);
-
-  useEffect(() => {
-    const loadFederation = async () => {
-      try {
-        setLoadingFederation(true);
-        setFederationError(null);
-        const res = await fetch('/api/sk-federation/public/current');
-        if (!res.ok) {
-          setFederationOfficers([]);
-          return;
-        }
-        const data = await res.json();
-        const rows = Array.isArray(data?.data) ? data.data : [];
-        if (!rows.length) {
-          setFederationOfficers([]);
-          return;
-        }
-        const order = ['President', 'Vice President', 'Secretary', 'Treasurer', 'Auditor', 'PRO', 'Sergeant-at-Arms', 'Sergeant at Arms'];
-        const toName = (r) => (
-          (r.name ||
-            [r.first_name, r.middle_name, r.last_name].filter(Boolean).join(' ') ||
-            [r.firstName, r.middleName, r.lastName].filter(Boolean).join(' '))
-            .replace(/\s+/g, ' ') || ''
-        ).trim();
-        const mapBarangay = (r) => {
-          // Prioritize barangay_name from the JOIN, fallback to other fields
-          return r.barangay_name || r.barangay || '';
-        };
-        const normalized = order
-          .slice(0, 7)
-          .map((pos) => {
-            const found = rows.find(r => (r.position || '').toLowerCase() === pos.toLowerCase());
-            if (!found) {
-              return { 
-                position: pos.replace('Sergeant-at-Arms', 'Sergeant at Arms'), 
-                name: '—', 
-                barangay: '—', 
-                photo: '',
-                updatedAt: null
-              };
-            }
-            const photo = getOfficerPhoto(found);
-            const name = toName(found);
-            const barangay = mapBarangay(found);
-            // Ensure photo is a valid URL/path, not a name or other text
-            const validPhoto = photo && typeof photo === 'string' && photo.trim() !== '' && 
-              (photo.startsWith('/') || /^https?:\/\//i.test(photo)) ? photo : '';
-            return { 
-              position: pos.replace('Sergeant-at-Arms', 'Sergeant at Arms'), 
-              name: name || '—', 
-              barangay: barangay || '—', 
-              photo: validPhoto,
-              updatedAt: found.updated_at || found.updatedAt || null
-            };
-          });
-        setFederationOfficers(normalized);
-      } catch (e) {
-        setFederationError(e?.message || 'Failed to load SK Federation officers');
-        setFederationOfficers([]);
-      } finally {
-        setLoadingFederation(false);
-      }
-    };
-    loadFederation();
-  }, [federationReloadKey]);
 
   return (
     <PublicLayout>
@@ -844,124 +755,6 @@ const LYDOCouncil = () => {
         </div>
       </section>
 
-      {/* SK Federation Officers */}
-      <section className="pt-8 pb-8 md:py-16 bg-white">
-        <div 
-          ref={federationRef}
-          className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 transition-all duration-1000 ease-out delay-400 ${
-            federationVisible 
-              ? 'opacity-100 translate-y-0' 
-              : 'opacity-0 translate-y-8'
-          }`}
-        >
-          <div className="inline-flex items-center px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#E7EBFF] text-[#24345A] text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-2 sm:mb-3 lg:mb-4">SK Federation</div>
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3 lg:mb-4">SK Federation Officers</h2>
-          <p className="text-sm sm:text-base lg:text-lg text-gray-600 max-w-3xl">Meet the current officers of the Sangguniang Kabataan Federation in San Jose, Batangas.</p>
-          <div className="mt-4 sm:mt-5 mb-6 sm:mb-8 lg:mb-10 h-[1px] sm:h-[2px] w-full max-w-4xl bg-gradient-to-r from-[#E7EBFF] via-[#F1E9FF] to-[#FDE7F1] opacity-90 rounded-full" aria-hidden="true" />
-          
-          {/* Loading State */}
-          {loadingFederation && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="group relative">
-                  <div className="relative rounded-2xl sm:rounded-3xl p-4 sm:p-6 bg-gray-50 ring-1 ring-gray-200 shadow-sm">
-                    <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gray-200 animate-pulse" />
-                      <div className="h-5 w-20 bg-gray-200 rounded-full animate-pulse" />
-                    </div>
-                    <div className="h-5 w-32 bg-gray-200 rounded animate-pulse mb-2" />
-                    <div className="h-4 w-24 bg-gray-200 rounded animate-pulse" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          
-          {/* Error State */}
-          {!loadingFederation && federationError && (
-            <div className="flex items-center justify-center py-12 sm:py-16">
-              <div className="text-center">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p className="text-red-600 mb-2 text-sm sm:text-base">Failed to load SK Federation officers</p>
-                <p className="text-gray-500 text-xs sm:text-sm mb-4">{federationError}</p>
-                <button
-                  onClick={() => setFederationReloadKey(k => k + 1)}
-                  className="inline-flex items-center px-3 py-2 sm:px-4 sm:py-2 bg-blue-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Retry
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {/* Empty State */}
-          {!loadingFederation && !federationError && federationOfficers.length === 0 && (
-            <div className="flex items-center justify-center py-12 sm:py-16">
-              <div className="text-center">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Users className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" />
-                </div>
-                <p className="text-gray-600 mb-2 text-sm sm:text-base">No SK Federation officers available</p>
-                <p className="text-gray-500 text-xs sm:text-sm">Officers will be displayed when added</p>
-              </div>
-            </div>
-          )}
-          
-          {/* Officers Grid */}
-          {!loadingFederation && !federationError && federationOfficers.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {federationOfficers.map((officer, index) => (
-                officer.name !== '—' ? (
-                  <div key={index} className="group relative">
-                    {/* Accent glow */}
-                    <div className="absolute -inset-1 sm:-inset-2 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-green-300/25 via-emerald-200/20 to-green-300/25 opacity-0 blur-lg transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" aria-hidden="true" />
-                    {/* Card */}
-                    <div className="relative rounded-2xl p-5 sm:p-6 bg-white ring-1 ring-gray-200 shadow-[0_6px_18px_rgba(2,6,23,0.06)] transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
-                      {/* Header with Avatar */}
-                      <div className="flex items-start gap-3 sm:gap-3.5 mb-4">
-                        <div className="flex-shrink-0">
-                          <Avatar 
-                            name={officer.name} 
-                            src={officer.photo || ''} 
-                            version={officer.updatedAt} 
-                            size={56} 
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-base sm:text-lg font-semibold text-gray-900 leading-snug truncate">{officer.name}</h3>
-                          <div className="mt-1 flex items-center gap-2 flex-wrap">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium bg-green-100 text-green-700 ring-1 ring-green-200">
-                              {officer.position}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Divider */}
-                      {officer.barangay && officer.barangay !== '—' && (
-                        <div className="my-4 h-px bg-gradient-to-r from-gray-100 via-gray-200 to-gray-100" />
-                      )}
-
-                      {/* Barangay */}
-                      {officer.barangay && officer.barangay !== '—' && (
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <Building className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                          <p className="text-[12px] sm:text-sm leading-relaxed truncate">{officer.barangay}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : null
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
 
       
     </PublicLayout>
