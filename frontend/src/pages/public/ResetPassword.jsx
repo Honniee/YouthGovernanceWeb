@@ -577,10 +577,10 @@ const ResetPassword = () => {
                   </div>
                 </form>
               </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
       </PublicLayout>
     );
 };

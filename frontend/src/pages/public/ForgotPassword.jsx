@@ -114,15 +114,15 @@ const ForgotPassword = () => {
         if (errorMessage) {
           setErrors({ submit: errorMessage });
         } else if (errorErrors && Array.isArray(errorErrors)) {
-          const apiErrors = {};
+        const apiErrors = {};
           errorErrors.forEach(err => {
-            if (err.param === 'email') {
-              apiErrors.email = err.msg;
-            } else if (err.param === 'recaptchaToken') {
-              apiErrors.recaptcha = err.msg;
-            }
-          });
-          setErrors(apiErrors);
+          if (err.param === 'email') {
+            apiErrors.email = err.msg;
+          } else if (err.param === 'recaptchaToken') {
+            apiErrors.recaptcha = err.msg;
+          }
+        });
+        setErrors(apiErrors);
         } else if (errorStatus === 429) {
           setErrors({ submit: 'Too many requests. Please wait a moment and try again.' });
         } else if (errorStatus >= 500) {
@@ -244,7 +244,7 @@ const ForgotPassword = () => {
         {/* Main Content */}
         <div className="relative z-10 min-h-[calc(100vh-144px)] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-12">
           <div className="w-full max-w-md">
-            {success ? (
+          {success ? (
               /* Success State - Modern Card Design */
               <div className="bg-white/80 backdrop-blur-sm shadow-xl border border-gray-100/50 p-8 sm:p-10 transform transition-all duration-500 ease-out">
                 <div className="text-center">
@@ -253,12 +253,12 @@ const ForgotPassword = () => {
                   </div>
                   <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Check Your Email</h1>
                   <p className="text-gray-600 mb-6 leading-relaxed">
-                    If an account exists with that email, a password reset link has been sent.
-                  </p>
+                      If an account exists with that email, a password reset link has been sent.
+                    </p>
                   <p className="text-sm text-gray-500 mb-8">
-                    Please check your inbox and follow the instructions. The link will expire in 1 hour.
-                  </p>
-                  
+                      Please check your inbox and follow the instructions. The link will expire in 1 hour.
+                    </p>
+
                   <div className="space-y-3">
                     <Link
                       to="/login"
@@ -280,10 +280,10 @@ const ForgotPassword = () => {
                     >
                       Request Another Link
                     </button>
-                  </div>
                 </div>
               </div>
-            ) : (
+            </div>
+          ) : (
               /* Reset Form - Modern Card Design */
               <div className="bg-white/80 backdrop-blur-sm shadow-xl border border-gray-100/50 p-8 sm:p-10 transform transition-all duration-500 ease-out">
                 {/* Header Section */}
@@ -293,104 +293,104 @@ const ForgotPassword = () => {
                   </div>
                   <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Forgot Password?</h1>
                   <p className="text-gray-600 text-sm leading-relaxed">
-                    Enter your personal email address and we'll send you a secure link to reset your password.
+                        Enter your personal email address and we'll send you a secure link to reset your password.
                   </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
-                  {/* Email Input */}
-                  <div>
+                    {/* Email Input */}
+                    <div>
                     <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">
-                      Personal Email Address
-                    </label>
-                    <div className="relative">
+                        Personal Email Address
+                      </label>
+                      <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                        <Mail className="h-5 w-5 text-gray-400" />
-                      </div>
-                      <input
-                        id="email"
-                        name="email"
-                        type="email"
-                        autoComplete="email"
-                        required
-                        value={email}
-                        onChange={handleInputChange}
+                          <Mail className="h-5 w-5 text-gray-400" />
+                        </div>
+                        <input
+                          id="email"
+                          name="email"
+                          type="email"
+                          autoComplete="email"
+                          required
+                          value={email}
+                          onChange={handleInputChange}
                         className={`block w-full pl-12 pr-4 py-3.5 border-2 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#24345A]/20 focus:border-[#24345A] sm:text-sm transition-all duration-200 ${
                           errors.email ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : 'border-gray-200'
-                        }`}
-                        placeholder="Enter your personal email"
-                      />
-                    </div>
-                    {errors.email && (
-                      <div className="mt-2 flex items-center text-sm text-red-600">
-                        <span>{errors.email}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* reCAPTCHA */}
-                  <div>
-                    <div className="flex justify-center w-full">
-                      <div className="recaptcha-container-mobile sm:recaptcha-container-desktop">
-                        <ReCaptchaComponent
-                          ref={recaptcha.ref}
-                          onVerify={recaptcha.onVerify}
-                          onError={recaptcha.onError}
-                          onExpire={recaptcha.onExpire}
-                          className="w-full"
+                          }`}
+                          placeholder="Enter your personal email"
                         />
                       </div>
+                      {errors.email && (
+                      <div className="mt-2 flex items-center text-sm text-red-600">
+                          <span>{errors.email}</span>
+                        </div>
+                      )}
                     </div>
-                    {errors.recaptcha && (
-                      <div className="mt-2 flex items-center justify-center text-sm text-red-600">
-                        <span>{errors.recaptcha}</span>
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Submit Error */}
-                  {errors.submit && (
+                    {/* reCAPTCHA */}
+                    <div>
+                      <div className="flex justify-center w-full">
+                        <div className="recaptcha-container-mobile sm:recaptcha-container-desktop">
+                          <ReCaptchaComponent
+                            ref={recaptcha.ref}
+                            onVerify={recaptcha.onVerify}
+                            onError={recaptcha.onError}
+                            onExpire={recaptcha.onExpire}
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
+                      {errors.recaptcha && (
+                      <div className="mt-2 flex items-center justify-center text-sm text-red-600">
+                          <span>{errors.recaptcha}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Submit Error */}
+                    {errors.submit && (
                     <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
                       <p className="text-sm text-red-800 font-medium">{errors.submit}</p>
-                    </div>
-                  )}
+                      </div>
+                    )}
 
-                  {/* Submit Button */}
-                  <div>
-                    <button
-                      type="submit"
-                      disabled={!recaptcha.isVerified || isSubmitting}
+                    {/* Submit Button */}
+                    <div>
+                      <button
+                        type="submit"
+                        disabled={!recaptcha.isVerified || isSubmitting}
                       className={`w-full group inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 shadow-md ${
-                        !recaptcha.isVerified || isSubmitting
-                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          !recaptcha.isVerified || isSubmitting
+                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                           : 'bg-[#24345A] text-white hover:bg-[#1a2a4a] hover:shadow-lg hover:scale-[1.02]'
-                      }`}
-                    >
-                      {isSubmitting ? (
-                        <>
+                        }`}
+                      >
+                        {isSubmitting ? (
+                          <>
                           <Loader2 className="animate-spin w-5 h-5" />
-                          <span>Sending...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>Send Reset Link</span>
+                            <span>Sending...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Send Reset Link</span>
                           <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
-                        </>
-                      )}
-                    </button>
-                  </div>
+                          </>
+                        )}
+                      </button>
+                    </div>
 
-                  {/* Back to Login */}
-                  <div className="text-center pt-2">
-                    <Link
-                      to="/login"
+                    {/* Back to Login */}
+                    <div className="text-center pt-2">
+                      <Link
+                        to="/login"
                       className="inline-flex items-center text-sm text-[#24345A] hover:text-[#1a2a4a] font-medium transition-colors duration-200"
-                    >
+                      >
                       <ArrowLeft className="h-4 w-4 mr-1.5" />
-                      Back to Login
-                    </Link>
-                  </div>
-                </form>
+                        Back to Login
+                      </Link>
+                    </div>
+                  </form>
 
                 {/* Security Info */}
                 <div className="mt-8 pt-6 border-t border-gray-100">
@@ -401,7 +401,7 @@ const ForgotPassword = () => {
                 </div>
               </div>
             )}
-          </div>
+            </div>
         </div>
       </div>
     </PublicLayout>

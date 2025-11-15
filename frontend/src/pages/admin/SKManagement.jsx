@@ -1221,8 +1221,8 @@ const SKManagement = () => {
           termId: activeTerm.termId
         });
 
-        const positionValidation = await validatePosition(barangayOption.id, formData.position);
-        if (!positionValidation.isValid) {
+      const positionValidation = await validatePosition(barangayOption.id, formData.position);
+      if (!positionValidation.isValid) {
           logger.warn('Position validation warning (non-blocking)', {
             barangayId: barangayOption.id,
             position: formData.position,

@@ -27,7 +27,8 @@ import {
   XCircle,
   Eye,
   FileText,
-  PieChart
+  PieChart,
+  Trash2
 } from 'lucide-react';
 import { HeaderMainContent, TabContainer, Tab, useTabState, ActionMenu, BulkModal, Pagination, useBulkModal, usePagination, Avatar, Status, ExportButton, useExport, BulkActionsBar, CollapsibleForm, DataTable, ViewStaffModal, EditStaffModal, ActiveTermBanner } from '../../components/portal_main_content';
 import { extractTermStats } from '../../utils/termStats';
@@ -143,10 +144,12 @@ const SKTermReport = () => {
         const resp = await skService.getFederation(reportTerm.termId);
         if (resp.success) {
           const rows = Array.isArray(resp.data) ? resp.data : [];
-          setFederation(rows);
-          // Prefill form selections from current assignments
+          // Filter to only show active records (is_active === true or undefined for backward compatibility)
+          const activeRows = rows.filter(r => r.is_active !== false);
+          setFederation(activeRows);
+          // Prefill form selections from current assignments (only active ones)
           const map = FED_POSITIONS.reduce((acc, p) => ({ ...acc, [p]: '' }), {});
-          rows.forEach(r => { if (r.position && r.official_id) map[r.position] = r.official_id; });
+          activeRows.forEach(r => { if (r.position && r.official_id) map[r.position] = r.official_id; });
           setFederationForm(map);
         } else {
           showErrorToast('Failed to load SK Federation', resp.message || '');
@@ -166,29 +169,86 @@ const SKTermReport = () => {
     const loadTermOfficials = async () => {
       if (!showEditFederation || !reportTerm?.termId) return;
       try {
-        // Use existing endpoint that returns officials grouped by barangay
-        const resp = await skService.getTermOfficialsByBarangay(reportTerm.termId);
-        const barangays = Array.isArray(resp?.data?.barangays)
-          ? resp.data.barangays
-          : (Array.isArray(resp?.data) ? resp.data : []);
-        // Flatten into one list with barangay info for searching/selecting
-        const flattened = [];
-        (barangays || []).forEach((b) => {
-          (b.officials || []).forEach((o) => {
-            flattened.push({
-              skId: o.skId || o.sk_id,
-              name: o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`.trim(),
-              firstName: o.firstName || o.first_name,
-              lastName: o.lastName || o.last_name,
-              barangayId: b.barangayId,
-              barangayName: b.barangayName,
-              position: o.position
+        logger.debug('Loading term officials for federation assignment', { termId: reportTerm.termId });
+        
+        // Try getTermOfficialsByBarangay first (grouped by barangay)
+        let resp = await skService.getTermOfficialsByBarangay(reportTerm.termId);
+        let flattened = [];
+        
+        if (resp.success && resp.data) {
+          const barangays = Array.isArray(resp?.data?.barangays)
+            ? resp.data.barangays
+            : (Array.isArray(resp?.data) ? resp.data : []);
+          
+          logger.debug('getTermOfficialsByBarangay response', { 
+            success: resp.success, 
+            hasBarangays: Array.isArray(barangays),
+            barangayCount: Array.isArray(barangays) ? barangays.length : 0
+          });
+          
+          // Flatten into one list with barangay info for searching/selecting
+          (barangays || []).forEach((b) => {
+            const officials = b.officials || [];
+            logger.debug('Processing barangay', { 
+              barangayId: b.barangayId || b.barangay_id,
+              barangayName: b.barangayName || b.barangay_name,
+              officialsCount: officials.length
+            });
+            
+            officials.forEach((o) => {
+              flattened.push({
+                skId: o.skId || o.sk_id,
+                sk_id: o.skId || o.sk_id,
+                name: o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`.trim(),
+                firstName: o.firstName || o.first_name,
+                first_name: o.firstName || o.first_name,
+                lastName: o.lastName || o.last_name,
+                last_name: o.lastName || o.last_name,
+                barangayId: b.barangayId || b.barangay_id,
+                barangay_id: b.barangayId || b.barangay_id,
+                barangayName: b.barangayName || b.barangay_name,
+                position: o.position
+              });
             });
           });
-        });
+        }
+        
+        // Fallback: If no officials found, try getSKOfficials with termId filter
+        if (flattened.length === 0) {
+          logger.debug('No officials from getTermOfficialsByBarangay, trying getSKOfficials', { termId: reportTerm.termId });
+          resp = await skService.getSKOfficials({ termId: reportTerm.termId, limit: 1000 });
+          
+          if (resp.success && resp.data?.items) {
+            const items = Array.isArray(resp.data.items) ? resp.data.items : [];
+            logger.debug('getSKOfficials response', { itemCount: items.length });
+            
+            flattened = items.map((o) => ({
+              skId: o.skId || o.sk_id,
+              sk_id: o.skId || o.sk_id,
+              name: o.fullName || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`.trim(),
+              firstName: o.firstName || o.first_name,
+              first_name: o.firstName || o.first_name,
+              lastName: o.lastName || o.last_name,
+              last_name: o.lastName || o.last_name,
+              barangayId: o.barangayId || o.barangay_id,
+              barangay_id: o.barangayId || o.barangay_id,
+              barangayName: o.barangayName || o.barangay_name,
+              position: o.position
+            }));
+          }
+        }
+        
+        logger.debug('Final flattened officials list', { count: flattened.length });
         setTermOfficials(flattened);
-      } catch (_) {
+        
+        if (flattened.length === 0) {
+          logger.warn('No officials found for term', { termId: reportTerm.termId });
+          showInfoToast('No officials found', 'There are no officials assigned to this term.');
+        }
+      } catch (error) {
+        logger.error('Error loading term officials', error, { termId: reportTerm?.termId });
         setTermOfficials([]);
+        showErrorToast('Failed to load officials', 'Unable to load officials for this term. Please try again.');
       }
     };
     loadTermOfficials();
@@ -1407,8 +1467,10 @@ ${bodyRows}
   };
 
   const getFederationRows = () => {
+    // Filter to only show active records
+    const activeFederation = (federation || []).filter(r => r.is_active !== false);
     const rows = FED_POSITIONS.map((pos) => {
-      const found = (federation || []).find(r => r.position === pos);
+      const found = activeFederation.find(r => r.position === pos);
       const name = found ? [found.first_name, found.last_name].filter(Boolean).join(' ') : '';
       const barangay = found ? (getBarangayName(found.barangay_id) || found.barangay_id || '') : '';
       return { position: pos, name, barangay, assigned: !!found };
@@ -1889,12 +1951,84 @@ ${bodyRows}
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.name || 'Unassigned'}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.barangay}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-right">
-                                <button
-                                  onClick={() => { setEditingPosition(row.position); setShowEditFederation(true); }}
-                                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 transition-colors"
-                                >
-                                  {row.assigned ? 'Change' : 'Assign'}
-                                </button>
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => { setEditingPosition(row.position); setShowEditFederation(true); }}
+                                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                                  >
+                                    {row.assigned ? 'Change' : 'Assign'}
+                                  </button>
+                                  {row.assigned && (
+                                    <button
+                                      onClick={async () => {
+                                        // Show confirmation before removing
+                                        const confirmed = await (confirmation.showConfirmation
+                                          ? confirmation.showConfirmation({
+                                              title: 'Remove Federation Officer',
+                                              message: `Are you sure you want to remove ${row.name} from the ${row.position} position?`,
+                                              confirmText: 'Remove',
+                                              cancelText: 'Cancel',
+                                              variant: 'danger'
+                                            })
+                                          : Promise.resolve(true));
+
+                                        if (!confirmed) return;
+
+                                        // Set loading state
+                                        confirmation.setLoading && confirmation.setLoading(true);
+
+                                        try {
+                                          // Get all current assignments except the one being removed
+                                          const currentAssignments = federation || [];
+                                          const assignments = currentAssignments
+                                            .filter(f => f.is_active !== false && f.position !== row.position)
+                                            .map((f, idx) => ({
+                                              position: f.position,
+                                              official_id: String(f.official_id || f.officialId),
+                                              display_order: FED_POSITIONS.indexOf(f.position) + 1
+                                            }));
+
+                                          const resp = await skService.updateFederation(reportTerm.termId, assignments);
+                                          
+                                          // Close confirmation modal
+                                          confirmation.hideConfirmation && confirmation.hideConfirmation();
+                                          
+                                          // Small delay to ensure confirmation modal closes
+                                          await new Promise(resolve => setTimeout(resolve, 150));
+
+                                          if (resp.success) {
+                                            showSuccessToast('Officer removed', `${row.name} has been removed from ${row.position}`);
+                                            // Refresh federation data
+                                            const ref = await skService.getFederation(reportTerm.termId);
+                                            if (ref.success) {
+                                              const rows = Array.isArray(ref.data) ? ref.data : [];
+                                              const activeRows = rows.filter(r => r.is_active !== false);
+                                              setFederation(activeRows);
+                                              // Update form
+                                              const map = FED_POSITIONS.reduce((acc, p) => ({ ...acc, [p]: '' }), {});
+                                              activeRows.forEach(r => { if (r.position && r.official_id) map[r.position] = r.official_id; });
+                                              setFederationForm(map);
+                                            }
+                                          } else {
+                                            const detail = resp?.details ? (Array.isArray(resp.details) ? resp.details.join(', ') : JSON.stringify(resp.details)) : '';
+                                            showErrorToast('Remove failed', `${resp.message || 'Failed to remove federation officer'}${detail ? ` — ${detail}` : ''}`);
+                                          }
+                                        } catch (e) {
+                                          confirmation.hideConfirmation && confirmation.hideConfirmation();
+                                          await new Promise(resolve => setTimeout(resolve, 150));
+                                          showErrorToast('Remove failed', e.message || 'Failed to remove federation officer');
+                                        } finally {
+                                          confirmation.setLoading && confirmation.setLoading(false);
+                                        }
+                                      }}
+                                      className="inline-flex items-center px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 transition-colors"
+                                      title="Remove officer from this position"
+                                    >
+                                      <Trash2 className="w-3 h-3 mr-1" />
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1954,6 +2088,18 @@ ${bodyRows}
             />
           </div>
           {(() => {
+            // Build map of officials already assigned to federation positions
+            // Exclude the current position being edited (if any)
+            const assignedOfficialsMap = {};
+            (federation || []).forEach(f => {
+              if (f.is_active !== false && f.position !== editingPosition) {
+                const officialId = String(f.official_id || f.officialId || '');
+                if (officialId) {
+                  assignedOfficialsMap[officialId] = f.position;
+                }
+              }
+            });
+
             const q = federationSearch.trim().toLowerCase();
             const filtered = q
               ? termOfficials.filter(o => {
@@ -1962,6 +2108,32 @@ ${bodyRows}
                   return name.includes(q) || bname.includes(q);
                 })
               : termOfficials;
+
+            // Show empty state if no officials
+            if (termOfficials.length === 0) {
+              return (
+                <div className="text-center py-12">
+                  <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <h4 className="text-lg font-semibold text-gray-900 mb-2">No Officials Found</h4>
+                  <p className="text-sm text-gray-600 mb-4">
+                    There are no officials assigned to this term. Please add officials to the term first.
+                  </p>
+                </div>
+              );
+            }
+
+            // Show empty search state
+            if (filtered.length === 0 && q) {
+              return (
+                <div className="text-center py-12">
+                  <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <h4 className="text-lg font-semibold text-gray-900 mb-2">No Results Found</h4>
+                  <p className="text-sm text-gray-600">
+                    No officials match your search "{federationSearch}". Try a different search term.
+                  </p>
+                </div>
+              );
+            }
 
             // Single-position selection: show a radio list to pick one official
             if (editingPosition) {
@@ -1974,29 +2146,74 @@ ${bodyRows}
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Barangay</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {filtered.map((o) => {
-                        const id = o.skId || o.sk_id;
-                        const name = (o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`).trim();
-                        const bname = skService.getBarangayById?.(o.barangayId || o.barangay_id)?.name || (o.barangayName || '');
-                        return (
-                          <tr key={id} className="hover:bg-gray-50">
-                            <td className="px-4 py-2">
-                              <input
-                                type="radio"
-                                name="federation-pick"
-                                checked={(federationForm[editingPosition] || '') === id}
-                                onChange={() => setFederationForm(prev => ({ ...prev, [editingPosition]: id }))}
-                              />
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-900">{name}</td>
-                            <td className="px-4 py-2 text-sm text-gray-700">{bname}</td>
-                            <td className="px-4 py-2 text-sm text-gray-500">{o.position || ''}</td>
-                          </tr>
-                        );
-                      })}
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">
+                            No officials available
+                          </td>
+                        </tr>
+                      ) : (
+                        filtered.map((o) => {
+                          const id = o.skId || o.sk_id;
+                          const idString = String(id || '');
+                          const name = (o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`).trim();
+                          const bname = skService.getBarangayById?.(o.barangayId || o.barangay_id)?.name || (o.barangayName || '');
+                          const isAlreadyAssigned = assignedOfficialsMap[idString];
+                          const isDisabled = !!isAlreadyAssigned;
+                          const isSelected = (federationForm[editingPosition] || '') === idString;
+                          
+                          return (
+                            <tr 
+                              key={id} 
+                              onClick={() => {
+                                if (!isDisabled) {
+                                  setFederationForm(prev => ({ ...prev, [editingPosition]: idString }));
+                                }
+                              }}
+                              className={`
+                                ${isDisabled 
+                                  ? 'bg-gray-50 opacity-60 cursor-not-allowed' 
+                                  : isSelected
+                                    ? 'bg-purple-50 hover:bg-purple-100 cursor-pointer border-l-4 border-l-purple-600'
+                                    : 'hover:bg-gray-50 cursor-pointer'
+                                }
+                                transition-colors
+                              `}
+                            >
+                              <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="radio"
+                                  name="federation-pick"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    if (!isDisabled) {
+                                      setFederationForm(prev => ({ ...prev, [editingPosition]: idString }));
+                                    }
+                                  }}
+                                  disabled={isDisabled}
+                                  className={isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}
+                                />
+                              </td>
+                              <td className={`px-4 py-2 text-sm ${isDisabled ? 'text-gray-400' : isSelected ? 'text-purple-900 font-medium' : 'text-gray-900'}`}>{name}</td>
+                              <td className={`px-4 py-2 text-sm ${isDisabled ? 'text-gray-400' : isSelected ? 'text-purple-700' : 'text-gray-700'}`}>{bname}</td>
+                              <td className={`px-4 py-2 text-sm ${isDisabled ? 'text-gray-400' : isSelected ? 'text-purple-600' : 'text-gray-500'}`}>{o.position || ''}</td>
+                              <td className="px-4 py-2 text-sm">
+                                {isAlreadyAssigned ? (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">
+                                    Already {isAlreadyAssigned}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">Available</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -2006,25 +2223,60 @@ ${bodyRows}
             // Full-editor fallback: keep dropdowns per position
             return (
               <>
-                {FED_POSITIONS.map((pos) => (
-                  <div key={pos} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
-                    <label className="text-sm font-medium text-gray-700">{pos}</label>
-                    <div className="sm:col-span-2">
-                      <select
-                        value={federationForm[pos] || ''}
-                        onChange={(e) => setFederationForm(prev => ({ ...prev, [pos]: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
-                      >
-                        <option value="">— Select official —</option>
-                        {filtered.map((o) => (
-                          <option key={o.skId || o.sk_id} value={o.skId || o.sk_id}>
-                            {`${(o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`).trim()} • ${skService.getBarangayById?.(o.barangayId || o.barangay_id)?.name || (o.barangayName || '')}`}
-                          </option>
-                        ))}
-                      </select>
+                {FED_POSITIONS.map((pos) => {
+                  // For each position, determine which officials are already assigned to OTHER positions
+                  const otherPositions = FED_POSITIONS.filter(p => p !== pos);
+                  const assignedToOtherPositions = new Set();
+                  (federation || []).forEach(f => {
+                    if (f.is_active !== false && otherPositions.includes(f.position)) {
+                      const officialId = String(f.official_id || f.officialId || '');
+                      if (officialId) {
+                        assignedToOtherPositions.add(officialId);
+                      }
+                    }
+                  });
+
+                  return (
+                    <div key={pos} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+                      <label className="text-sm font-medium text-gray-700">{pos}</label>
+                      <div className="sm:col-span-2">
+                        <select
+                          value={federationForm[pos] || ''}
+                          onChange={(e) => setFederationForm(prev => ({ ...prev, [pos]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                        >
+                          <option value="">— Select official —</option>
+                          {filtered.map((o) => {
+                            const id = String(o.skId || o.sk_id || '');
+                            const isAlreadyAssigned = assignedToOtherPositions.has(id);
+                            const assignedPosition = (federation || []).find(f => 
+                              String(f.official_id || f.officialId || '') === id && f.is_active !== false && f.position !== pos
+                            )?.position;
+                            
+                            return (
+                              <option 
+                                key={o.skId || o.sk_id} 
+                                value={o.skId || o.sk_id}
+                                disabled={isAlreadyAssigned}
+                                className={isAlreadyAssigned ? 'bg-gray-100 text-gray-400' : ''}
+                              >
+                                {`${(o.name || `${o.firstName || o.first_name || ''} ${o.lastName || o.last_name || ''}`).trim()} • ${skService.getBarangayById?.(o.barangayId || o.barangay_id)?.name || (o.barangayName || '')}${isAlreadyAssigned ? ` (Already ${assignedPosition})` : ''}`}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        {termOfficials.filter(o => {
+                          const id = String(o.skId || o.sk_id || '');
+                          return assignedToOtherPositions.has(id);
+                        }).length > 0 && (
+                          <p className="mt-1 text-xs text-gray-500">
+                            Officials already assigned to other positions are disabled
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </>
             );
           })()}
@@ -2034,34 +2286,179 @@ ${bodyRows}
           <button
             onClick={async () => {
               try {
-                const positionsToSave = editingPosition ? [editingPosition] : FED_POSITIONS;
-                const assignments = positionsToSave
-                  .filter(p => !!federationForm[p])
-                  .map((p, idx) => ({
-                    position: p,
-                    official_id: String(federationForm[p]),
-                    display_order: idx + 1
-                  }));
+                // When editing a single position, include all existing active assignments
+                // to prevent them from being removed
+                const currentAssignments = federation || [];
+                let assignments = [];
+                
+                if (editingPosition) {
+                  // Single position edit: include all existing assignments + the one being edited
+                  const existingPositions = new Set();
+                  
+                  // Add all existing active assignments
+                  currentAssignments.forEach(f => {
+                    if (f.is_active !== false && f.position !== editingPosition) {
+                      assignments.push({
+                        position: f.position,
+                        official_id: String(f.official_id || f.officialId),
+                        display_order: FED_POSITIONS.indexOf(f.position) + 1
+                      });
+                      existingPositions.add(f.position);
+                    }
+                  });
+                  
+                  // Add the position being edited if it has a value
+                  if (federationForm[editingPosition]) {
+                    assignments.push({
+                      position: editingPosition,
+                      official_id: String(federationForm[editingPosition]),
+                      display_order: FED_POSITIONS.indexOf(editingPosition) + 1
+                    });
+                  }
+                } else {
+                  // Full edit: include all positions with values
+                  assignments = FED_POSITIONS
+                    .filter(p => !!federationForm[p])
+                    .map((p, idx) => ({
+                      position: p,
+                      official_id: String(federationForm[p]),
+                      display_order: idx + 1
+                    }));
+                }
 
                 if (!assignments.length) {
                   showErrorToast('Nothing to save', 'Please assign at least one federation officer');
                   return;
                 }
 
-                const resp = await skService.updateFederation(reportTerm.termId, assignments);
-                if (resp.success) {
-                  showSuccessToast('Federation saved', 'SK Federation officers updated');
-                  setShowEditFederation(false);
-                  setEditingPosition(null);
-                  // Refresh
-                  const ref = await skService.getFederation(reportTerm.termId);
-                  if (ref.success) setFederation(Array.isArray(ref.data) ? ref.data : []);
-                } else {
-                  const detail = resp?.details ? (Array.isArray(resp.details) ? resp.details.join(', ') : JSON.stringify(resp.details)) : '';
-                  showErrorToast('Save failed', `${resp.message || 'Failed to update SK Federation officers'}${detail ? ` — ${detail}` : ''}`);
+                // Frontend validation: Check for duplicate official assignments
+                const assignedOfficials = assignments.map(a => a.official_id);
+                const duplicateIds = assignedOfficials.filter((id, index) => 
+                  assignedOfficials.indexOf(id) !== index
+                );
+                
+                if (duplicateIds.length > 0) {
+                  const duplicatePositions = assignments
+                    .filter(a => duplicateIds.includes(a.official_id))
+                    .map(a => a.position);
+                  const officialName = termOfficials.find(o => 
+                    (o.skId || o.sk_id) === duplicateIds[0]
+                  );
+                  const name = officialName 
+                    ? `${officialName.firstName || officialName.first_name || ''} ${officialName.lastName || officialName.last_name || ''}`.trim()
+                    : 'Official';
+                  showErrorToast(
+                    'Duplicate Assignment',
+                    `${name} is assigned to multiple positions: ${duplicatePositions.join(', ')}. Each official can only hold one federation position.`
+                  );
+                  return;
                 }
-              } catch (e) {
-                showErrorToast('Save failed', e.message || 'Failed to update SK Federation officers');
+
+                // Build summary of changes for confirmation dialog
+                const changes = [];
+                assignments.forEach(assignment => {
+                  const existing = (federation || []).find(f => f.position === assignment.position);
+                  if (!existing) {
+                    const official = termOfficials.find(o => (o.skId || o.sk_id) === assignment.official_id);
+                    const name = official 
+                      ? `${official.firstName || official.first_name || ''} ${official.lastName || official.last_name || ''}`.trim()
+                      : 'Official';
+                    changes.push(`• ${assignment.position}: Assign ${name}`);
+                  } else if ((existing.official_id || existing.officialId) !== assignment.official_id) {
+                    const existingOfficialId = existing.official_id || existing.officialId;
+                    const oldOfficial = termOfficials.find(o => (o.skId || o.sk_id) === existingOfficialId);
+                    const newOfficial = termOfficials.find(o => (o.skId || o.sk_id) === assignment.official_id);
+                    const oldName = oldOfficial 
+                      ? `${oldOfficial.firstName || oldOfficial.first_name || ''} ${oldOfficial.lastName || oldOfficial.last_name || ''}`.trim()
+                      : 'Official';
+                    const newName = newOfficial 
+                      ? `${newOfficial.firstName || newOfficial.first_name || ''} ${newOfficial.lastName || newOfficial.last_name || ''}`.trim()
+                      : 'Official';
+                    changes.push(`• ${assignment.position}: Change from ${oldName} to ${newName}`);
+                  }
+                });
+
+                // Store editingPosition before closing modal
+                const currentEditingPosition = editingPosition;
+
+                // Close the modal first
+                setShowEditFederation(false);
+                setEditingPosition(null);
+
+                // Small delay to ensure modal closes before showing confirmation
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                // Show confirmation dialog
+                const confirmed = await (confirmation.showConfirmation
+                  ? confirmation.showConfirmation({
+                      title: 'Confirm Federation Changes',
+                      message: changes.length > 0 
+                        ? `You are about to make the following changes:\n\n${changes.join('\n')}\n\nDo you want to proceed?`
+                        : 'Are you sure you want to save these federation assignments?',
+                      confirmText: 'Save Changes',
+                      cancelText: 'Cancel',
+                      variant: 'primary'
+                    })
+                  : Promise.resolve(true));
+
+                if (!confirmed) {
+                  // If cancelled, reopen the modal so user can make changes
+                  setShowEditFederation(true);
+                  if (currentEditingPosition) {
+                    setEditingPosition(currentEditingPosition);
+                  }
+                  return;
+                }
+
+                // Set loading state on confirmation modal button
+                confirmation.setLoading && confirmation.setLoading(true);
+
+                try {
+                  const resp = await skService.updateFederation(reportTerm.termId, assignments);
+                  
+                  // Close confirmation modal after API call completes
+                  confirmation.hideConfirmation && confirmation.hideConfirmation();
+                  
+                  // Small delay to ensure confirmation modal closes before showing toast
+                  await new Promise(resolve => setTimeout(resolve, 150));
+
+                  if (resp.success) {
+                    showSuccessToast('Federation saved', 'SK Federation officers updated');
+                    // Refresh
+                    const ref = await skService.getFederation(reportTerm.termId);
+                    if (ref.success) setFederation(Array.isArray(ref.data) ? ref.data : []);
+                  } else {
+                    const detail = resp?.details ? (Array.isArray(resp.details) ? resp.details.join(', ') : JSON.stringify(resp.details)) : '';
+                    showErrorToast('Save failed', `${resp.message || 'Failed to update SK Federation officers'}${detail ? ` — ${detail}` : ''}`);
+                    // Reopen modal on error so user can try again
+                    setShowEditFederation(true);
+                    if (currentEditingPosition) {
+                      setEditingPosition(currentEditingPosition);
+                    }
+                  }
+                } catch (e) {
+                  // Close confirmation modal on error
+                  confirmation.hideConfirmation && confirmation.hideConfirmation();
+                  
+                  // Small delay to ensure confirmation modal closes before showing toast
+                  await new Promise(resolve => setTimeout(resolve, 150));
+                  
+                  showErrorToast('Save failed', e.message || 'Failed to update SK Federation officers');
+                  // Reopen modal on error so user can try again
+                  setShowEditFederation(true);
+                  if (currentEditingPosition) {
+                    setEditingPosition(currentEditingPosition);
+                  }
+                }
+              } catch (error) {
+                // Handle any errors that occur before the API call
+                logger.error('Error in federation save handler', error);
+                showErrorToast('An error occurred', error.message || 'Failed to process federation changes');
+                // Reopen modal on error
+                setShowEditFederation(true);
+                if (editingPosition) {
+                  setEditingPosition(editingPosition);
+                }
               }
             }}
             className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"

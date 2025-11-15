@@ -658,7 +658,7 @@ Please review this action in the admin dashboard.
             <p>Click the button below to securely reset your password:</p>
             
             <div class="button-container">
-              <a href="${data.resetUrl}" class="button">Reset Password</a>
+            <a href="${data.resetUrl}" class="button">Reset Password</a>
             </div>
             
             <div class="link-box">
