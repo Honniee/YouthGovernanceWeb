@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Lock, Eye, EyeOff, CheckCircle, XCircle, Loader2, AlertCircle, ArrowRight, Shield } from 'lucide-react';
+import { Lock, Eye, EyeOff, CheckCircle, XCircle, Loader2, AlertCircle, ArrowRight, Shield, Mail, ArrowLeft } from 'lucide-react';
 import PublicLayout from '../../components/layouts/PublicLayout';
 import ReCaptchaComponent from '../../components/ui/ReCaptchaComponent';
 import { useReCaptcha } from '../../hooks/useReCaptcha';
@@ -118,9 +118,10 @@ const ResetPassword = () => {
     setErrors({});
 
     try {
-      const recaptchaToken = recaptcha.getToken();
+      // Get reCAPTCHA token - use token property or getValue method
+      const recaptchaToken = recaptcha.token || recaptcha.getValue();
       
-      if (!recaptchaToken) {
+      if (!recaptchaToken || !recaptcha.isVerified) {
         setErrors({ recaptcha: 'Please complete the reCAPTCHA verification.' });
         setIsSubmitting(false);
         return;
@@ -170,11 +171,87 @@ const ResetPassword = () => {
     }
   };
 
+  // Reusable header component
+  const CustomHeader = () => (
+    <>
+      {/* Top utility bar */}
+      <div className="bg-[#24345A] fixed top-0 left-0 right-0 z-50">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 h-10 flex items-center justify-between">
+          <Link 
+            to="/"
+            className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white hover:bg-white/10 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 opacity-90" />
+            <span className="tracking-wide">Back to Website</span>
+          </Link>
+          <a
+            href="mailto:lydo@sanjosebatangas.gov.ph"
+            title="Contact LYDO via email"
+            className="inline-flex items-center gap-2 text-xs text-white/85 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 px-2.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          >
+            <Mail className="w-3.5 h-3.5 opacity-90" />
+            <span className="tracking-wide">lydo@sanjosebatangas.gov.ph</span>
+          </a>
+        </div>
+      </div>
+
+      {/* Enhanced Header */}
+      <div className="bg-white border-b border-gray-200 fixed top-[40px] left-0 right-0 z-40">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-3 sm:py-4">
+            {/* Desktop: Horizontal Layout */}
+            <div className="hidden sm:grid grid-cols-3 items-center">
+              {/* Left: Municipality Info */}
+              <div className="flex items-center gap-3">
+                <img 
+                  src={new URL('../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} 
+                  alt="Municipality Seal" 
+                  className="w-9 h-9 rounded-full border" 
+                />
+                <div>
+                  <div className="text-sm text-gray-600">Municipality of San Jose, Batangas</div>
+                  <div className="text-xs text-gray-500">Local Youth Development Office</div>
+                </div>
+              </div>
+
+              {/* Center: Page Title */}
+              <div className="flex justify-center">
+                <h1 className="text-xl font-bold text-gray-900">Reset Password</h1>
+              </div>
+
+              {/* Right: Empty for balance */}
+              <div></div>
+            </div>
+
+            {/* Mobile: Stacked Layout */}
+            <div className="block sm:hidden">
+              <div className="flex items-center gap-2">
+                <img 
+                  src={new URL('../../assets/logos/san_jose_logo.webp', import.meta.url).toString()} 
+                  alt="Municipality Seal" 
+                  className="w-7 h-7 rounded-full border flex-shrink-0" 
+                />
+                <div className="text-left flex-1">
+                  <div className="text-xs text-gray-600 leading-tight">Municipality of San Jose, Batangas</div>
+                  <div className="text-xs text-gray-500 leading-tight">Local Youth Development Office</div>
+                </div>
+              </div>
+              <div className="text-center mt-2">
+                <h1 className="text-lg font-bold text-gray-900">Reset Password</h1>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   // Loading state
   if (tokenValid === null) {
     return (
-      <PublicLayout>
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <PublicLayout showHeader={false} showFooter={true}>
+        <CustomHeader />
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 pt-[144px]">
           <div className="w-full max-w-[900px]">
             <div className="bg-white rounded-2xl p-8 text-center">
               <Loader2 className="animate-spin h-12 w-12 text-[#24345A] mx-auto mb-4" />
@@ -189,8 +266,9 @@ const ResetPassword = () => {
   // Invalid token state
   if (tokenValid === false) {
     return (
-      <PublicLayout>
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <PublicLayout showHeader={false} showFooter={true}>
+        <CustomHeader />
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 pt-[144px]">
           <div className="w-full max-w-[900px]">
             <div className="bg-white overflow-hidden rounded-2xl">
               <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[400px] sm:min-h-[500px] lg:min-h-[600px]">
@@ -251,8 +329,9 @@ const ResetPassword = () => {
   // Success state
   if (success) {
     return (
-      <PublicLayout>
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <PublicLayout showHeader={false} showFooter={true}>
+        <CustomHeader />
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 pt-[144px]">
           <div className="w-full max-w-[900px]">
             <div className="bg-white overflow-hidden rounded-2xl">
               <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[400px] sm:min-h-[500px] lg:min-h-[600px]">
@@ -304,8 +383,9 @@ const ResetPassword = () => {
 
   // Reset form (token is valid)
   return (
-    <PublicLayout>
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <PublicLayout showHeader={false} showFooter={true}>
+      <CustomHeader />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 pt-[144px]">
         <div className="w-full max-w-[900px]">
           <div className="bg-white overflow-hidden rounded-2xl">
             <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[400px] sm:min-h-[500px] lg:min-h-[600px]">

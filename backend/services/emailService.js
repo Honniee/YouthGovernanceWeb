@@ -483,37 +483,203 @@ Please review this action in the admin dashboard.
   generatePasswordResetHTML(data) {
     return `
       <!DOCTYPE html>
-      <html>
+      <html lang="en">
       <head>
         <meta charset="utf-8">
-        <title>Password Reset Request</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset Request - LYDO Youth Governance</title>
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: #059669; color: white; padding: 20px; text-align: center; }
-          .content { padding: 20px; background: #f9fafb; }
-          .button { display: inline-block; background: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+            line-height: 1.6; 
+            color: #1f2937; 
+            background-color: #f3f4f6;
+            padding: 20px;
+          }
+          .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #24345A 0%, #1e2a47 100%);
+            color: white;
+            padding: 32px 24px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+          }
+          .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            opacity: 0.1;
+            background-image: 
+              radial-gradient(circle at 20% 20%, rgba(255,255,255,0.2) 1px, transparent 1px),
+              radial-gradient(circle at 80% 80%, rgba(255,255,255,0.15) 1px, transparent 1px);
+            background-size: 40px 40px;
+          }
+          .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            position: relative;
+            z-index: 1;
+          }
+          .header p {
+            font-size: 14px;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+          }
+          .content {
+            padding: 40px 32px;
+            background-color: #ffffff;
+          }
+          .content h2 {
+            font-size: 22px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 16px;
+          }
+          .content p {
+            font-size: 15px;
+            color: #4b5563;
+            margin-bottom: 16px;
+            line-height: 1.7;
+          }
+          .button-container {
+            text-align: center;
+            margin: 32px 0;
+          }
+          .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #24345A 0%, #1e2a47 100%);
+            color: white;
+            padding: 14px 32px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(36, 52, 90, 0.2);
+          }
+          .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(36, 52, 90, 0.3);
+          }
+          .link-box {
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 24px 0;
+            word-break: break-all;
+          }
+          .link-box p {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 8px;
+          }
+          .link-box a {
+            color: #24345A;
+            text-decoration: none;
+            font-size: 13px;
+            word-break: break-all;
+          }
+          .info-box {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 16px;
+            margin: 24px 0;
+            border-radius: 4px;
+          }
+          .info-box p {
+            font-size: 14px;
+            color: #92400e;
+            margin-bottom: 0;
+          }
+          .warning-box {
+            background-color: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 16px;
+            margin: 24px 0;
+            border-radius: 4px;
+          }
+          .warning-box p {
+            font-size: 14px;
+            color: #991b1b;
+            margin-bottom: 0;
+          }
+          .footer {
+            background-color: #f9fafb;
+            padding: 24px 32px;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+          }
+          .footer p {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 8px;
+          }
+          .footer .logo-text {
+            font-weight: 700;
+            color: #24345A;
+            font-size: 16px;
+            margin-bottom: 8px;
+          }
+          @media only screen and (max-width: 600px) {
+            body { padding: 10px; }
+            .content { padding: 24px 20px; }
+            .header { padding: 24px 20px; }
+            .header h1 { font-size: 20px; }
+            .button { padding: 12px 24px; font-size: 14px; }
+          }
         </style>
       </head>
       <body>
-        <div class="container">
+        <div class="email-wrapper">
           <div class="header">
             <h1>Password Reset Request</h1>
+            <p>LYDO Youth Governance System</p>
           </div>
+          
           <div class="content">
             <h2>Reset Your Password</h2>
-            <p>You have requested to reset your password for the LYDO Youth Governance System.</p>
+            <p>You have requested to reset your password for the <strong>LYDO Youth Governance System</strong>.</p>
             
-            <p>Click the button below to reset your password:</p>
+            <p>Click the button below to securely reset your password:</p>
             
-            <a href="${data.resetUrl}" class="button">Reset Password</a>
+            <div class="button-container">
+              <a href="${data.resetUrl}" class="button">Reset Password</a>
+            </div>
             
-            <p>Or copy and paste this link in your browser:</p>
-            <p>${data.resetUrl}</p>
+            <div class="link-box">
+              <p><strong>Or copy and paste this link in your browser:</strong></p>
+              <a href="${data.resetUrl}">${data.resetUrl}</a>
+            </div>
             
-            <p><strong>Note:</strong> This link will expire in 1 hour for security reasons.</p>
+            <div class="info-box">
+              <p><strong>⏰ Important:</strong> This reset link will expire in <strong>1 hour</strong> for security reasons.</p>
+            </div>
             
-            <p>If you didn't request this password reset, please ignore this email.</p>
+            <div class="warning-box">
+              <p><strong>⚠️ Security Notice:</strong> If you didn't request this password reset, please ignore this email. Your account remains secure.</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p class="logo-text">Local Youth Development Office</p>
+            <p>Municipality of San Jose, Batangas</p>
+            <p style="margin-top: 12px;">Email: lydo@sanjosebatangas.gov.ph</p>
+            <p style="margin-top: 16px; font-size: 12px; color: #9ca3af;">© ${new Date().getFullYear()} LYDO. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -526,18 +692,24 @@ Please review this action in the admin dashboard.
    */
   generatePasswordResetText(data) {
     return `
-Password Reset Request
+Password Reset Request - LYDO Youth Governance System
 
 Reset Your Password
 
 You have requested to reset your password for the LYDO Youth Governance System.
 
-Click the link below to reset your password:
+Click the link below to securely reset your password:
 ${data.resetUrl}
 
-Note: This link will expire in 1 hour for security reasons.
+IMPORTANT: This reset link will expire in 1 hour for security reasons.
 
-If you didn't request this password reset, please ignore this email.
+SECURITY NOTICE: If you didn't request this password reset, please ignore this email. Your account remains secure.
+
+---
+Local Youth Development Office
+Municipality of San Jose, Batangas
+Email: lydo@sanjosebatangas.gov.ph
+© ${new Date().getFullYear()} LYDO. All rights reserved.
     `;
   }
 

@@ -1028,9 +1028,9 @@ router.post('/forgot-password', [
     const normalizedEmail = email.toLowerCase().trim();
     logger.debug('Password reset request', { email: normalizedEmail });
 
-    // Check LYDO table (personal_email only)
+    // Check LYDO table (personal_email only) - must be active
     let userQuery = `
-      SELECT lydo_id, personal_email, first_name, last_name, is_active,
+      SELECT l.lydo_id, l.personal_email, l.first_name, l.last_name, l.is_active,
              CASE 
                WHEN r.role_name = 'admin' THEN 'admin'
                ELSE 'lydo_staff'
@@ -1044,7 +1044,12 @@ router.post('/forgot-password', [
     let user = result.rows[0];
     let userType = user?.user_type;
 
-    // If not found in LYDO, check SK Officials (personal_email only)
+    // Set user_id if found in LYDO
+    if (user) {
+      user.user_id = user.lydo_id;
+    }
+
+    // If not found in LYDO, check SK Officials (personal_email only) - must be active and have account access
     if (!user) {
       userQuery = `
         SELECT sk_id, personal_email, first_name, last_name, is_active, account_access
@@ -1057,24 +1062,16 @@ router.post('/forgot-password', [
         user.user_id = user.sk_id;
         userType = 'sk_official';
       }
-    } else {
-      user.user_id = user.lydo_id;
     }
 
-    // If not found, check Youth (email field - this is their personal email)
-    if (!user) {
-      userQuery = `
-        SELECT youth_id, email, first_name, last_name, is_active
-        FROM "Youth_Profiling"
-        WHERE email = $1 AND is_active = true
-      `;
-      result = await query(userQuery, [normalizedEmail]);
-      user = result.rows[0];
-      if (user) {
-        user.user_id = user.youth_id;
-        user.personal_email = user.email; // For Youth, email is their personal email
-        userType = 'youth';
-      }
+    // Additional validation: Ensure user is active (double-check)
+    if (user && !user.is_active) {
+      logger.warn('Password reset requested for inactive user', { email: normalizedEmail });
+      // Return success to prevent user enumeration
+      return res.json({
+        success: true,
+        message: 'If an account exists with that email, a password reset link has been sent.'
+      });
     }
 
     // SECURITY: Always return success message (don't reveal if email exists)
@@ -1138,9 +1135,20 @@ router.post('/forgot-password', [
     });
 
   } catch (error) {
-    logger.error('Forgot password error', { error: error.message, stack: error.stack, email: req.body?.email });
+    logger.error('Forgot password error', { 
+      error: error.message, 
+      stack: error.stack, 
+      email: req.body?.email,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Log full error details for debugging
+    console.error('Full forgot password error:', error);
+    
     // Always return success to prevent user enumeration
-    res.json({
+    // But log the actual error for debugging
+    res.status(200).json({
       success: true,
       message: 'If an account exists with that email, a password reset link has been sent.'
     });
