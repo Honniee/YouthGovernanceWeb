@@ -1207,8 +1207,24 @@ const SKManagement = () => {
       }
 
       // Validate position availability before submission
+      if (!hasActiveTerm || !activeTerm?.termId) {
+        showErrorToast('No active term', 'Please activate an SK term before creating officials.');
+        return;
+      }
+
+      logger.debug('Validating position before creation', {
+        barangayId: barangayOption.id,
+        position: formData.position,
+        termId: activeTerm.termId
+      });
+
       const positionValidation = await validatePosition(barangayOption.id, formData.position);
       if (!positionValidation.isValid) {
+        logger.error('Position validation failed', null, {
+          barangayId: barangayOption.id,
+          position: formData.position,
+          error: positionValidation.error
+        });
         showErrorToast('Position not available', positionValidation.error);
         return;
       }
@@ -1231,7 +1247,23 @@ const SKManagement = () => {
         hasEmail: !!submitData.personalEmail
       });
 
+      logger.debug('Calling createSKOfficial API', {
+        hasBarangayId: !!submitData.barangayId,
+        hasPosition: !!submitData.position,
+        hasEmail: !!submitData.personalEmail,
+        hasFirstName: !!submitData.firstName,
+        hasLastName: !!submitData.lastName
+      });
+
       const response = await skService.createSKOfficial(submitData);
+      
+      logger.debug('createSKOfficial API response', {
+        success: response.success,
+        hasMessage: !!response.message,
+        hasDetails: !!response.details,
+        status: response.status
+      });
+
       if (response.success) {
         // Create success toast with actions
         const { credentials, skOfficial } = response.data;
@@ -1286,11 +1318,29 @@ const SKManagement = () => {
       }
     } catch (error) {
       logger.error('Error creating SK official', error, { 
-        formData: { ...formData, personalEmail: '***' } // Hide email in logs
+        formData: { ...formData, personalEmail: '***' }, // Hide email in logs
+        responseStatus: error.response?.status,
+        responseData: error.response?.data
       });
-      const errorMessage = error.response?.data?.message 
-        ? `${error.response.data.message}${error.response.data.errors ? '\n\n' + error.response.data.errors.join('\n') : ''}`
-        : error.message || 'An error occurred while creating the SK official';
+      
+      // Build comprehensive error message
+      let errorMessage = 'An error occurred while creating the SK official';
+      
+      if (error.response?.data) {
+        const data = error.response.data;
+        if (data.message) {
+          errorMessage = data.message;
+        }
+        if (data.errors && Array.isArray(data.errors)) {
+          errorMessage += '\n\n' + data.errors.map(e => typeof e === 'string' ? e : e.msg || JSON.stringify(e)).join('\n');
+        } else if (data.details) {
+          const details = Array.isArray(data.details) ? data.details : [data.details];
+          errorMessage += '\n\nDetails:\n• ' + details.map(d => typeof d === 'string' ? d : JSON.stringify(d)).join('\n• ');
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       showErrorToast('Error creating SK official', errorMessage);
     }
   };
