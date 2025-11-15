@@ -500,9 +500,9 @@ const ResetPassword = () => {
             </div>
           </div>
         </div>
+      </div>
       </PublicLayout>
     );
-  };
 };
 
 export default ResetPassword;

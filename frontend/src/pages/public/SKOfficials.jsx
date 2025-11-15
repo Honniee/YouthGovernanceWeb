@@ -248,9 +248,9 @@ const SKOfficials = () => {
         if (result.success) {
           if (result.data) {
             setActiveTerm(result.data);
-          } else {
+        } else {
             // No active term found - this is not an error, just means no term is active
-            setActiveTerm(null);
+          setActiveTerm(null);
             setTermError(null);
           }
         } else {
@@ -482,7 +482,7 @@ const SKOfficials = () => {
                   {!activeTerm ? (
                     <Clock className="w-10 h-10 text-gray-400" />
                   ) : (
-                    <User className="w-10 h-10 text-gray-400" />
+                  <User className="w-10 h-10 text-gray-400" />
                   )}
                 </div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">
@@ -706,7 +706,7 @@ const SKOfficials = () => {
                   {!activeTerm ? (
                     <Clock className="w-10 h-10 text-gray-400" />
                   ) : searchTerm ? (
-                    <Search className="w-10 h-10 text-gray-400" />
+                  <Search className="w-10 h-10 text-gray-400" />
                   ) : (
                     <Users className="w-10 h-10 text-gray-400" />
                   )}
@@ -722,7 +722,7 @@ const SKOfficials = () => {
                   {!activeTerm
                     ? "There is no active SK term at this time. Chairpersons will be displayed once a term is activated."
                     : searchTerm 
-                      ? `No chairpersons match your search "${searchTerm}". Try adjusting your search terms.`
+                    ? `No chairpersons match your search "${searchTerm}". Try adjusting your search terms.`
                       : "There are currently no chairpersons assigned for the active term."}
                 </p>
                 {searchTerm && (
@@ -886,7 +886,7 @@ const SKOfficials = () => {
                   ) : officialsSearchTerm ? (
                     <Search className="w-10 h-10 text-gray-400" />
                   ) : (
-                    <Users className="w-10 h-10 text-gray-400" />
+                  <Users className="w-10 h-10 text-gray-400" />
                   )}
                 </div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">
@@ -900,7 +900,7 @@ const SKOfficials = () => {
                   {!activeTerm
                     ? "There is no active SK term at this time. Officials will be displayed once a term is activated."
                     : officialsSearchTerm 
-                      ? `No officials match your search "${officialsSearchTerm}". Try adjusting your search terms.`
+                    ? `No officials match your search "${officialsSearchTerm}". Try adjusting your search terms.`
                       : "There are currently no SK officials assigned for the active term."}
                 </p>
                 {officialsSearchTerm && (

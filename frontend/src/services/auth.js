@@ -15,6 +15,7 @@ export const authService = {
       const response = await apiHelpers.post('/auth/login', {
         email,
         password,
+        rememberMe,
         recaptchaToken
       });
 

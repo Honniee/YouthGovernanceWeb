@@ -29,8 +29,8 @@ const ProtectedRoute = ({ children, requiredRole = null, requiredPermissions = [
       // This prevents cached access after logout
       if (!isAuthenticated) {
         if (isMounted) {
-          setAuthValid(false);
-          setIsVerifying(false);
+        setAuthValid(false);
+        setIsVerifying(false);
         }
         return;
       }
@@ -39,19 +39,19 @@ const ProtectedRoute = ({ children, requiredRole = null, requiredPermissions = [
         // Verify with backend that the session is still valid
         const result = await getCurrentUser();
         if (isMounted) {
-          if (result.success) {
-            setAuthValid(true);
-          } else {
-            setAuthValid(false);
+        if (result.success) {
+          setAuthValid(true);
+        } else {
+          setAuthValid(false);
             // Don't retry on failure - redirect to login
           }
           setIsVerifying(false);
         }
       } catch (error) {
         if (isMounted) {
-          logger.error('Auth verification failed', error);
-          setAuthValid(false);
-          setIsVerifying(false);
+        logger.error('Auth verification failed', error);
+        setAuthValid(false);
+        setIsVerifying(false);
           // Don't retry on error - redirect to login
         }
       }

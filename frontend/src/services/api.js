@@ -166,7 +166,7 @@ api.interceptors.request.use(
       // Add CSRF token to header if available
       // Use both header names for compatibility
       if (csrfToken) {
-        config.headers['X-CSRF-Token'] = csrfToken;
+      config.headers['X-CSRF-Token'] = csrfToken;
         config.headers['X-XSRF-Token'] = csrfToken; // Also set X-XSRF-Token for compatibility
         logger.debug('CSRF token added to request', { 
           url: config.url, 
