@@ -200,7 +200,7 @@ const processStaffRecord = async (rowData, rowIndex, req, client) => {
     }
 
     const password = generateSecurePassword(12);
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12); // Use 12 salt rounds for consistency with password reset/change
 
     const staffData = {
       lydoId,

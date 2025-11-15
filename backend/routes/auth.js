@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { body, validationResult } from 'express-validator';
 import { query } from '../config/database.js';
 import { verifyRecaptcha, bypassRecaptchaInDev } from '../middleware/recaptcha.js';
-import { loginRateLimiter, recordFailedAttempt, resetFailedAttempts } from '../middleware/rateLimiter.js';
+import { loginRateLimiter, recordFailedAttempt, resetFailedAttempts, forgotPasswordRateLimiter } from '../middleware/rateLimiter.js';
 import { authenticateToken as auth } from '../middleware/auth.js';
 import { validateCSRF } from '../middleware/csrf.js';
 import multer from 'multer';
@@ -13,6 +13,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import activityLogService from '../services/activityLogService.js';
+import emailService from '../services/emailService.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -75,8 +76,8 @@ router.post('/login', [
       });
     }
 
-    const { email, password } = req.body;
-    logger.debug('Login attempt', { email });
+    const { email, password, rememberMe } = req.body;
+    logger.debug('Login attempt', { email, rememberMe: !!rememberMe });
 
     // Check LYDO table first
     let userQuery = `
@@ -183,8 +184,11 @@ router.post('/login', [
     }, '15m'); // 15 minutes for access token
 
     // Generate refresh token (longer-lived, stored in database)
+    // If "Remember Me" is checked, extend refresh token to 30 days; otherwise 7 days
     const refreshToken = crypto.randomBytes(64).toString('hex');
-    const refreshTokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const refreshTokenDays = rememberMe === true ? 30 : 7; // 30 days if remember me, 7 days otherwise
+    const refreshTokenExpiry = new Date(Date.now() + refreshTokenDays * 24 * 60 * 60 * 1000);
+    logger.debug('Refresh token expiration', { rememberMe: !!rememberMe, days: refreshTokenDays, expiresAt: refreshTokenExpiry });
 
     // Store refresh token in database
     await query(`
@@ -253,12 +257,15 @@ router.post('/login', [
       path: '/'
     });
 
-    // Refresh token cookie (7 days)
+    // Refresh token cookie (30 days if "Remember Me" checked, 7 days otherwise)
+    const refreshTokenMaxAge = rememberMe === true 
+      ? 30 * 24 * 60 * 60 * 1000  // 30 days if remember me
+      : 7 * 24 * 60 * 60 * 1000;  // 7 days otherwise
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,           // Not accessible to JavaScript
       secure: secureValue,       // HTTPS only in production (required for sameSite: 'none')
       sameSite: sameSiteValue,   // 'none' for cross-origin, 'lax' for same-origin
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: refreshTokenMaxAge,
       path: '/'
     });
 
@@ -994,6 +1001,349 @@ router.put('/change-password', auth, validateCSRF, [
     res.status(500).json({ 
       success: false, 
       message: 'Failed to change password' 
+    });
+  }
+});
+
+// @route   POST /api/auth/forgot-password
+// @desc    Request password reset (sends email with reset link)
+// @access  Public
+router.post('/forgot-password', [
+  forgotPasswordRateLimiter,
+  body('email').isEmail().normalizeEmail(),
+  process.env.NODE_ENV === 'production' ? verifyRecaptcha : bypassRecaptchaInDev
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      logger.warn('Forgot password validation errors', { errors: errors.array() });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Please provide a valid email address.',
+        errors: errors.array() 
+      });
+    }
+
+    const { email } = req.body;
+    const normalizedEmail = email.toLowerCase().trim();
+    logger.debug('Password reset request', { email: normalizedEmail });
+
+    // Check LYDO table (personal_email only)
+    let userQuery = `
+      SELECT lydo_id, personal_email, first_name, last_name, is_active,
+             CASE 
+               WHEN r.role_name = 'admin' THEN 'admin'
+               ELSE 'lydo_staff'
+             END as user_type
+      FROM "LYDO" l
+      JOIN "Roles" r ON l.role_id = r.role_id
+      WHERE l.personal_email = $1 AND l.is_active = true
+    `;
+    
+    let result = await query(userQuery, [normalizedEmail]);
+    let user = result.rows[0];
+    let userType = user?.user_type;
+
+    // If not found in LYDO, check SK Officials (personal_email only)
+    if (!user) {
+      userQuery = `
+        SELECT sk_id, personal_email, first_name, last_name, is_active, account_access
+        FROM "SK_Officials"
+        WHERE personal_email = $1 AND is_active = true AND account_access = true
+      `;
+      result = await query(userQuery, [normalizedEmail]);
+      user = result.rows[0];
+      if (user) {
+        user.user_id = user.sk_id;
+        userType = 'sk_official';
+      }
+    } else {
+      user.user_id = user.lydo_id;
+    }
+
+    // If not found, check Youth (email field - this is their personal email)
+    if (!user) {
+      userQuery = `
+        SELECT youth_id, email, first_name, last_name, is_active
+        FROM "Youth_Profiling"
+        WHERE email = $1 AND is_active = true
+      `;
+      result = await query(userQuery, [normalizedEmail]);
+      user = result.rows[0];
+      if (user) {
+        user.user_id = user.youth_id;
+        user.personal_email = user.email; // For Youth, email is their personal email
+        userType = 'youth';
+      }
+    }
+
+    // SECURITY: Always return success message (don't reveal if email exists)
+    // This prevents user enumeration attacks
+    if (!user) {
+      logger.debug('Password reset requested for non-existent email', { email: normalizedEmail });
+      return res.json({
+        success: true,
+        message: 'If an account exists with that email, a password reset link has been sent.'
+      });
+    }
+
+    // Invalidate any existing reset tokens for this user
+    await query(`
+      DELETE FROM "Password_Reset_Tokens"
+      WHERE user_id = $1 AND user_type = $2 AND used_at IS NULL
+    `, [user.user_id, userType]);
+
+    // Generate secure reset token (32 bytes, hex encoded = 64 characters)
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    
+    // Token expires in 1 hour
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    // Store token hash in database
+    await query(`
+      INSERT INTO "Password_Reset_Tokens" (token_hash, user_id, user_type, email, expires_at)
+      VALUES ($1, $2, $3, $4, $5)
+    `, [tokenHash, user.user_id, userType, user.personal_email, expiresAt]);
+
+    // Generate reset URL
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+    // Send password reset email
+    const emailSent = await emailService.sendPasswordResetEmail({
+      email: user.personal_email,
+      resetToken: resetToken, // Plain token for URL (not stored in DB)
+      resetUrl: resetUrl
+    });
+
+    if (!emailSent) {
+      logger.error('Failed to send password reset email', { email: user.personal_email, userId: user.user_id });
+      // Still return success to prevent user enumeration
+      return res.json({
+        success: true,
+        message: 'If an account exists with that email, a password reset link has been sent.'
+      });
+    }
+
+    logger.info('Password reset email sent', { 
+      email: user.personal_email, 
+      userId: user.user_id, 
+      userType: userType 
+    });
+
+    res.json({
+      success: true,
+      message: 'If an account exists with that email, a password reset link has been sent.'
+    });
+
+  } catch (error) {
+    logger.error('Forgot password error', { error: error.message, stack: error.stack, email: req.body?.email });
+    // Always return success to prevent user enumeration
+    res.json({
+      success: true,
+      message: 'If an account exists with that email, a password reset link has been sent.'
+    });
+  }
+});
+
+// @route   GET /api/auth/verify-reset-token/:token
+// @desc    Verify if password reset token is valid
+// @access  Public
+router.get('/verify-reset-token/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    if (!token || token.length !== 64) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: 'Invalid token format.'
+      });
+    }
+
+    // Hash the token to compare with stored hash
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Check if token exists, is not expired, and hasn't been used
+    const result = await query(`
+      SELECT token_hash, user_id, user_type, email, expires_at, used_at
+      FROM "Password_Reset_Tokens"
+      WHERE token_hash = $1
+    `, [tokenHash]);
+
+    if (result.rows.length === 0) {
+      return res.json({
+        success: true,
+        valid: false,
+        message: 'Invalid or expired reset token.'
+      });
+    }
+
+    const tokenRecord = result.rows[0];
+
+    // Check if token has been used
+    if (tokenRecord.used_at) {
+      return res.json({
+        success: true,
+        valid: false,
+        message: 'This reset token has already been used.'
+      });
+    }
+
+    // Check if token has expired
+    if (new Date(tokenRecord.expires_at) < new Date()) {
+      return res.json({
+        success: true,
+        valid: false,
+        message: 'This reset token has expired. Please request a new one.'
+      });
+    }
+
+    // Token is valid
+    res.json({
+      success: true,
+      valid: true,
+      message: 'Token is valid.'
+    });
+
+  } catch (error) {
+    logger.error('Verify reset token error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      valid: false,
+      message: 'Failed to verify token.'
+    });
+  }
+});
+
+// @route   POST /api/auth/reset-password
+// @desc    Reset password using token
+// @access  Public
+router.post('/reset-password', [
+  body('token').isLength({ min: 64, max: 64 }).withMessage('Invalid token format'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  process.env.NODE_ENV === 'production' ? verifyRecaptcha : bypassRecaptchaInDev
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      logger.warn('Reset password validation errors', { errors: errors.array() });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Please check your input and try again.',
+        errors: errors.array() 
+      });
+    }
+
+    const { token, password } = req.body;
+
+    // Hash the token to compare with stored hash
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Check if token exists, is not expired, and hasn't been used
+    const tokenResult = await query(`
+      SELECT token_hash, user_id, user_type, email, expires_at, used_at
+      FROM "Password_Reset_Tokens"
+      WHERE token_hash = $1
+    `, [tokenHash]);
+
+    if (tokenResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset token.'
+      });
+    }
+
+    const tokenRecord = tokenResult.rows[0];
+
+    // Check if token has been used
+    if (tokenRecord.used_at) {
+      return res.status(400).json({
+        success: false,
+        message: 'This reset token has already been used. Please request a new one.'
+      });
+    }
+
+    // Check if token has expired
+    if (new Date(tokenRecord.expires_at) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'This reset token has expired. Please request a new one.'
+      });
+    }
+
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Update password based on user type
+    let updateQuery;
+    if (tokenRecord.user_type === 'lydo_staff' || tokenRecord.user_type === 'admin') {
+      updateQuery = `
+        UPDATE "LYDO"
+        SET password_hash = $1, updated_at = NOW()
+        WHERE lydo_id = $2 AND is_active = true
+        RETURNING lydo_id, email, first_name, last_name
+      `;
+    } else if (tokenRecord.user_type === 'sk_official') {
+      updateQuery = `
+        UPDATE "SK_Officials"
+        SET password_hash = $1, updated_at = NOW()
+        WHERE sk_id = $2 AND is_active = true AND account_access = true
+        RETURNING sk_id, email, first_name, last_name
+      `;
+    } else if (tokenRecord.user_type === 'youth') {
+      updateQuery = `
+        UPDATE "Youth_Profiling"
+        SET password_hash = $1, updated_at = NOW()
+        WHERE youth_id = $2 AND is_active = true
+        RETURNING youth_id, email, first_name, last_name
+      `;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user type.'
+      });
+    }
+
+    const updateResult = await query(updateQuery, [passwordHash, tokenRecord.user_id]);
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found or account is inactive.'
+      });
+    }
+
+    // Mark token as used
+    await query(`
+      UPDATE "Password_Reset_Tokens"
+      SET used_at = NOW()
+      WHERE token_hash = $1
+    `, [tokenHash]);
+
+    // Revoke all refresh tokens for this user (security: force re-login after password reset)
+    await query(`
+      DELETE FROM "Refresh_Tokens"
+      WHERE user_id = $1 AND user_type = $2
+    `, [tokenRecord.user_id, tokenRecord.user_type]);
+
+    logger.info('Password reset successful', { 
+      userId: tokenRecord.user_id, 
+      userType: tokenRecord.user_type,
+      email: tokenRecord.email
+    });
+
+    res.json({
+      success: true,
+      message: 'Password has been reset successfully. Please log in with your new password.'
+    });
+
+  } catch (error) {
+    logger.error('Reset password error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset password. Please try again.'
     });
   }
 });

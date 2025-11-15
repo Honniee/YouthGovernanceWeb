@@ -213,4 +213,40 @@ export const resendEmailLimiter = rateLimit({
       error: 'rate_limit_exceeded'
     });
   }
+});
+
+// Forgot password rate limiter (based on email address)
+// Prevents email spam and abuse of password reset feature
+export const forgotPasswordRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour window
+  max: 3, // Maximum 3 password reset requests per hour per email
+  message: {
+    error: 'Too many password reset requests. Please wait before requesting another reset.',
+    retryAfter: '1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Custom key generator: use normalized email instead of IP
+  keyGenerator: (req) => {
+    const { email } = req.body || {};
+    if (email) {
+      // Use normalized email (lowercase) as key
+      return `forgot-password:${email.toLowerCase().trim()}`;
+    }
+    // Fallback to IP if email not provided (will fail validation anyway)
+    return req.ip || req.connection.remoteAddress;
+  },
+  skip: (req) => {
+    // Skip rate limiting if email is missing (will fail validation anyway)
+    const { email } = req.body || {};
+    return !email;
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      message: 'Too many password reset requests. Please wait 1 hour before requesting another reset.',
+      retryAfter: Math.ceil(req.rateLimit.resetTime / 1000),
+      error: 'rate_limit_exceeded'
+    });
+  }
 }); 

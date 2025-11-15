@@ -17,6 +17,8 @@ const About = lazy(() => import('../pages/public/About'));
 const SKOfficials = lazy(() => import('../pages/public/SKOfficials'));
 const LYDOCouncil = lazy(() => import('../pages/public/LYDOCouncil'));
 const Login = lazy(() => import('../pages/public/Login'));
+const ForgotPassword = lazy(() => import('../pages/public/ForgotPassword'));
+const ResetPassword = lazy(() => import('../pages/public/ResetPassword'));
 const Barangays = lazy(() => import('../pages/public/Barangays'));
 const Programs = lazy(() => import('../pages/public/Announcements'));
 const ProgramDetail = lazy(() => import('../pages/public/AnnouncementDetail'));
@@ -259,6 +261,20 @@ const RootNavigator = () => {
           <PublicRouteGuard>
             <Suspense fallback={null}>
               <Login />
+            </Suspense>
+          </PublicRouteGuard>
+        } />
+        <Route path="/forgot-password" element={
+          <PublicRouteGuard>
+            <Suspense fallback={<LoadingScreen />}>
+              <ForgotPassword />
+            </Suspense>
+          </PublicRouteGuard>
+        } />
+        <Route path="/reset-password" element={
+          <PublicRouteGuard>
+            <Suspense fallback={<LoadingScreen />}>
+              <ResetPassword />
             </Suspense>
           </PublicRouteGuard>
         } />
