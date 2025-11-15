@@ -77,8 +77,11 @@ export const validateCSRF = (req, res, next) => {
     // Get token from cookie
     const cookieToken = req.cookies?.['XSRF-TOKEN'];
     
-    // Get token from header or body
-    const headerToken = req.headers['x-csrf-token'] || req.headers['x-xsrf-token'];
+    // Get token from header or body (check multiple header name variations)
+    const headerToken = req.headers['x-csrf-token'] || 
+                       req.headers['x-xsrf-token'] || 
+                       req.headers['X-CSRF-Token'] || 
+                       req.headers['X-XSRF-Token'];
     const bodyToken = req.body?.csrfToken;
     const submittedToken = headerToken || bodyToken;
     

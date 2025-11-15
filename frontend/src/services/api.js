@@ -74,9 +74,13 @@ const fetchCSRFToken = async () => {
   csrfTokenPromise = api.get('/csrf-token')
     .then(response => {
       // Token should be set in cookie by backend
-      const token = response.data?.csrfToken || getCSRFTokenFromCookie();
+      // Priority: response header > response body > cookie
+      const token = response.headers['x-csrf-token'] || 
+                    response.data?.csrfToken || 
+                    getCSRFTokenFromCookie();
       if (token) {
         csrfTokenCache = token;
+        logger.debug('CSRF token fetched and cached', { hasToken: !!token });
       }
       csrfTokenPromise = null;
       return token;
@@ -85,7 +89,11 @@ const fetchCSRFToken = async () => {
       logger.warn('Failed to fetch CSRF token', error);
       csrfTokenPromise = null;
       // Try to get from cookie as fallback
-      return getCSRFTokenFromCookie();
+      const cookieToken = getCSRFTokenFromCookie();
+      if (cookieToken) {
+        csrfTokenCache = cookieToken;
+      }
+      return cookieToken;
     });
   
   return csrfTokenPromise;
@@ -107,21 +115,34 @@ api.interceptors.request.use(
     const isStateChanging = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(config.method?.toUpperCase());
     
     if (isStateChanging) {
-      // Try to get token from cache first
-      let csrfToken = csrfTokenCache || getCSRFTokenFromCookie();
+      // Always try to get fresh token from cookie first (most reliable)
+      let csrfToken = getCSRFTokenFromCookie();
       
-      // If token is not available, try to fetch it
+      // If not in cookie, try cache
+      if (!csrfToken) {
+        csrfToken = csrfTokenCache;
+      }
+      
+      // If still not available, fetch it (this will wait if already fetching)
       if (!csrfToken) {
         try {
           csrfToken = await fetchCSRFToken();
         } catch (error) {
-          logger.warn('Failed to get CSRF token for request', { url: config.url, method: config.method });
+          logger.warn('Failed to get CSRF token for request', { url: config.url, method: config.method, error: error.message });
         }
       }
       
       // Add CSRF token to header if available
+      // Use both header names for compatibility
       if (csrfToken) {
         config.headers['X-CSRF-Token'] = csrfToken;
+        config.headers['X-XSRF-Token'] = csrfToken; // Also set X-XSRF-Token for compatibility
+        logger.debug('CSRF token added to request', { 
+          url: config.url, 
+          method: config.method,
+          hasToken: !!csrfToken,
+          tokenLength: csrfToken?.length 
+        });
       } else {
         logger.warn('CSRF token not available for state-changing request', { 
           url: config.url, 
@@ -168,16 +189,19 @@ api.interceptors.response.use(
     }
     
     // Update CSRF token cache if token is received in response
-    const csrfTokenFromHeader = response.headers['x-csrf-token'];
+    // Priority: response header > response body > cookie
+    const csrfTokenFromHeader = response.headers['x-csrf-token'] || response.headers['X-CSRF-Token'];
     const csrfTokenFromBody = response.data?.csrfToken;
-    if (csrfTokenFromHeader || csrfTokenFromBody) {
-      csrfTokenCache = csrfTokenFromHeader || csrfTokenFromBody;
-    }
-    
-    // Also check cookie for CSRF token (in case it was updated)
     const csrfTokenFromCookie = getCSRFTokenFromCookie();
-    if (csrfTokenFromCookie && csrfTokenFromCookie !== csrfTokenCache) {
-      csrfTokenCache = csrfTokenFromCookie;
+    
+    // Use the most recent token available
+    const newToken = csrfTokenFromHeader || csrfTokenFromBody || csrfTokenFromCookie;
+    if (newToken && newToken !== csrfTokenCache) {
+      csrfTokenCache = newToken;
+      logger.debug('CSRF token cache updated from response', { 
+        source: csrfTokenFromHeader ? 'header' : csrfTokenFromBody ? 'body' : 'cookie',
+        hasToken: !!newToken 
+      });
     }
     
     // Calculate request duration for debugging
@@ -242,14 +266,26 @@ api.interceptors.response.use(
         case 403:
           // Forbidden - insufficient permissions or CSRF error
           if (error.response?.data?.message?.includes('CSRF')) {
-            logger.warn('CSRF token error', { url: error.config?.url, status });
+            logger.warn('CSRF token error', { url: error.config?.url, status, message: error.response?.data?.message });
             // Clear CSRF token cache and try to fetch new token
             csrfTokenCache = null;
             csrfTokenPromise = null;
+            
+            // Also clear the cookie token by trying to read it fresh
+            const freshCookieToken = getCSRFTokenFromCookie();
+            if (freshCookieToken) {
+              csrfTokenCache = freshCookieToken;
+              logger.debug('Updated CSRF cache from fresh cookie', { hasToken: !!freshCookieToken });
+            }
+            
             // Try to fetch new CSRF token (non-blocking)
             fetchCSRFToken()
-              .then(() => {
-                logger.info('CSRF token refreshed after error');
+              .then((newToken) => {
+                if (newToken) {
+                  logger.info('CSRF token refreshed after error', { hasToken: !!newToken });
+                } else {
+                  logger.warn('CSRF token refresh returned no token');
+                }
               })
               .catch((fetchError) => {
                 logger.error('Failed to refresh CSRF token', fetchError);
