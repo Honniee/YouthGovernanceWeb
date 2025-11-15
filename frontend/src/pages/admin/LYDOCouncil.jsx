@@ -793,8 +793,7 @@ const LYDOCouncil = () => {
   // Apply search
   const searchedMembers = filteredMembers.filter(member =>
     member.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    member.role?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    member.focus?.toLowerCase().includes(searchQuery.toLowerCase())
+    member.role?.toLowerCase().includes(searchQuery.toLowerCase())
   );
   
   // Filter and search roles

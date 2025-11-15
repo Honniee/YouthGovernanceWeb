@@ -22,10 +22,30 @@ export const getCouncilRoles = async (req, res) => {
 export const createCouncilRole = async (req, res) => {
   try {
     const { role_name, role_description = null } = req.body || {};
-    const created_by = req.user?.user_id; // Get from authenticated user
 
     if (!role_name) {
       return res.status(400).json({ success: false, message: 'role_name is required' });
+    }
+
+    // Get user_id from Users table (created_by must reference Users.user_id, not LYDO.lydo_id)
+    let created_by = null;
+    const lydoId = req.user?.id || req.user?.user_id || req.user?.lydo_id;
+    if (lydoId) {
+      try {
+        const userResult = await query(
+          'SELECT user_id FROM "Users" WHERE lydo_id = $1',
+          [lydoId]
+        );
+        if (userResult.rows.length > 0) {
+          created_by = userResult.rows[0].user_id;
+        }
+      } catch (err) {
+        logger.warn('Could not map lydo_id to user_id, using null for created_by', { error: err.message, stack: err.stack });
+      }
+    }
+
+    if (!created_by) {
+      return res.status(400).json({ success: false, message: 'User authentication required' });
     }
 
     const id = await generateCouncilRoleId();
@@ -156,33 +176,42 @@ export const createCouncilMember = async (req, res) => {
     const {
       role_id, // Changed: now expects role_id instead of role
       member_name,
-      focus = null,
-      description = null,
-      photo_url_1 = null,
-      photo_url_2 = null,
-      photo_url_3 = null,
-      term_start = null,
-      term_end = null,
-      sort_order = 0,
       is_active = true
     } = req.body || {};
 
-    const created_by = req.user?.user_id;
-
     if (!role_id || !member_name) {
       return res.status(400).json({ success: false, message: 'role_id and member_name are required' });
+    }
+
+    // Get user_id from Users table (created_by must reference Users.user_id, not LYDO.lydo_id)
+    let created_by = null;
+    const lydoId = req.user?.id || req.user?.user_id || req.user?.lydo_id;
+    if (lydoId) {
+      try {
+        const userResult = await query(
+          'SELECT user_id FROM "Users" WHERE lydo_id = $1',
+          [lydoId]
+        );
+        if (userResult.rows.length > 0) {
+          created_by = userResult.rows[0].user_id;
+        }
+      } catch (err) {
+        logger.warn('Could not map lydo_id to user_id, using null for created_by', { error: err.message, stack: err.stack });
+      }
+    }
+
+    if (!created_by) {
+      return res.status(400).json({ success: false, message: 'User authentication required' });
     }
 
     const id = await generateCouncilMemberId();
 
     const result = await query(
       `INSERT INTO "LYDO_Council_Members" 
-       (id, role_id, member_name, focus, description, photo_url_1, photo_url_2, photo_url_3,
-        term_start, term_end, sort_order, is_active, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       (id, role_id, member_name, is_active, created_by)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [id, role_id, member_name, focus, description, photo_url_1, photo_url_2, photo_url_3,
-       term_start, term_end, sort_order, is_active, created_by]
+      [id, role_id, member_name, is_active, created_by]
     );
 
     // Log activity
@@ -212,14 +241,6 @@ export const updateCouncilMember = async (req, res) => {
     const {
       role_id,
       member_name,
-      focus,
-      description,
-      photo_url_1,
-      photo_url_2,
-      photo_url_3,
-      term_start,
-      term_end,
-      sort_order,
       is_active
     } = req.body || {};
 
@@ -234,38 +255,6 @@ export const updateCouncilMember = async (req, res) => {
     if (member_name !== undefined) {
       updates.push(`member_name = $${paramCount++}`);
       values.push(member_name);
-    }
-    if (focus !== undefined) {
-      updates.push(`focus = $${paramCount++}`);
-      values.push(focus);
-    }
-    if (description !== undefined) {
-      updates.push(`description = $${paramCount++}`);
-      values.push(description);
-    }
-    if (photo_url_1 !== undefined) {
-      updates.push(`photo_url_1 = $${paramCount++}`);
-      values.push(photo_url_1);
-    }
-    if (photo_url_2 !== undefined) {
-      updates.push(`photo_url_2 = $${paramCount++}`);
-      values.push(photo_url_2);
-    }
-    if (photo_url_3 !== undefined) {
-      updates.push(`photo_url_3 = $${paramCount++}`);
-      values.push(photo_url_3);
-    }
-    if (term_start !== undefined) {
-      updates.push(`term_start = $${paramCount++}`);
-      values.push(term_start);
-    }
-    if (term_end !== undefined) {
-      updates.push(`term_end = $${paramCount++}`);
-      values.push(term_end);
-    }
-    if (sort_order !== undefined) {
-      updates.push(`sort_order = $${paramCount++}`);
-      values.push(sort_order);
     }
     if (is_active !== undefined) {
       updates.push(`is_active = $${paramCount++}`);
