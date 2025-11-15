@@ -1644,11 +1644,6 @@ const SKManagement = () => {
             />
           ) : (
             <div>
-              {logger.debug('Rendering DataTable', { 
-                skDataLength: skData?.length || 0, 
-                tabLoading, 
-                isLoading
-              }) || null}
               <DataTable
                 data={skData}
                 selectedItems={selectedItems}
