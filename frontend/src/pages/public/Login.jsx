@@ -164,6 +164,10 @@ const Login = () => {
         // Show error message from backend
         const errorMessage = result.message || 'Login failed. Please check your credentials and try again.';
         
+        // Reset reCAPTCHA after failed login attempt for security
+        // This ensures each login attempt requires fresh verification
+        recaptcha.reset();
+        
         setTimeout(() => {
           setErrorModal({ 
             isOpen: true, 
@@ -172,6 +176,9 @@ const Login = () => {
         }, 0);
       }
     } catch (error) {
+      // Reset reCAPTCHA on error for security
+      recaptcha.reset();
+      
       setTimeout(() => {
         setErrorModal({ 
           isOpen: true, 
