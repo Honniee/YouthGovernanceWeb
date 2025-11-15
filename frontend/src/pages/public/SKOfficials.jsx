@@ -14,6 +14,8 @@ import PublicLayout from '../../components/layouts/PublicLayout';
 import PageHero from '../../components/website/PageHero';
 import heroVideo from '../../assets/media/hero.mp4';
 import logger from '../../utils/logger.js';
+import api from '../../services/api.js';
+import skTermsService from '../../services/skTermsService.js';
 
 // Helper to resolve absolute URLs for images
 const getFileUrl = (p) => {
@@ -242,19 +244,21 @@ const SKOfficials = () => {
       try {
         setLoadingTerm(true);
         setTermError(null);
-        const res = await fetch('/api/sk-terms/active');
-        if (!res.ok) {
-          throw new Error('Failed to fetch active term');
-        }
-        const data = await res.json();
-        if (data.success && data.data) {
-          setActiveTerm(data.data);
+        const result = await skTermsService.getActiveTerm();
+        if (result.success) {
+          if (result.data) {
+            setActiveTerm(result.data);
+          } else {
+            // No active term found - this is not an error, just means no term is active
+            setActiveTerm(null);
+            setTermError(null);
+          }
         } else {
-          setActiveTerm(null);
+          throw new Error(result.message || 'Failed to fetch active term');
         }
       } catch (error) {
         logger.error('Error loading active term', error);
-        setTermError(error.message);
+        setTermError(error.message || 'Failed to load active term');
         setActiveTerm(null);
       } finally {
         setLoadingTerm(false);
@@ -277,12 +281,8 @@ const SKOfficials = () => {
           return;
         }
 
-        const res = await fetch(`/api/sk-federation/public/current?termId=${activeTerm.termId}`);
-        if (!res.ok) {
-          throw new Error('Failed to fetch federation officers');
-        }
-        const data = await res.json();
-        const rows = Array.isArray(data?.data) ? data.data : [];
+        const response = await api.get(`/sk-federation/public/current?termId=${activeTerm.termId}`);
+        const rows = Array.isArray(response?.data?.data) ? response.data.data : [];
         if (!rows.length) {
           setFederationOfficers([]);
           return;
@@ -307,7 +307,8 @@ const SKOfficials = () => {
         setFederationOfficers(normalized);
       } catch (error) {
         logger.error('Error loading federation officers', error, { termId: activeTerm?.termId });
-        setFederationError(error.message);
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to load federation officers';
+        setFederationError(errorMessage);
         setFederationOfficers([]);
       } finally {
         setLoadingFederation(false);
@@ -330,23 +331,25 @@ const SKOfficials = () => {
         setLoadingChairpersons(true);
         setChairpersonsError(null);
         
-        const url = activeTerm?.termId 
-          ? `/api/sk-terms/public/chairpersons-by-barangay?termId=${activeTerm.termId}`
-          : '/api/sk-terms/public/chairpersons-by-barangay';
-        
-        const res = await fetch(url);
-        if (!res.ok) {
-          throw new Error('Failed to fetch chairpersons');
+        // If no active term, set empty array and don't make API call
+        if (!activeTerm?.termId) {
+          setChairpersonsByBarangay([]);
+          setLoadingChairpersons(false);
+          return;
         }
-        const data = await res.json();
-        if (data.success && Array.isArray(data.data)) {
-          setChairpersonsByBarangay(data.data);
+        
+        const url = `/sk-terms/public/chairpersons-by-barangay?termId=${activeTerm.termId}`;
+        const response = await api.get(url);
+        
+        if (response?.data?.success && Array.isArray(response.data.data)) {
+          setChairpersonsByBarangay(response.data.data);
         } else {
           setChairpersonsByBarangay([]);
         }
       } catch (error) {
         logger.error('Error loading chairpersons', error, { termId: activeTerm?.termId });
-        setChairpersonsError(error.message);
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to load chairpersons';
+        setChairpersonsError(errorMessage);
         setChairpersonsByBarangay([]);
       } finally {
         setLoadingChairpersons(false);
@@ -378,23 +381,25 @@ const SKOfficials = () => {
         setLoadingOfficials(true);
         setOfficialsError(null);
         
-        const url = activeTerm?.termId 
-          ? `/api/sk-terms/public/officials-by-barangay?termId=${activeTerm.termId}`
-          : '/api/sk-terms/public/officials-by-barangay';
-        
-        const res = await fetch(url);
-        if (!res.ok) {
-          throw new Error('Failed to fetch barangay officials');
+        // If no active term, set empty array and don't make API call
+        if (!activeTerm?.termId) {
+          setBarangayOfficialsData([]);
+          setLoadingOfficials(false);
+          return;
         }
-        const data = await res.json();
-        if (data.success && Array.isArray(data.data)) {
-          setBarangayOfficialsData(data.data);
+        
+        const url = `/sk-terms/public/officials-by-barangay?termId=${activeTerm.termId}`;
+        const response = await api.get(url);
+        
+        if (response?.data?.success && Array.isArray(response.data.data)) {
+          setBarangayOfficialsData(response.data.data);
         } else {
           setBarangayOfficialsData([]);
         }
       } catch (error) {
         logger.error('Error loading barangay officials', error, { termId: activeTerm?.termId });
-        setOfficialsError(error.message);
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to load barangay officials';
+        setOfficialsError(errorMessage);
         setBarangayOfficialsData([]);
       } finally {
         setLoadingOfficials(false);
@@ -457,9 +462,15 @@ const SKOfficials = () => {
           )}
 
           {/* Error State */}
-          {federationError && !loadingFederation && (
+          {federationError && !loadingFederation && activeTerm && (
             <div className="text-center py-12">
-              <p className="text-red-600">Error loading federation officers: {federationError}</p>
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-red-600 mb-2 text-sm sm:text-base font-semibold">Error loading federation officers</p>
+              <p className="text-gray-500 text-xs sm:text-sm">{federationError}</p>
             </div>
           )}
 
@@ -468,15 +479,21 @@ const SKOfficials = () => {
             <div className="flex items-center justify-center py-16 sm:py-20">
               <div className="text-center max-w-md mx-auto">
                 <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-100 flex items-center justify-center">
-                  <User className="w-10 h-10 text-gray-400" />
+                  {!activeTerm ? (
+                    <Clock className="w-10 h-10 text-gray-400" />
+                  ) : (
+                    <User className="w-10 h-10 text-gray-400" />
+                  )}
                 </div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                  No Federation Officers Available
+                  {!activeTerm 
+                    ? "No Active SK Term" 
+                    : "No Federation Officers Available"}
                 </h3>
                 <p className="text-gray-600 mb-6">
-                  {activeTerm 
-                    ? "There are currently no federation officers assigned for the active term."
-                    : "There is no active SK term at this time. Federation officers will be displayed once a term is activated."}
+                  {!activeTerm
+                    ? "There is no active SK term at this time. Federation officers will be displayed once a term is activated."
+                    : "There are currently no federation officers assigned for the active term."}
                 </p>
               </div>
             </div>
@@ -669,9 +686,15 @@ const SKOfficials = () => {
           )}
 
           {/* Error State */}
-          {chairpersonsError && !loadingChairpersons && (
+          {chairpersonsError && !loadingChairpersons && activeTerm && (
             <div className="text-center py-12">
-              <p className="text-red-600">Error loading chairpersons: {chairpersonsError}</p>
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-red-600 mb-2 text-sm sm:text-base font-semibold">Error loading chairpersons</p>
+              <p className="text-gray-500 text-xs sm:text-sm">{chairpersonsError}</p>
             </div>
           )}
 
@@ -680,17 +703,27 @@ const SKOfficials = () => {
             <div className="flex items-center justify-center py-16 sm:py-20">
               <div className="text-center max-w-md mx-auto">
                 <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-100 flex items-center justify-center">
-                  <Search className="w-10 h-10 text-gray-400" />
+                  {!activeTerm ? (
+                    <Clock className="w-10 h-10 text-gray-400" />
+                  ) : searchTerm ? (
+                    <Search className="w-10 h-10 text-gray-400" />
+                  ) : (
+                    <Users className="w-10 h-10 text-gray-400" />
+                  )}
                 </div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                  {searchTerm ? "No Chairpersons Found" : "No Chairpersons Available"}
+                  {!activeTerm 
+                    ? "No Active SK Term" 
+                    : searchTerm 
+                      ? "No Chairpersons Found" 
+                      : "No Chairpersons Available"}
                 </h3>
                 <p className="text-gray-600 mb-6">
-                  {searchTerm 
-                    ? `No chairpersons match your search "${searchTerm}". Try adjusting your search terms.`
-                    : activeTerm 
-                      ? "There are currently no chairpersons assigned for the active term."
-                      : "There is no active SK term at this time. Chairpersons will be displayed once a term is activated."}
+                  {!activeTerm
+                    ? "There is no active SK term at this time. Chairpersons will be displayed once a term is activated."
+                    : searchTerm 
+                      ? `No chairpersons match your search "${searchTerm}". Try adjusting your search terms.`
+                      : "There are currently no chairpersons assigned for the active term."}
                 </p>
                 {searchTerm && (
                   <button
@@ -831,9 +864,15 @@ const SKOfficials = () => {
           )}
 
           {/* Error State */}
-          {officialsError && !loadingOfficials && (
+          {officialsError && !loadingOfficials && activeTerm && (
             <div className="text-center py-12">
-              <p className="text-red-600">Error loading officials: {officialsError}</p>
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-red-600 mb-2 text-sm sm:text-base font-semibold">Error loading officials</p>
+              <p className="text-gray-500 text-xs sm:text-sm">{officialsError}</p>
             </div>
           )}
 
@@ -842,17 +881,27 @@ const SKOfficials = () => {
             <div className="flex items-center justify-center py-16 sm:py-20">
               <div className="text-center max-w-md mx-auto">
                 <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-100 flex items-center justify-center">
-                  <Users className="w-10 h-10 text-gray-400" />
+                  {!activeTerm ? (
+                    <Clock className="w-10 h-10 text-gray-400" />
+                  ) : officialsSearchTerm ? (
+                    <Search className="w-10 h-10 text-gray-400" />
+                  ) : (
+                    <Users className="w-10 h-10 text-gray-400" />
+                  )}
                 </div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                  {officialsSearchTerm ? "No Officials Found" : "No Officials Available"}
+                  {!activeTerm 
+                    ? "No Active SK Term" 
+                    : officialsSearchTerm 
+                      ? "No Officials Found" 
+                      : "No Officials Available"}
                 </h3>
                 <p className="text-gray-600 mb-6">
-                  {officialsSearchTerm 
-                    ? `No officials match your search "${officialsSearchTerm}". Try adjusting your search terms.`
-                    : activeTerm 
-                      ? "There are currently no SK officials assigned for the active term."
-                      : "There is no active SK term at this time. Officials will be displayed once a term is activated."}
+                  {!activeTerm
+                    ? "There is no active SK term at this time. Officials will be displayed once a term is activated."
+                    : officialsSearchTerm 
+                      ? `No officials match your search "${officialsSearchTerm}". Try adjusting your search terms.`
+                      : "There are currently no SK officials assigned for the active term."}
                 </p>
                 {officialsSearchTerm && (
                   <button
