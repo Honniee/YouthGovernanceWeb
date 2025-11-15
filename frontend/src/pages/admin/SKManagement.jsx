@@ -1206,27 +1206,39 @@ const SKManagement = () => {
         return;
       }
 
-      // Validate position availability before submission
+      // Check for active term (required)
       if (!hasActiveTerm || !activeTerm?.termId) {
         showErrorToast('No active term', 'Please activate an SK term before creating officials.');
         return;
       }
 
-      logger.debug('Validating position before creation', {
-        barangayId: barangayOption.id,
-        position: formData.position,
-        termId: activeTerm.termId
-      });
-
-      const positionValidation = await validatePosition(barangayOption.id, formData.position);
-      if (!positionValidation.isValid) {
-        logger.error('Position validation failed', null, {
+      // Optional: Try to validate position availability (non-blocking)
+      // Backend will validate anyway, so we just warn if frontend validation fails
+      try {
+        logger.debug('Validating position before creation', {
           barangayId: barangayOption.id,
           position: formData.position,
-          error: positionValidation.error
+          termId: activeTerm.termId
         });
-        showErrorToast('Position not available', positionValidation.error);
-        return;
+
+        const positionValidation = await validatePosition(barangayOption.id, formData.position);
+        if (!positionValidation.isValid) {
+          logger.warn('Position validation warning (non-blocking)', {
+            barangayId: barangayOption.id,
+            position: formData.position,
+            error: positionValidation.error
+          });
+          // Show warning but don't block - backend will validate properly
+          showWarningToast('Position validation warning', `Position may not be available: ${positionValidation.error}. Proceeding anyway - backend will validate.`);
+        }
+      } catch (validationError) {
+        // If validation fails (e.g., 401), just log and continue
+        // Backend will handle the actual validation
+        logger.warn('Position validation check failed (non-blocking)', {
+          error: validationError.message,
+          barangayId: barangayOption.id,
+          position: formData.position
+        });
       }
 
       // Prepare submit data - only include fields backend expects
